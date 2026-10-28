@@ -1,7 +1,3 @@
--- =======================================================
--- DELTA EXECUTOR: MAX SPEED 26 NOCLIP FARM WITH ANTI-AFK
--- =======================================================
-
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
