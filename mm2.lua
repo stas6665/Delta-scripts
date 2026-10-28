@@ -1,119 +1,108 @@
-local Material = loadstring(game:HttpGet("https://githubusercontent.com"))()
+local Fluent = loadstring(game:HttpGet("https://github.com"))()
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
 
-local UI = Material.Load({
-    Title = "MM2 Ultimate Farm 2026",
-    Style = 3,
-    SizeX = 400,
-    SizeY = 350,
+local Window = Fluent:CreateWindow({
+    Title = "Star Hub",
+    SubTitle = "v3.7.2",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
     Theme = "Dark"
 })
 
-local MainTab = UI.New({ Title = "Main" })
+local Tabs = {
+    Farming = Window:AddTab({ Title = "Auto Farm", Icon = "box" })
+}
 
-_G.AutoFarmCandies = false
-_G.FarmSpeed = 16 
+_G.AutoFarmCoins = false
+_G.FarmUnderground = false
+_G.FarmSpeed = 16
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
+local function getRoot()
+    return LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+end
 
-RunService.Stepped:Connect(function()
-    if _G.AutoFarmCandies then
-        local Character = LocalPlayer.Character
-        if Character then
-            for _, part in pairs(Character:GetChildren()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
+local function noclip()
+    if LocalPlayer.Character then
+        for _, child in pairs(LocalPlayer.Character:GetChildren()) do
+            if child:IsA("BasePart") then
+                child.CanCollide = false
             end
         end
     end
-end)
-
-local function GetEventCandy()
-    local Character = LocalPlayer.Character
-    local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
-    if not RootPart then return nil end
-
-    local ClosestCandy = nil
-    local ShortestDistance = math.huge
-
-    for _, obj in pairs(game.Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            if obj.Name == "CandyCorn" or obj.Name == "Candy" or obj.Name == "Coin" then
-                if not obj:IsDescendantOf(game.Workspace:FindFirstChild("Lobby")) then
-                    local Distance = (RootPart.Position - obj.Position).Magnitude
-                    if Distance < ShortestDistance then
-                        ShortestDistance = Distance
-                        ClosestCandy = obj
-                    end
-                end
-            end
-        end
-    end
-    return ClosestCandy
 end
 
 task.spawn(function()
-    local BodyVelocity = nil
-    
-    while task.wait() do
-        local Character = LocalPlayer.Character
-        local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
-        
-        if _G.AutoFarmCandies and RootPart then
-            local Target = GetEventCandy()
-            
-            if Target then
-                if not BodyVelocity or BodyVelocity.Parent ~= RootPart then
-                    BodyVelocity = Instance.new("BodyVelocity")
-                    BodyVelocity.MaxForce = Vector3.new(100000, 100000, 100000)
-                    BodyVelocity.Parent = RootPart
-                end
+    while true do
+        task.wait()
+        if _G.AutoFarmCoins then
+            pcall(function()
+                local coinContainer = workspace:FindFirstChild("CoinContainer") or workspace:FindFirstChild("CoinContainer", true)
+                local hrp = getRoot()
                 
-                local Direction = (Target.Position - RootPart.Position).Unit
-                local Distance = (Target.Position - RootPart.Position).Magnitude
-                
-                if Distance > 2 then
-                    BodyVelocity.Velocity = Direction * _G.FarmSpeed
-                    RootPart.CFrame = CFrame.new(RootPart.Position, Target.Position)
-                else
-                    BodyVelocity.Velocity = Vector3.new(0, 0, 0)
-                    RootPart.CFrame = CFrame.new(Target.Position)
-                    if Target:FindFirstChild("TouchInterest") then
-                        firetouchinterest(RootPart, Target, 0)
-                        firetouchinterest(RootPart, Target, 1)
+                if coinContainer and hrp then
+                    for _, coin in pairs(coinContainer:GetChildren()) do
+                        if _G.AutoFarmCoins and coin:IsA("BasePart") and coin.Transparency == 0 then
+                            noclip()
+                            local targetPos = coin.Position
+                            if _G.FarmUnderground then
+                                targetPos = coin.Position - Vector3.new(0, 6, 0)
+                            end
+                            
+                            local distance = (hrp.Position - targetPos).Magnitude
+                            local speed = _G.FarmSpeed
+                            local duration = distance / speed
+                            
+                            local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+                            local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPos)})
+                            tween:Play()
+                            tween.Completed:Wait()
+                            task.wait(0.1)
+                        end
                     end
                 end
-            else
-                if BodyVelocity then BodyVelocity.Velocity = Vector3.new(0, 0, 0) end
-            end
-        else
-            if BodyVelocity then
-                BodyVelocity:Destroy()
-                BodyVelocity = nil
-            end
+            end)
         end
     end
 end)
 
-MainTab.Toggle({
-    Text = "Safe Auto Farm",
-    Callback = function(state)
-        _G.AutoFarmCandies = state
-    end,
-    Enabled = false
-})
+task.spawn(function()
+    local vu = game:GetService("VirtualUser")
+    LocalPlayer.Idled:Connect(function()
+        vu:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        vu:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
+end)
 
-MainTab.Slider({
-    Text = "Fly Speed Max 27",
-    Callback = function(val)
-        _G.FarmSpeed = val
-    end,
-    Min = 5,
-    Max = 27,
-    Def = 16
+local Toggle1 = Tabs.Farming:AddToggle("AutoFarmCoins", {
+    Title = "Auto Farm Coins", 
+    Default = false 
 })
+Toggle1:OnChanged(function(Value)
+    _G.AutoFarmCoins = Value
+end)
 
-UI.Banner({ Text = "Script Loaded Successfully!" })
+local Toggle2 = Tabs.Farming:AddToggle("FarmUnderground", {
+    Title = "Farm Underground", 
+    Default = false 
+})
+Toggle2:OnChanged(function(Value)
+    _G.FarmUnderground = Value
+end)
+
+local Slider = Tabs.Farming:AddSlider("FarmSpeed", {
+    Title = "Farm Speed",
+    Min = 16,
+    Max = 100,
+    Default = 16,
+    Rounding = 0
+})
+Slider:OnChanged(function(Value)
+    _G.FarmSpeed = Value
+end)
+
+Window:SelectTab(1)
+
 
