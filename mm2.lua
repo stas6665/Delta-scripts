@@ -115,53 +115,74 @@ local function findCoinContainer()
     return workspace:FindFirstChild("CoinContainer", true)
 end
 
+local function getClosestCoin()
+    local coinContainer = findCoinContainer()
+    if not coinContainer then return nil end
+
+    local character = LocalPlayer.Character
+    local myRoot = character and character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
+    local closestCoin = nil
+    local shortestDistance = math.huge
+
+    for _, child in ipairs(coinContainer:GetDescendants()) do
+        if child.Name == "CoinVisual" and child:IsA("BasePart") and child.Parent then
+            local distance = (myRoot.Position - child.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                closestCoin = child
+            end
+        end
+    end
+
+    return closestCoin
+end
+
 task.spawn(function()
     while task.wait() do
         if _G.AutoFarmCoins then
             if not isBagFull() then
-                local coinContainer = findCoinContainer()
-                if coinContainer then
-                    for _, child in ipairs(coinContainer:GetDescendants()) do
-                        if not _G.AutoFarmCoins or isBagFull() then break end
+                local targetCoin = getClosestCoin()
 
-                        if child.Name == "CoinVisual" and child:IsA("BasePart") then
-                            local character = LocalPlayer.Character
-                            local myRoot = character and character:FindFirstChild("HumanoidRootPart")
+                if targetCoin and targetCoin.Parent then
+                    local character = LocalPlayer.Character
+                    local myRoot = character and character:FindFirstChild("HumanoidRootPart")
 
-                            if myRoot and child.Parent then
-                                toggleNoClip(true)
-                                local targetCFrame = child.CFrame
+                    if myRoot then
+                        toggleNoClip(true)
+                        local targetCFrame = targetCoin.CFrame
 
-                                if _G.FarmUnderground then
-                                    targetCFrame = child.CFrame * CFrame.new(0, -5, 0)
-                                end
-
-                                local distance = (myRoot.Position - targetCFrame.Position).Magnitude
-                                local duration = distance / math.max(_G.FarmSpeed, 1)
-
-                                local tween = TweenService:Create(
-                                    myRoot,
-                                    TweenInfo.new(duration, Enum.EasingStyle.Linear),
-                                    {CFrame = targetCFrame}
-                                )
-
-                                tween:Play()
-                                tween.Completed:Wait()
-
-                                if not _G.AutoFarmCoins then
-                                    tween:Cancel()
-                                    break
-                                end
-
-                                if firetouchinterest then
-                                    firetouchinterest(myRoot, child, 0)
-                                    task.wait(0.02)
-                                    firetouchinterest(myRoot, child, 1)
-                                end
-                                task.wait(0.05)
-                            end
+                        if _G.FarmUnderground then
+                            targetCFrame = targetCoin.CFrame * CFrame.new(0, -5, 0)
                         end
+
+                        local distance = (myRoot.Position - targetCFrame.Position).Magnitude
+                        local duration = distance / math.max(_G.FarmSpeed, 1)
+
+                        local tween = TweenService:Create(
+                            myRoot,
+                            TweenInfo.new(duration, Enum.EasingStyle.Linear),
+                            {CFrame = targetCFrame}
+                        )
+
+                        tween:Play()
+                        tween.Completed:Wait()
+
+                        if not _G.AutoFarmCoins then
+                            tween:Cancel()
+                            break
+                        end
+
+                        if firetouchinterest then
+                            firetouchinterest(myRoot, targetCoin, 0)
+                            task.wait(0.02)
+                            firetouchinterest(myRoot, targetCoin, 1)
+                        end
+                        task.wait(0.05)
                     end
+                else
+                    task.wait(0.5)
                 end
             else
                 yeetMurderer()
@@ -204,4 +225,5 @@ FarmingTab:AddSlider("FarmSpeedSlider", {
 })
 
 Window:SelectTab(1)
+
 
