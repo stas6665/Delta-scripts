@@ -1,236 +1,221 @@
+local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/Qanuir/orion-ui/refs/heads/main/source.lua"))()
 
-local Fluent = loadstring(game:HttpGet(
-    "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"
-))()
-
-local Window = Fluent:CreateWindow({
-    Title = "Star Hub (MM2 Halloween)",
-    SubTitle = "v3.7.2",
-    TabWidth = 160,
-    Size = UDim2.fromOffset(580, 460),
-    Theme = "Dark"
+local Window = OrionLib:MakeWindow({
+    Name = "Star Hub | Universal MM2 Farm",
+    HidePremium = false,
+    SaveConfig = false,
+    IntroText = "Loading Star Hub..."
 })
 
-local Tabs = {
-    AutoFarm = Window:AddTab({
-        Title = "Auto Farm",
-        Icon = "box"
-    })
-}
-
+local _G = getgenv and getgenv() or _G
 _G.AutoFarmCoins = false
 _G.FarmUnderground = false
 _G.FarmSpeed = 16
 
-task.spawn(function()
-    game:GetService("RunService").Stepped:Connect(function()
-        if _G.AutoFarmCoins then
-            local player = game.Players.LocalPlayer
-            local character = player.Character
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local VirtualUser = game:GetService("VirtualUser")
+local Debris = game:GetService("Debris")
 
-            if character then
-                for _, part in pairs(character:GetChildren()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
-                end
-            end
-        end
-    end)
+LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
 end)
 
-local function getMurderer()
-    for _, p in pairs(game.Players:GetPlayers()) do
-        local character = p.Character
-        local backpack = p:FindFirstChild("Backpack")
+local noclipConnection
 
-        if (character and character:FindFirstChild("Knife"))
-            or (backpack and backpack:FindFirstChild("Knife")) then
-            return character
+local function toggleNoClip(enable)
+    if enable then
+        if not noclipConnection then
+            noclipConnection = RunService.Stepped:Connect(function()
+                local character = LocalPlayer.Character
+                if character then
+                    for _, part in ipairs(character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        end
+    elseif noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+end
+
+local function isBagFull()
+    local playerData = LocalPlayer:FindFirstChild("PlayerData")
+
+    if playerData then
+        local coins = playerData:FindFirstChild("Coins")
+        local maxCoins = playerData:FindFirstChild("MaxCoins")
+
+        if coins and coins.Value >= (maxCoins and maxCoins.Value or 40) then
+            return true
         end
     end
 
-    return nil
+    return false
 end
 
-local function getBagCount()
-    local player = game.Players.LocalPlayer
-    local mainData = player:FindFirstChild("playerData")
-        or player:FindFirstChild("Data")
+local function yeetMurderer()
+    local murderer
 
-    if mainData and mainData:FindFirstChild("Coins") then
-        return mainData.Coins.Value
-    end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local backpack = p:FindFirstChild("Backpack")
 
-    local gui = player:FindFirstChild("PlayerGui")
-    local mainGui = gui and gui:FindFirstChild("MainGui")
-    local gameGui = mainGui and mainGui:FindFirstChild("Game")
-    local coinBag = gameGui and gameGui:FindFirstChild("CoinBag")
-    local coins = coinBag and coinBag:FindFirstChild("Coins")
-
-    if coins and coins:IsA("TextLabel") then
-        return tonumber(coins.Text:match("(%d+)")) or 0
-    end
-
-    return 0
-end
-
-local function startHalloweenFlyFarm()
-    task.spawn(function()
-        while _G.AutoFarmCoins do
-            task.wait(0.05)
-
-            local player = game.Players.LocalPlayer
-            local character = player.Character
-                or player.CharacterAdded:Wait()
-
-            local rootPart = character:FindFirstChild("HumanoidRootPart")
-            if not rootPart then
-                continue
+            if (backpack and backpack:FindFirstChild("Knife"))
+                or p.Character:FindFirstChild("Knife") then
+                murderer = p
+                break
             end
+        end
+    end
 
-            if getBagCount() >= 50 then
-                local murdererChar = getMurderer()
+    if not murderer or not murderer.Character then
+        return
+    end
 
-                if murdererChar then
-                    local murdererRoot =
-                        murdererChar:FindFirstChild("HumanoidRootPart")
+    local myCharacter = LocalPlayer.Character
+    local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+    local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
 
-                    if murdererRoot then
-                        local startTime = tick()
+    if not myRoot or not mRoot then
+        return
+    end
 
-                        while tick() - startTime < 4
-                            and _G.AutoFarmCoins do
-                            task.wait()
+    toggleNoClip(true)
 
-                            if not rootPart.Parent
-                                or not murdererRoot.Parent then
-                                break
-                            end
+    local spinAV = Instance.new("BodyAngularVelocity")
+    spinAV.MaxTorque = Vector3.new(0, 1e9, 0)
+    spinAV.AngularVelocity = Vector3.new(0, 150, 0)
+    spinAV.Parent = myRoot
 
-                            rootPart.CFrame =
-                                murdererRoot.CFrame
-                                * CFrame.new(0, -4, 0)
-                                * CFrame.Angles(
-                                    0,
-                                    math.rad(tick() * 5000 % 360),
-                                    0
-                                )
+    myRoot.CFrame = mRoot.CFrame * CFrame.new(0, 0, 1)
+    task.wait(0.1)
+
+    local direction = mRoot.Position - myRoot.Position
+    if direction.Magnitude < 0.001 then
+        direction = Vector3.new(0, 0, 1)
+    else
+        direction = direction.Unit
+    end
+
+    local bV = Instance.new("BodyVelocity")
+    bV.MaxForce = Vector3.new(1e7, 1e7, 1e7)
+    bV.Velocity = direction * 100 + Vector3.new(0, 4500, 4500)
+    bV.Parent = mRoot
+
+    local mAV = Instance.new("BodyAngularVelocity")
+    mAV.MaxTorque = Vector3.new(1e7, 1e7, 1e7)
+    mAV.AngularVelocity = Vector3.new(0, 200, 0)
+    mAV.Parent = mRoot
+
+    Debris:AddItem(spinAV, 1)
+    Debris:AddItem(bV, 1.5)
+    Debris:AddItem(mAV, 1.5)
+
+    task.wait(1.5)
+end
+
+local function findCoinContainer()
+    return workspace:FindFirstChild("CoinContainer", true)
+end
+
+task.spawn(function()
+    while task.wait() do
+        if _G.AutoFarmCoins then
+            if not isBagFull() then
+                local coinContainer = findCoinContainer()
+
+                if coinContainer then
+                    for _, child in ipairs(coinContainer:GetDescendants()) do
+                        if not _G.AutoFarmCoins or isBagFull() then
+                            break
                         end
 
-                        task.wait(0.5)
-                    end
-                end
+                        if child.Name == "CoinVisual" and child:IsA("BasePart") then
+                            local character = LocalPlayer.Character
+                            local myRoot = character and character:FindFirstChild("HumanoidRootPart")
 
-                continue
-            end
+                            if myRoot and child.Parent then
+                                toggleNoClip(true)
 
-            local mainContainer =
-                workspace:FindFirstChild("CoinContainer")
-                or (
-                    workspace:FindFirstChild("Normal")
-                    and workspace.Normal:FindFirstChild("CoinContainer")
-                )
+                                local targetCFrame = child.CFrame
 
-            if mainContainer then
-                for _, item in pairs(mainContainer:GetChildren()) do
-                    if not _G.AutoFarmCoins
-                        or getBagCount() >= 50 then
-                        break
-                    end
+                                if _G.FarmUnderground then
+                                    targetCFrame = child.CFrame * CFrame.new(0, -5, 0)
+                                end
 
-                    local name = item.Name:lower()
+                                local distance = (myRoot.Position - targetCFrame.Position).Magnitude
+                                local duration = distance / math.max(_G.FarmSpeed, 1)
 
-                    if item:FindFirstChild("CoinVisualizer")
-                        or name:match("coin")
-                        or name:match("candy") then
+                                local tween = TweenService:Create(
+                                    myRoot,
+                                    TweenInfo.new(duration, Enum.EasingStyle.Linear),
+                                    {CFrame = targetCFrame}
+                                )
 
-                        local touchPart =
-                            item:IsA("BasePart")
-                            and item
-                            or item:FindFirstChildWhichIsA("BasePart")
+                                tween:Play()
+                                tween.Completed:Wait()
 
-                        if touchPart then
-                            local offset = _G.FarmUnderground
-                                and Vector3.new(0, -4.5, 0)
-                                or Vector3.new(0, 0, 0)
-
-                            local targetCFrame =
-                                touchPart.CFrame * CFrame.new(offset)
-
-                            while (
-                                rootPart.Position - targetCFrame.Position
-                            ).Magnitude > 1.5 and _G.AutoFarmCoins do
-
-                                if getBagCount() >= 50 then
+                                if not _G.AutoFarmCoins then
+                                    tween:Cancel()
                                     break
                                 end
 
-                                rootPart.CFrame = rootPart.CFrame:Lerp(
-                                    targetCFrame,
-                                    _G.FarmSpeed / 100
-                                )
+                                if firetouchinterest then
+                                    firetouchinterest(myRoot, child, 0)
+                                    task.wait(0.02)
+                                    firetouchinterest(myRoot, child, 1)
+                                end
 
-                                task.wait()
+                                task.wait(0.05)
                             end
-
-                            task.wait(0.15)
                         end
                     end
                 end
+            else
+                yeetMurderer()
+                task.wait(1)
             end
+        else
+            toggleNoClip(false)
         end
-    end)
-end
-
-local FarmCoinsToggle = Tabs.AutoFarm:AddToggle(
-    "AutoFarmCoins",
-    {
-        Title = "Auto Fly Farm Candy",
-        Default = false
-    }
-)
-
-FarmCoinsToggle:OnChanged(function(Value)
-    _G.AutoFarmCoins = Value
-
-    if Value then
-        startHalloweenFlyFarm()
     end
 end)
 
-local FarmUndergroundToggle = Tabs.AutoFarm:AddToggle(
-    "FarmUnderground",
-    {
-        Title = "Farm Underground",
-        Description =
-            "Fly and collect candies strictly under the map/textures",
-        Default = false
-    }
+local FarmTab = Window:NewTab("Farming")
+local FarmSection = FarmTab:NewSection("Auto Farm")
+
+FarmSection:NewToggle(
+    "Candy Farm",
+    "Auto collect candies",
+    function(state)
+        _G.AutoFarmCoins = state
+    end
 )
 
-FarmUndergroundToggle:OnChanged(function(Value)
-    _G.FarmUnderground = Value
-end)
-
-local SpeedSlider = Tabs.AutoFarm:AddSlider(
-    "FarmSpeed",
-    {
-        Title = "Fly Speed",
-        Description = "Smooth movement speed",
-        Default = 16,
-        Min = 12,
-        Max = 30,
-        Rounding = 0
-    }
+FarmSection:NewToggle(
+    "Farm Underground",
+    "Collect candies underground",
+    function(state)
+        _G.FarmUnderground = state
+    end
 )
 
-SpeedSlider:OnChanged(function(Value)
-    _G.FarmSpeed = Value
-end)
+FarmSection:NewSlider(
+    "Farm Speed",
+    "Candy farming speed",
+    35,
+    16,
+    function(value)
+        _G.FarmSpeed = value
+    end
+)
 
-Fluent:Notify({
-    Title = "Star Hub Loaded",
-    Content = "Interface loaded!",
-    Duration = 5
-})
+OrionLib:Init()
