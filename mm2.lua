@@ -1,10 +1,13 @@
-local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/Qanuir/orion-ui/refs/heads/main/source.lua"))()
+local Fluent = loadstring(game:HttpGet("https://githubusercontent.com"))()
 
-local Window = OrionLib:MakeWindow({
-    Name = "Star Hub | Universal MM2 Farm",
-    HidePremium = false,
-    SaveConfig = false,
-    IntroText = "Loading Star Hub..."
+local Window = Fluent:CreateWindow({
+    Title = "Auto farm candy",
+    SubTitle = "v3.7.2",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = false,
+    Theme = "Rose",
+    MinimizeKey = Enum.KeyCode.RightShift
 })
 
 local _G = getgenv and getgenv() or _G
@@ -48,45 +51,35 @@ end
 
 local function isBagFull()
     local playerData = LocalPlayer:FindFirstChild("PlayerData")
-
     if playerData then
         local coins = playerData:FindFirstChild("Coins")
         local maxCoins = playerData:FindFirstChild("MaxCoins")
-
         if coins and coins.Value >= (maxCoins and maxCoins.Value or 40) then
             return true
         end
     end
-
     return false
 end
 
 local function yeetMurderer()
     local murderer
-
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
             local backpack = p:FindFirstChild("Backpack")
-
-            if (backpack and backpack:FindFirstChild("Knife"))
-                or p.Character:FindFirstChild("Knife") then
+            if (backpack and backpack:FindFirstChild("Knife")) or p.Character:FindFirstChild("Knife") then
                 murderer = p
                 break
             end
         end
     end
 
-    if not murderer or not murderer.Character then
-        return
-    end
+    if not murderer or not murderer.Character then return end
 
     local myCharacter = LocalPlayer.Character
     local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
     local mRoot = murderer.Character:FindFirstChild("HumanoidRootPart")
 
-    if not myRoot or not mRoot then
-        return
-    end
+    if not myRoot or not mRoot then return end
 
     toggleNoClip(true)
 
@@ -99,11 +92,7 @@ local function yeetMurderer()
     task.wait(0.1)
 
     local direction = mRoot.Position - myRoot.Position
-    if direction.Magnitude < 0.001 then
-        direction = Vector3.new(0, 0, 1)
-    else
-        direction = direction.Unit
-    end
+    direction = direction.Magnitude < 0.001 and Vector3.new(0, 0, 1) or direction.Unit
 
     local bV = Instance.new("BodyVelocity")
     bV.MaxForce = Vector3.new(1e7, 1e7, 1e7)
@@ -131,12 +120,9 @@ task.spawn(function()
         if _G.AutoFarmCoins then
             if not isBagFull() then
                 local coinContainer = findCoinContainer()
-
                 if coinContainer then
                     for _, child in ipairs(coinContainer:GetDescendants()) do
-                        if not _G.AutoFarmCoins or isBagFull() then
-                            break
-                        end
+                        if not _G.AutoFarmCoins or isBagFull() then break end
 
                         if child.Name == "CoinVisual" and child:IsA("BasePart") then
                             local character = LocalPlayer.Character
@@ -144,7 +130,6 @@ task.spawn(function()
 
                             if myRoot and child.Parent then
                                 toggleNoClip(true)
-
                                 local targetCFrame = child.CFrame
 
                                 if _G.FarmUnderground then
@@ -173,7 +158,6 @@ task.spawn(function()
                                     task.wait(0.02)
                                     firetouchinterest(myRoot, child, 1)
                                 end
-
                                 task.wait(0.05)
                             end
                         end
@@ -189,33 +173,35 @@ task.spawn(function()
     end
 end)
 
-local FarmTab = Window:NewTab("Farming")
-local FarmSection = FarmTab:NewSection("Auto Farm")
+local FarmingTab = Window:AddTab({ Title = "Coin Farm", Icon = "box" })
 
-FarmSection:NewToggle(
-    "Candy Farm",
-    "Auto collect candies",
-    function(state)
-        _G.AutoFarmCoins = state
+FarmingTab:AddToggle("AutoFarmCoinsToggle", {
+    Title = "Auto Farm Coins",
+    Default = false,
+    Callback = function(Value)
+        _G.AutoFarmCoins = Value
     end
-)
+})
 
-FarmSection:NewToggle(
-    "Farm Underground",
-    "Collect candies underground",
-    function(state)
-        _G.FarmUnderground = state
+FarmingTab:AddToggle("FarmUndergroundToggle", {
+    Title = "Farm Underground",
+    Default = false,
+    Callback = function(Value)
+        _G.FarmUnderground = Value
     end
-)
+})
 
-FarmSection:NewSlider(
-    "Farm Speed",
-    "Candy farming speed",
-    35,
-    16,
-    function(value)
-        _G.FarmSpeed = value
+FarmingTab:AddSlider("FarmSpeedSlider", {
+    Title = "Farm Speed",
+    Description = "",
+    Min = 16,
+    Max = 50,
+    Default = 16,
+    Rounding = 0,
+    Callback = function(Value)
+        _G.FarmSpeed = Value
     end
-)
+})
 
-OrionLib:Init()
+Window:SelectTab(1)
+
