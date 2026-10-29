@@ -1,26 +1,28 @@
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local Fluent = loadstring(game:HttpGet("https://github.com"))()
 
 local Window = Fluent:CreateWindow({
-    Title = "Auto farm candy",
-    SubTitle = "v3.7.2",
+    Title = "MM2: Auto Farm Coins",
+    SubTitle = "v3.9.2 Bag Yeet Fix",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = false,
-    Theme = "Rose",
-    MinimizeKey = Enum.KeyCode.RightShift
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.Minus
 })
 
 local _G = getgenv and getgenv() or _G
 _G.AutoFarmCoins = false
 _G.FarmUnderground = false
-_G.FarmSpeed = 16
+_G.FarmSpeed = 25
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
-local Debris = game:GetService("Debris")
+
+local collectedCoins = {}
 
 LocalPlayer.Idled:Connect(function()
     VirtualUser:CaptureController()
@@ -28,7 +30,6 @@ LocalPlayer.Idled:Connect(function()
 end)
 
 local noclipConnection
-
 local function toggleNoClip(enable)
     if enable then
         if not noclipConnection then
@@ -50,19 +51,23 @@ local function toggleNoClip(enable)
 end
 
 local function isBagFull()
-    local playerData = LocalPlayer:FindFirstChild("PlayerData")
-    if playerData then
-        local coins = playerData:FindFirstChild("Coins")
-        local maxCoins = playerData:FindFirstChild("MaxCoins")
-        if coins and coins.Value >= (maxCoins and maxCoins.Value or 40) then
-            return true
+    local mainGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("MainGui")
+    local gameGui = mainGui and mainGui:FindFirstChild("Game")
+    local coinBags = gameGui and (gameGui:FindFirstChild("CoinBags") or gameGui:FindFirstChild("CoinBag"))
+    local coinLabel = coinBags and coinBags:FindFirstChild("Coins")
+    
+    if coinLabel and coinLabel:IsA("TextLabel") then
+        local current = coinLabel.Text:match("^(%d+)")
+        if current then
+            return math.floor(tonumber(current)) >= 50
         end
     end
+
     return false
 end
 
 local function yeetMurderer()
-    local murderer
+    local murderer = nil
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
             local backpack = p:FindFirstChild("Backpack")
@@ -83,36 +88,32 @@ local function yeetMurderer()
 
     toggleNoClip(true)
 
-    local spinAV = Instance.new("BodyAngularVelocity")
-    spinAV.MaxTorque = Vector3.new(0, 1e9, 0)
-    spinAV.AngularVelocity = Vector3.new(0, 150, 0)
-    spinAV.Parent = myRoot
-
-    myRoot.CFrame = mRoot.CFrame * CFrame.new(0, 0, 1)
+    myRoot.CFrame = mRoot.CFrame * CFrame.new(0, 0, 1.5)
     task.wait(0.1)
 
-    local direction = mRoot.Position - myRoot.Position
-    direction = direction.Magnitude < 0.001 and Vector3.new(0, 0, 1) or direction.Unit
+    if mRoot and mRoot.Parent then
+        local bV = Instance.new("BodyVelocity")
+        bV.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+        bV.Velocity = Vector3.new(0, -5000, 0)
+        bV.Parent = mRoot
+        
+        game:GetService("Debris"):AddItem(bV, 2)
+    end
 
-    local bV = Instance.new("BodyVelocity")
-    bV.MaxForce = Vector3.new(1e7, 1e7, 1e7)
-    bV.Velocity = direction * 100 + Vector3.new(0, 4500, 4500)
-    bV.Parent = mRoot
-
-    local mAV = Instance.new("BodyAngularVelocity")
-    mAV.MaxTorque = Vector3.new(1e7, 1e7, 1e7)
-    mAV.AngularVelocity = Vector3.new(0, 200, 0)
-    mAV.Parent = mRoot
-
-    Debris:AddItem(spinAV, 1)
-    Debris:AddItem(bV, 1.5)
-    Debris:AddItem(mAV, 1.5)
-
+    task.wait(0.2)
+    if myRoot then
+        myRoot.CFrame = CFrame.new(0, 500, 0)
+    end
     task.wait(1.5)
 end
 
 local function findCoinContainer()
-    return workspace:FindFirstChild("CoinContainer", true)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "CoinContainer" and obj:IsA("Folder") then
+            return obj
+        end
+    end
+    return nil
 end
 
 local function getClosestCoin()
@@ -123,38 +124,50 @@ local function getClosestCoin()
     local myRoot = character and character:FindFirstChild("HumanoidRootPart")
     if not myRoot then return nil end
 
-    local closestCoin = nil
+    local closestCoinModel = nil
     local shortestDistance = math.huge
 
-    for _, child in ipairs(coinContainer:GetDescendants()) do
-        if child.Name == "CoinVisual" and child:IsA("BasePart") and child.Parent then
-            local distance = (myRoot.Position - child.Position).Magnitude
-            if distance < shortestDistance then
-                shortestDistance = distance
-                closestCoin = child
+    for _, coinModel in ipairs(coinContainer:GetChildren()) do
+        if coinModel.Name == "Coin_Server" and not collectedCoins[coinModel] then
+            local touchPart = coinModel:FindFirstChild("CoinVisual") or coinModel:FindFirstChildWhichIsA("BasePart")
+            if touchPart then
+                local distance = (myRoot.Position - touchPart.Position).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestCoinModel = coinModel
+                end
             end
         end
     end
 
-    return closestCoin
+    return closestCoinModel
 end
 
+workspace.ChildAdded:Connect(function(child)
+    if child.Name == "Normal" or child.Name == "Innocent" then
+        table.clear(collectedCoins)
+    end
+end)
+
 task.spawn(function()
-    while task.wait() do
+    while true do
+        task.wait(0.05)
+        
         if _G.AutoFarmCoins then
             if not isBagFull() then
-                local targetCoin = getClosestCoin()
+                local targetCoinModel = getClosestCoin()
 
-                if targetCoin and targetCoin.Parent then
+                if targetCoinModel and targetCoinModel.Parent then
                     local character = LocalPlayer.Character
                     local myRoot = character and character:FindFirstChild("HumanoidRootPart")
+                    local touchPart = targetCoinModel:FindFirstChild("CoinVisual") or targetCoinModel:FindFirstChildWhichIsA("BasePart")
 
-                    if myRoot then
+                    if myRoot and touchPart then
                         toggleNoClip(true)
-                        local targetCFrame = targetCoin.CFrame
+                        local targetCFrame = touchPart.CFrame
 
                         if _G.FarmUnderground then
-                            targetCFrame = targetCoin.CFrame * CFrame.new(0, -5, 0)
+                            targetCFrame = touchPart.CFrame * CFrame.new(0, -6, 0)
                         end
 
                         local distance = (myRoot.Position - targetCFrame.Position).Magnitude
@@ -165,28 +178,33 @@ task.spawn(function()
                             TweenInfo.new(duration, Enum.EasingStyle.Linear),
                             {CFrame = targetCFrame}
                         )
-
                         tween:Play()
-                        tween.Completed:Wait()
+
+                        while tween.PlaybackState == Enum.PlaybackState.Playing and _G.AutoFarmCoins and targetCoinModel.Parent do
+                            task.wait(0.02)
+                        end
 
                         if not _G.AutoFarmCoins then
                             tween:Cancel()
-                            break
+                            toggleNoClip(false)
+                        else
+                            if firetouchinterest and targetCoinModel.Parent and touchPart.Parent then
+                                firetouchinterest(myRoot, touchPart, 0)
+                                task.wait(0.02)
+                                firetouchinterest(myRoot, touchPart, 1)
+                                
+                                task.wait(0.05)
+                                if not targetCoinModel.Parent then
+                                    collectedCoins[targetCoinModel] = true
+                                end
+                            end
                         end
-
-                        if firetouchinterest then
-                            firetouchinterest(myRoot, targetCoin, 0)
-                            task.wait(0.02)
-                            firetouchinterest(myRoot, targetCoin, 1)
-                        end
-                        task.wait(0.05)
                     end
                 else
                     task.wait(0.5)
                 end
             else
                 yeetMurderer()
-                task.wait(1)
             end
         else
             toggleNoClip(false)
@@ -197,7 +215,7 @@ end)
 local FarmingTab = Window:AddTab({ Title = "Coin Farm", Icon = "box" })
 
 FarmingTab:AddToggle("AutoFarmCoinsToggle", {
-    Title = "Auto Farm Coins",
+    Title = "Auto Farm Coins / Candy",
     Default = false,
     Callback = function(Value)
         _G.AutoFarmCoins = Value
@@ -205,25 +223,51 @@ FarmingTab:AddToggle("AutoFarmCoinsToggle", {
 })
 
 FarmingTab:AddToggle("FarmUndergroundToggle", {
-    Title = "Farm Underground",
+    Title = "Farm Underground (Safe)",
     Default = false,
     Callback = function(Value)
         _G.FarmUnderground = Value
     end
 })
 
-FarmingTab:AddSlider("FarmSpeedSlider", {
+local SpeedSlider = FarmingTab:AddSlider("FarmSpeedSlider", {
     Title = "Farm Speed",
-    Description = "",
-    Min = 16,
+    Min = 15,
     Max = 50,
-    Default = 16,
+    Default = 25,
     Rounding = 0,
     Callback = function(Value)
         _G.FarmSpeed = Value
     end
 })
 
-Window:SelectTab(1)
+pcall(function()
+    local sliderFrame = SpeedSlider.Frame
+    local sliderRail = sliderFrame:FindFirstChild("SliderRail", true)
+    
+    if sliderRail then
+        sliderRail.Size = UDim2.new(1, 0, 0, 14)
+        
+        local uiCorner = sliderRail:FindFirstChildWhichIsA("UICorner")
+        if uiCorner then
+            uiCorner.CornerRadius = UDim.new(0, 7)
+        end
+        
+        local accentBar = sliderRail:FindFirstChildWhichIsA("Frame")
+        if accentBar then
+            accentBar.Size = UDim2.new(accentBar.Size.X.Scale, 0, 1, 0)
+            local barCorner = accentBar:FindFirstChildWhichIsA("UICorner")
+            if barCorner then
+                barCorner.CornerRadius = UDim.new(0, 7)
+            end
+        end
+
+        local button = sliderRail:FindFirstChildWhichIsA("ImageLabel")
+        if button then
+            button.Size = UDim2.fromOffset(24, 24)
+        end
+    end
+end)
+
 
 
