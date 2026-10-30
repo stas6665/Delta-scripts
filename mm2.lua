@@ -1,234 +1,230 @@
-local Fluent = loadstring(game:HttpGet("https://github.com"))()
-
-local Window = Fluent:CreateWindow({
-Title = "MM2: Dex Fixed Auto Farm",
-SubTitle = "v6.1.0 Safe & Aggressive",
-TabWidth = 160,
-Size = UDim2.fromOffset(580, 460),
-Acrylic = false,
-Theme = "Darker",
-MinimizeKey = Enum.KeyCode.Minus
-})
-
-local customTheme = {
-Accent = Color3.fromRGB(255, 130, 0),
-ToggleActive = Color3.fromRGB(255, 130, 0),
-ToggleDisabled = Color3.fromRGB(110, 90, 0),
-SliderActive = Color3.fromRGB(255, 130, 0),
-SliderInactive = Color3.fromRGB(110, 90, 0)
-}
-
-for option, color in pairs(customTheme) do
-pcall(function()
-Fluent.ThemeManager:SetColor(option, color)
-end)
-end
-
-task.spawn(function()
-local coreGui = game:GetService("CoreGui")
-local mainFrame = nil
-
-for i = 1, 50 do local fluentGui = coreGui:FindFirstChild("Fluent", true) if fluentGui then mainFrame = fluentGui:FindFirstChild("Frame", true) if mainFrame then break end end task.wait(0.1) end if mainFrame and not mainFrame:FindFirstChild("HalloweenWallpaper") then local wallpaper = Instance.new("ImageLabel") wallpaper.Name = "HalloweenWallpaper" wallpaper.Image = "rbxassetid://72861721472668" wallpaper.Size = UDim2.new(1, 0, 1, 0) wallpaper.Position = UDim2.new(0, 0, 0, 0) wallpaper.BackgroundTransparency = 1 wallpaper.ImageTransparency = 0.85 wallpaper.ScaleType = Enum.ScaleType.Crop wallpaper.ZIndex = 0 wallpaper.Parent = mainFrame end 
-
-end)
-
-local _G = getgenv and getgenv() or _G
-_G.AutoFarmCoins = false
-_G.FarmUnderground = false
-_G.FarmSpeed = 22
-_G.FlingMurderer = false
-_G.CoinsESP = false
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
 
-local collectedCoins = {}
-local currentMurderer = nil
+_G.CollectedCoins = _G.CollectedCoins or {}
+_G.DetectedMurdererName = nil
 
-LocalPlayer.Idled:Connect(function()
-VirtualUser:CaptureController()
-VirtualUser:ClickButton2(Vector2.new())
-end)
+_G.AutoFarmCoins = false
+_G.FarmUnderground = false
+_G.FlingMurderer = false
+_G.FarmSpeed = 25
 
-local noclipConnection
+_G.CoinsESP = false
+_G.MurderESP = false
+_G.SheriffESP = false
+
+local noclipConnection = nil
+local function findCoinContainer()
+local normal = Workspace:FindFirstChild("Normal")
+if normal then return normal:FindFirstChild("CoinContainer") end
+return nil
+end
+
+local function getHitboxPart(coinObj)
+return coinObj:FindFirstChild("CoinVisual") or coinObj:FindFirstChild("TouchInterest") and coinObj or coinObj
+end
+
+local function isBagFull()
+local playerData = LocalPlayer:FindFirstChild("PlayerData")
+if playerData then
+local coinsValue = playerData:FindFirstChild("Coins")
+if coinsValue and coinsValue.Value >= 50 then return true end
+end
+return false
+end
+
+local function getCoinCount()
+local playerData = LocalPlayer:FindFirstChild("PlayerData")
+if playerData then
+local coinsValue = playerData:FindFirstChild("Coins")
+return coinsValue and coinsValue.Value or 0
+end
+return 0
+end
+
 local function toggleNoClip(enable)
 if enable then
 if not noclipConnection then
 noclipConnection = RunService.Stepped:Connect(function()
-local character = LocalPlayer.Character
-if character then
-for _, part in ipairs(character:GetDescendants()) do
-if part:IsA("BasePart") then
+if LocalPlayer.Character then
+for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+if part:IsA("BasePart") and part.CanCollide then
 part.CanCollide = false
 end
 end
 end
 end)
 end
-elseif noclipConnection then
+else
+if noclipConnection then
 noclipConnection:Disconnect()
 noclipConnection = nil
 end
 end
-
-local function getCoinCount()
-local mainGui = LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("MainGui")
-local gameGui = mainGui and mainGui:FindFirstChild("Game")
-local coinBags = gameGui and (gameGui:FindFirstChild("CoinBags") or gameGui:FindFirstChild("CoinBag"))
-local coinLabel = coinBags and coinBags:FindFirstChild("Coins")
-
-if coinLabel and coinLabel:IsA("TextLabel") then local current, max = coinLabel.Text:match("(%d+)%s*/%s*(%d+)") if current and max then return tonumber(current), tonumber(max) else local singleNum = coinLabel.Text:match("^(%d+)") if singleNum then return tonumber(singleNum), 50 end end end return 0, 50 
-
 end
 
-local function isBagFull()
-local current, max = getCoinCount()
-return current >= max
+local function toggleAnimations(enable)
+local character = LocalPlayer.Character
+local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+if humanoid then
+local animator = humanoid:FindFirstChildOfClass("Animator")
+if animator then
+for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+track:AdjustSpeed(enable and 1 or 0)
 end
-
-local function findCoinContainer()
-local mapObj = workspace:FindFirstChild("Map") or workspace:FindFirstChild("Mineshaft")
-if mapObj then
-local container = mapObj:FindFirstChild("CoinContainer", true)
-if container then return container end
 end
-
-for _, child in ipairs(workspace:GetChildren()) do if (child:IsA("Model") or child:IsA("Folder")) and child.Name ~= "PetContainer" and child.Name ~= "WeaponDisplays" and not Players:GetPlayerFromCharacter(child) then local container = child:FindFirstChild("CoinContainer", true) if container then return container end end end return workspace:FindFirstChild("CoinContainer", true) 
-
 end
-
-local function getHitboxPart(coinRoot)
-if coinRoot:IsA("BasePart") and coinRoot.Name == "CoinVisual" then return coinRoot end
-local visual = coinRoot:FindFirstChild("CoinVisual", true)
-if visual and visual:IsA("BasePart") then return visual end
-if coinRoot:IsA("BasePart") then return coinRoot end
-return coinRoot:FindFirstChildWhichIsA("BasePart", true)
-end
-
-local function getClosestCoin()
-local coinContainer = findCoinContainer()
-if not coinContainer then return nil end
-
-local character = LocalPlayer.Character local myRoot = character and character:FindFirstChild("HumanoidRootPart") if not myRoot then return nil end local closestCoin = nil local shortestDistance = math.huge for _, obj in ipairs(coinContainer:GetDescendants()) do if obj.Name == "Coin_Server" and not collectedCoins[obj] and obj.Parent then local touchPart = getHitboxPart(obj) if touchPart then local distance = (myRoot.Position - touchPart.Position).Magnitude if distance < shortestDistance then shortestDistance = distance closestCoin = obj end end end end return closestCoin 
-
 end
 
 local function getMurderer()
-if currentMurderer and currentMurderer.Parent and currentMurderer.Character and currentMurderer.Character:FindFirstChild("HumanoidRootPart") then
-return currentMurderer
+if _G.DetectedMurdererName then
+local p = Players:FindFirstChild(_G.DetectedMurdererName)
+if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then return p end
+end
+local logFolder = ReplicatedStorage:FindFirstChild("MatchToLog") or ReplicatedStorage:FindFirstChild("PreRoundLog")
+if logFolder then
+local mData = logFolder:FindFirstChild("Murder") or logFolder:FindFirstChild("Murderer")
+if mData and mData:IsA("StringValue") and mData.Value ~= "" then
+local p = Players:FindFirstChild(mData.Value)
+if p and p.Character then _G.DetectedMurdererName = p.Name return p end
+end
+end
+for _, p in ipairs(Players:GetPlayers()) do
+if p.Character and (p.Character:FindFirstChild("Knife") or (p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Knife"))) then
+_G.DetectedMurdererName = p.Name
+return p
+end
+end
+return nil
 end
 
-local LogFolder = game:GetService("ReplicatedStorage"):FindFirstChild("MatchToLog") or game:GetService("ReplicatedStorage"):FindFirstChild("PreRoundLog") if LogFolder then local MurderData = LogFolder:FindFirstChild("Murder") or LogFolder:FindFirstChild("Murderer") if MurderData and MurderData:IsA("StringValue") and MurderData.Value ~= "" then local p = Players:FindFirstChild(MurderData.Value) if p and p.Character then currentMurderer = p return p end end end for _, player in ipairs(Players:GetPlayers()) do if player ~= LocalPlayer and player.Character then local pBackpack = player:FindFirstChild("Backpack") local hasKnife = player.Character:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife")) if not hasKnife and player:FindFirstChild("PlayerGui") then local mainGui = player.PlayerGui:FindFirstChild("MainGui") local gameGui = mainGui and mainGui:FindFirstChild("Game") local roleLabel = gameGui and gameGui:FindFirstChild("Role") if roleLabel and (roleLabel.Text == "Murderer" or roleLabel.Text == "Убийца") then hasKnife = true end end if hasKnife then currentMurderer = player return player end end end return nil 
+local function getSheriff()
+for _, p in ipairs(Players:GetPlayers()) do
+if p.Character and (p.Character:FindFirstChild("Gun") or (p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Gun"))) then
+return p
+end
+end
+return nil
+end
+
+_G.FindCoinContainer = findCoinContainer
+_G.GetHitboxPart = getHitboxPart
+_G.IsBagFull = isBagFull
+_G.GetCoinCount = getCoinCount
+_G.ToggleNoClip = toggleNoClip
+_G.ToggleAnimations = toggleAnimations
+_G.GetMurderer = getMurderer
+_G.GetSheriff = getSheriff
+local function getClosestCoin()
+local coinContainer = _G.FindCoinContainer()
+if not coinContainer then return nil end
+local character = LocalPlayer.Character
+local myRoot = character and character:FindFirstChild("HumanoidRootPart")
+if not myRoot then return nil end
+
+local closestCoin = nil local shortestDistance = math.huge for _, obj in ipairs(coinContainer:GetDescendants()) do if obj.Name == "Coin_Server" and obj.Parent then local touchPart = _G.GetHitboxPart(obj) if touchPart and (touchPart:IsA("Model") or touchPart:IsA("BasePart")) then local coinCFrame = touchPart:GetPivot() local distance = (myRoot.Position - coinCFrame.Position).Magnitude if distance < shortestDistance then shortestDistance = distance closestCoin = obj end end end end return closestCoin 
 
 end
 
-workspace.ChildAdded:Connect(function()
-table.clear(collectedCoins)
-currentMurderer = nil
+Workspace.DescendantRemoving:Connect(function(descendant)
+local container = _G.FindCoinContainer()
+if container and descendant == container then
+_G.DetectedMurdererName = nil
+end
 end)
 
-local function applyCoinHighlight(coinObj)
-local visual = coinObj:FindFirstChild("CoinVisual", true) or coinObj
-if visual and not visual:FindFirstChild("CoinESP") then
-local highlight = Instance.new("Highlight")
-highlight.Name = "CoinESP"
-highlight.FillColor = Color3.fromRGB(255, 130, 0)
-highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-highlight.FillTransparency = 0.4
-highlight.OutlineTransparency = 0.2
-highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-highlight.Enabled = _G.CoinsESP
-highlight.Parent = visual
+local function applyHighlight(object, name, color, enabled)
+if object then
+local existing = object:FindFirstChild(name)
+if enabled then
+if not existing then
+local hl = Instance.new("Highlight")
+hl.Name = name
+hl.FillColor = color
+hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+hl.FillTransparency = 0.4
+hl.OutlineTransparency = 0.2
+hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+hl.Enabled = true
+hl.Parent = object
+else
+existing.Enabled = true
+end
+else
+if existing then
+existing.Enabled = false
+end
+end
 end
 end
 
 task.spawn(function()
 while true do
 task.wait(0.5)
-local container = findCoinContainer()
+local container = _G.FindCoinContainer()
 if container then
 for _, obj in ipairs(container:GetDescendants()) do
 if obj.Name == "Coin_Server" then
-applyCoinHighlight(obj)
 local visual = obj:FindFirstChild("CoinVisual", true) or obj
-local esp = visual:FindFirstChild("CoinESP")
-if esp then
-esp.Enabled = _G.CoinsESP
+if visual and (visual:IsA("Model") or visual:IsA("BasePart")) then
+applyHighlight(visual, "CoinESP", Color3.fromRGB(255, 130, 0), _G.CoinsESP)
 end
 end
 end
+end
+local mud = _G.GetMurderer()
+if mud and mud.Character then
+applyHighlight(mud.Character, "MurderESP", Color3.fromRGB(255, 0, 0), _G.MurderESP)
+end
+local shr = _G.GetSheriff()
+if shr and shr.Character then
+applyHighlight(shr.Character, "SheriffESP", Color3.fromRGB(0, 120, 255), _G.SheriffESP)
 end
 end
 end)
-
 local function flingTarget(targetPlayer)
 local character = LocalPlayer.Character
 local targetChar = targetPlayer.Character
 local myRoot = character and character:FindFirstChild("HumanoidRootPart")
 local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
 
-if myRoot and targetRoot then local oldVelocity = myRoot.Velocity myRoot.Velocity = Vector3.new(999999, 999999, 999999) myRoot.CFrame = targetRoot.CFrame task.wait(0.1) myRoot.Velocity = oldVelocity end 
+if myRoot and targetRoot and targetRoot.Parent then local oldCFrame = myRoot.CFrame _G.ToggleNoClip(false) local bavg = Instance.new("BodyAngularVelocity") bavg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) bavg.AngularVelocity = Vector3.new(0, 95000, 0) bavg.Parent = myRoot myRoot.CFrame = targetRoot.CFrame task.wait(0.15) bavg:Destroy() myRoot.Velocity = Vector3.new(0, 0, 0) myRoot.RotVelocity = Vector3.new(0, 0, 0) myRoot.CFrame = oldCFrame _G.ToggleNoClip(_G.AutoFarmCoins) end 
 
 end
 
 task.spawn(function()
 while true do
 task.wait(0.05)
-if _G.AutoFarmCoins and not isBagFull() then
-toggleNoClip(true)
-local coin = getClosestCoin()
-local character = LocalPlayer.Character
-local myRoot = character and character:FindFirstChild("HumanoidRootPart")
-if coin and myRoot then
-local touchPart = getHitboxPart(coin)
-if touchPart then
-local targetCFrame = touchPart.CFrame
-if _G.FarmUnderground then
-targetCFrame = targetCFrame * CFrame.new(0, -6, 0)
-end
-local distance = (myRoot.Position - targetCFrame.Position).Magnitude
-local duration = distance / _G.FarmSpeed
-local tween = TweenService:Create(myRoot, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
-tween:Play()
-tween.Completed:Wait()
-local startCount = getCoinCount()
-local timeout = 0
-local success = false
-while coin.Parent and touchPart.Parent and timeout < 0.4 do
-if getCoinCount() > startCount then
-success = true
-break
-end
-task.wait(0.02)
-timeout = timeout + 0.02
-end
-if success or not (coin.Parent and touchPart.Parent) then
-collectedCoins[coin] = true
-end
-end
-end
-elseif isBagFull() and _G.FlingMurderer then
-local murderer = getMurderer()
-if murderer then
-flingTarget(murderer)
-end
-else
-toggleNoClip(false)
-end
-end
+
+if _G.AutoFarmCoins then if _G.IsBagFull() and _G.FlingMurderer then _G.ToggleAnimations(true) local m = _G.GetMurderer() if m then flingTarget(m) task.wait(1) else _G.ToggleNoClip(false) end elseif not _G.IsBagFull() then _G.ToggleNoClip(true) _G.ToggleAnimations(not _G.FarmUnderground) local coin = getClosestCoin() local character = LocalPlayer.Character local myRoot = character and character:FindFirstChild("HumanoidRootPart") if coin and myRoot then local touchPart = _G.GetHitboxPart(coin) if touchPart and (touchPart:IsA("Model") or touchPart:IsA("BasePart")) then local targetCFrame = touchPart:GetPivot() if _G.FarmUnderground then targetCFrame = CFrame.new(targetCFrame.Position) * CFrame.new(0, -3.2, 0) * CFrame.Angles(math.rad(-90), 0, 0) end local startCount = _G.GetCoinCount() local distance = (myRoot.Position - targetCFrame.Position).Magnitude local duration = distance / _G.FarmSpeed local tween = TweenService:Create(myRoot, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame}) tween:Play() local coinRemoved = false local connection connection = coin.AncestryChanged:Connect(function() if not coin.Parent or not coin:IsDescendantOf(game) then tween:Cancel() coinRemoved = true connection:Disconnect() end end) tween.Completed:Wait() if connection.Connected then connection:Disconnect() end if not coinRemoved then local timeout = 0 while coin.Parent and touchPart.Parent and timeout < 0.4 do if _G.GetCoinCount() > startCount then break end task.wait(0.02) timeout = timeout + 0.02 end end end end else _G.ToggleAnimations(true) _G.ToggleNoClip(false) end else _G.ToggleAnimations(true) _G.ToggleNoClip(false) end end 
+
 end)
+local Window = Fluent:CreateWindow({
+Title = "MM2 Premium Hack",
+SubTitle = "v2.0 Fixed & Stable",
+TabWidth = 160,
+Size = UDim2.fromOffset(580, 460),
+Acrylic = false,
+Theme = "Dark",
+MinimizeKey = Enum.KeyCode.LeftControl
+})
+
 local FarmingTab = Window:AddTab({ Title = "Farming", Icon = "candy" })
 local VisualsTab = Window:AddTab({ Title = "Visuals", Icon = "eye" })
+
 FarmingTab:AddToggle("AutoFarmToggle", {
 Title = "Auto Farm Coins",
 Default = false,
 Callback = function(Value) _G.AutoFarmCoins = Value end
 })
 FarmingTab:AddToggle("FarmUndergroundToggle", {
-Title = "Farm Underground",
+Title = "Farm Underground (Safe)",
 Default = false,
 Callback = function(Value) _G.FarmUnderground = Value end
 })
@@ -237,42 +233,42 @@ Title = "Fling Murderer when Full",
 Default = false,
 Callback = function(Value) _G.FlingMurderer = Value end
 })
+
 FarmingTab:AddButton({
 Title = "Farm Speed -",
 Callback = function()
-_G.FarmSpeed = math.max(15, _G.FarmSpeed - 1)
-Fluent:Notify({
-Title = "Farm Speed",
-Content = tostring(_G.FarmSpeed),
-Duration = 1
-})
+_G.FarmSpeed = math.max(15, _G.FarmSpeed - 2)
+Fluent:Notify({ Title = "Speed", Content = tostring(_G.FarmSpeed), Duration = 1 })
 end
 })
 FarmingTab:AddButton({
 Title = "Farm Speed +",
 Callback = function()
-_G.FarmSpeed = math.min(45, _G.FarmSpeed + 1)
-Fluent:Notify({
-Title = "Farm Speed",
-Content = tostring(_G.FarmSpeed),
-Duration = 1
-})
+_G.FarmSpeed = math.min(45, _G.FarmSpeed + 2)
+Fluent:Notify({ Title = "Speed", Content = tostring(_G.FarmSpeed), Duration = 1 })
 end
 })
+
 VisualsTab:AddToggle("CoinsESPToggle", {
-Title = "Orange Coins ESP",
+Title = "ESP Coins (Orange)",
 Default = false,
 Callback = function(Value) _G.CoinsESP = Value end
 })
+VisualsTab:AddToggle("MurderESPToggle", {
+Title = "ESP Murderer (Red)",
+Default = false,
+Callback = function(Value) _G.MurderESP = Value end
+})
+VisualsTab:AddToggle("SheriffESPToggle", {
+Title = "ESP Sheriff (Blue)",
+Default = false,
+Callback = function(Value) _G.SheriffESP = Value end
+})
+
 Window:SelectTab(1)
 Fluent:Notify({
 Title = "MM2 Script",
-Content = "Script loaded successfully!",
+Content = "Loaded Successfully!",
 Duration = 5
 })
 
-
-
-
-
- 
