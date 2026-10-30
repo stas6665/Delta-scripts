@@ -177,63 +177,58 @@ end
 task.spawn(function()
 while true do
 task.wait(0.05)
-
-if _G.AutoFarmCoins then 
-
-if not isBagFull() then
-local targetCoin = getClosestCoin()
-if targetCoin and targetCoin.Parent then
+if _G.AutoFarmCoins and not isBagFull() then
+toggleNoClip(true)
+local coin = getClosestCoin()
 local character = LocalPlayer.Character
 local myRoot = character and character:FindFirstChild("HumanoidRootPart")
-local hitboxPart = getHitboxPart(targetCoin)
-if myRoot and hitboxPart then
-toggleNoClip(true)
-local targetCFrame = hitboxPart.CFrame
+if coin and myRoot then
+local touchPart = getHitboxPart(coin)
+if touchPart then
+local targetCFrame = touchPart.CFrame
 if _G.FarmUnderground then
-targetCFrame = hitboxPart.CFrame * CFrame.new(0, -4.5, 0)
+targetCFrame = targetCFrame * CFrame.new(0, -6, 0)
 end
 local distance = (myRoot.Position - targetCFrame.Position).Magnitude
-local duration = distance / math.max(_G.FarmSpeed, 1)
-local tween = TweenService:Create(
-myRoot,
-TweenInfo.new(duration, Enum.EasingStyle.Linear),
-{CFrame = targetCFrame}
-)
+local duration = distance / _G.FarmSpeed
+local tween = TweenService:Create(myRoot, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
 tween:Play()
-while tween.PlaybackState == Enum.PlaybackState.Playing and _G.AutoFarmCoins and targetCoin.Parent and not isBagFull() do
+tween.Completed:Wait()
+local startCount = getCoinCount()
+local timeout = 0
+local success = false
+while coin.Parent and touchPart.Parent and timeout < 1.0 do
+if getCoinCount() > startCount then
+success = true
+break
+end
 task.wait(0.02)
+timeout = timeout + 0.02
 end
-if not _G.AutoFarmCoins then
-tween:Cancel()
-else
-collectedCoins[targetCoin] = true
-end
+if success or not (coin.Parent and touchPart.Parent) then
+collectedCoins[coin] = true
 end
 end
-else
-if _G.FlingMurderer then
-local muder = getMurderer()
-if muder then
-flingTarget(muder)
 end
-end
-toggleNoClip(false)
-task.wait(1)
+elseif isBagFull() and _G.FlingMurderer then
+local murderer = getMurderer()
+if murderer then
+flingTarget(murderer)
 end
 else
 toggleNoClip(false)
 end
 end
 end)
-local FarmingTab = Window:AddTab({ Title = "Farming", Icon = "activity" })
+local FarmingTab = Window:AddTab({ Title = "Farming", Icon = "candy" })
 local VisualsTab = Window:AddTab({ Title = "Visuals", Icon = "eye" })
 FarmingTab:AddToggle("AutoFarmToggle", {
 Title = "Auto Farm Coins",
 Default = false,
 Callback = function(Value) _G.AutoFarmCoins = Value end
 })
-FarmingTab:AddToggle("UndergroundToggle", {
-Title = "Farm Underground (Safe)",
+FarmingTab:AddToggle("FarmUndergroundToggle", {
+Title = "Farm Underground",
 Default = false,
 Callback = function(Value) _G.FarmUnderground = Value end
 })
@@ -242,13 +237,27 @@ Title = "Fling Murderer when Full",
 Default = false,
 Callback = function(Value) _G.FlingMurderer = Value end
 })
-FarmingTab:AddSlider("FarmSpeedSlider", {
+FarmingTab:AddButton({
+Title = "Farm Speed -",
+Callback = function()
+_G.FarmSpeed = math.max(15, _G.FarmSpeed - 1)
+Fluent:Notify({
 Title = "Farm Speed",
-Min = 15,
-Max = 45,
-Default = 22,
-Rounding = 0,
-Callback = function(Value) _G.FarmSpeed = Value end
+Content = tostring(_G.FarmSpeed),
+Duration = 1
+})
+end
+})
+FarmingTab:AddButton({
+Title = "Farm Speed +",
+Callback = function()
+_G.FarmSpeed = math.min(45, _G.FarmSpeed + 1)
+Fluent:Notify({
+Title = "Farm Speed",
+Content = tostring(_G.FarmSpeed),
+Duration = 1
+})
+end
 })
 VisualsTab:AddToggle("CoinsESPToggle", {
 Title = "Orange Coins ESP",
@@ -262,3 +271,5 @@ Content = "Script loaded successfully!",
 Duration = 5
 })
 
+
+ 
