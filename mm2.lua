@@ -1,4 +1,4 @@
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/main.lua"))()
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
 local Window = Fluent:CreateWindow({
 Title = "MM2: Dex Fixed Auto Farm",
@@ -28,7 +28,7 @@ task.spawn(function()
 local coreGui = game:GetService("CoreGui")
 local mainFrame = nil
 
-for i = 1, 50 do local fluentGui = coreGui:FindFirstChild("Fluent", true) if fluentGui then mainFrame = fluentGui:FindFirstChild("Frame", true) if mainFrame then break end end task.wait(0.1) end if mainFrame then local wallpaper = Instance.new("ImageLabel") wallpaper.Name = "HalloweenWallpaper" wallpaper.Image = "rbxassetid://72861721472668" wallpaper.Size = UDim2.new(1, 0, 1, 0) wallpaper.Position = UDim2.new(0, 0, 0, 0) wallpaper.BackgroundTransparency = 1 wallpaper.ImageTransparency = 0.85 wallpaper.ScaleType = Enum.ScaleType.Crop wallpaper.ZIndex = 0 wallpaper.Parent = mainFrame end 
+for i = 1, 50 do local fluentGui = coreGui:FindFirstChild("Fluent", true) if fluentGui then mainFrame = fluentGui:FindFirstChild("Frame", true) if mainFrame then break end end task.wait(0.1) end if mainFrame and not mainFrame:FindFirstChild("HalloweenWallpaper") then local wallpaper = Instance.new("ImageLabel") wallpaper.Name = "HalloweenWallpaper" wallpaper.Image = "rbxassetid://72861721472668" wallpaper.Size = UDim2.new(1, 0, 1, 0) wallpaper.Position = UDim2.new(0, 0, 0, 0) wallpaper.BackgroundTransparency = 1 wallpaper.ImageTransparency = 0.85 wallpaper.ScaleType = Enum.ScaleType.Crop wallpaper.ZIndex = 0 wallpaper.Parent = mainFrame end 
 
 end)
 
@@ -46,6 +46,7 @@ local TweenService = game:GetService("TweenService")
 local VirtualUser = game:GetService("VirtualUser")
 
 local collectedCoins = {}
+local currentMurderer = nil
 
 LocalPlayer.Idled:Connect(function()
 VirtualUser:CaptureController()
@@ -116,20 +117,17 @@ local character = LocalPlayer.Character local myRoot = character and character:F
 end
 
 local function getMurderer()
-for _, player in ipairs(Players:GetPlayers()) do
-if player ~= LocalPlayer and player.Character then
-local pBackpack = player:FindFirstChild("Backpack")
-local hasKnife = player.Character:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife"))
-if hasKnife then
-return player
+if currentMurderer and currentMurderer.Parent and currentMurderer.Character and currentMurderer.Character:FindFirstChild("HumanoidRootPart") then
+return currentMurderer
 end
-end
-end
-return nil
+
+local LogFolder = game:GetService("ReplicatedStorage"):FindFirstChild("MatchToLog") or game:GetService("ReplicatedStorage"):FindFirstChild("PreRoundLog") if LogFolder then local MurderData = LogFolder:FindFirstChild("Murder") or LogFolder:FindFirstChild("Murderer") if MurderData and MurderData:IsA("StringValue") and MurderData.Value ~= "" then local p = Players:FindFirstChild(MurderData.Value) if p and p.Character then currentMurderer = p return p end end end for _, player in ipairs(Players:GetPlayers()) do if player ~= LocalPlayer and player.Character then local pBackpack = player:FindFirstChild("Backpack") local hasKnife = player.Character:FindFirstChild("Knife") or (pBackpack and pBackpack:FindFirstChild("Knife")) if not hasKnife and player:FindFirstChild("PlayerGui") then local mainGui = player.PlayerGui:FindFirstChild("MainGui") local gameGui = mainGui and mainGui:FindFirstChild("Game") local roleLabel = gameGui and gameGui:FindFirstChild("Role") if roleLabel and (roleLabel.Text == "Murderer" or roleLabel.Text == "Убийца") then hasKnife = true end end if hasKnife then currentMurderer = player return player end end end return nil 
+
 end
 
 workspace.ChildAdded:Connect(function()
 table.clear(collectedCoins)
+currentMurderer = nil
 end)
 
 local function applyCoinHighlight(coinObj)
@@ -166,78 +164,75 @@ end
 end
 end)
 
+local function flingTarget(targetPlayer)
+local character = LocalPlayer.Character
+local targetChar = targetPlayer.Character
+local myRoot = character and character:FindFirstChild("HumanoidRootPart")
+local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+
+if myRoot and targetRoot then local oldVelocity = myRoot.Velocity myRoot.Velocity = Vector3.new(999999, 999999, 999999) myRoot.CFrame = targetRoot.CFrame task.wait(0.1) myRoot.Velocity = oldVelocity end 
+
+end
+
 task.spawn(function()
 while true do
 task.wait(0.05)
 
-if _G.AutoFarmCoins then if not isBagFull() then local targetCoin = getClosestCoin() if targetCoin and targetCoin.Parent then local character = LocalPlayer.Character local myRoot = character and character:FindFirstChild("HumanoidRootPart") local hitboxPart = getHitboxPart(targetCoin) if myRoot and hitboxPart then toggleNoClip(true) local targetCFrame = hitboxPart.CFrame if _G.FarmUnderground then targetCFrame = hitboxPart.CFrame * CFrame.new(0, -4.5, 0) end local distance = (myRoot.Position - targetCFrame.Position).Magnitude local duration = distance / math.max(_G.FarmSpeed, 1) local tween = TweenService:Create( myRoot, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame} ) tween:Play() local initialCoins, _ = getCoinCount() while tween.PlaybackState == Enum.PlaybackState.Playing and _G.AutoFarmCoins and targetCoin.Parent and not isBagFull() do task.wait(0.02) end if not _G.AutoFarmCoins then tween:Cancel() toggleNoClip(false) else if targetCoin.Parent then local oldCFrame = myRoot.CFrame myRoot.CFrame = hitboxPart.CFrame task.wait(0.05) 
+if _G.AutoFarmCoins then 
 
-myRoot.CFrame = oldCFrame
-end
-local currentCoins, _ = getCoinCount()
-local coinCollected = (not targetCoin.Parent) or (currentCoins > initialCoins)
-if coinCollected then
-collectedCoins[targetCoin] = true
-else
-task.wait(0.05)
-end
-end
-end
-else
-task.wait(0.5)
-end
-else
+if not isBagFull() then
+local targetCoin = getClosestCoin()
+if targetCoin and targetCoin.Parent then
 local character = LocalPlayer.Character
 local myRoot = character and character:FindFirstChild("HumanoidRootPart")
-if myRoot then
+local hitboxPart = getHitboxPart(targetCoin)
+if myRoot and hitboxPart then
+toggleNoClip(true)
+local targetCFrame = hitboxPart.CFrame
+if _G.FarmUnderground then
+targetCFrame = hitboxPart.CFrame * CFrame.new(0, -4.5, 0)
+end
+local distance = (myRoot.Position - targetCFrame.Position).Magnitude
+local duration = distance / math.max(_G.FarmSpeed, 1)
+local tween = TweenService:Create(
+myRoot,
+TweenInfo.new(duration, Enum.EasingStyle.Linear),
+{CFrame = targetCFrame}
+)
+tween:Play()
+while tween.PlaybackState == Enum.PlaybackState.Playing and _G.AutoFarmCoins and targetCoin.Parent and not isBagFull() do
+task.wait(0.02)
+end
+if not _G.AutoFarmCoins then
+tween:Cancel()
+else
+collectedCoins[targetCoin] = true
+end
+end
+end
+else
 if _G.FlingMurderer then
-local murderer = getMurderer()
-local mudRoot = murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart")
-if mudRoot then
-Fluent:Notify({
-Title = "MM2 Farm",
-Content = "Flinging the Murderer!",
-Duration = 3
-})
-local bAV = Instance.new("BodyAngularVelocity")
-bAV.MaxTorque = Vector3.new(1, 1, 1) * math.huge
-bAV.P = math.huge
-bAV.AngularVelocity = Vector3.new(0, 99999, 0)
-bAV.Parent = myRoot
-local flingTime = tick()
-while tick() - flingTime < 2.5 and murderer.Character and mudRoot.Parent and _G.FlingMurderer and isBagFull() do
-RunService.Heartbeat:Wait()
-myRoot.CFrame = mudRoot.CFrame
-myRoot.AssemblyLinearVelocity = Vector3.new(9999, 9999, 9999)
+local muder = getMurderer()
+if muder then
+flingTarget(muder)
 end
-bAV:Destroy()
-myRoot.AssemblyLinearVelocity = Vector3.zero
-task.wait(0.5)
-else
-myRoot.CFrame = CFrame.new(0, 500, 0)
-myRoot.AssemblyLinearVelocity = Vector3.zero
+end
+toggleNoClip(false)
 task.wait(1)
-end
-else
-myRoot.CFrame = CFrame.new(0, 500, 0)
-myRoot.AssemblyLinearVelocity = Vector3.zero
-task.wait(1)
-end
-end
 end
 else
 toggleNoClip(false)
 end
 end
 end)
-local FarmingTab = Window:AddTab({ Title = "Coin Farm", Icon = "box" })
+local FarmingTab = Window:AddTab({ Title = "Farming", Icon = "activity" })
 local VisualsTab = Window:AddTab({ Title = "Visuals", Icon = "eye" })
-FarmingTab:AddToggle("AutoFarmCoinsToggle", {
-Title = "Auto Farm Coins / Candy",
+FarmingTab:AddToggle("AutoFarmToggle", {
+Title = "Auto Farm Coins",
 Default = false,
 Callback = function(Value) _G.AutoFarmCoins = Value end
 })
-FarmingTab:AddToggle("FarmUndergroundToggle", {
+FarmingTab:AddToggle("UndergroundToggle", {
 Title = "Farm Underground (Safe)",
 Default = false,
 Callback = function(Value) _G.FarmUnderground = Value end
@@ -258,16 +253,12 @@ Callback = function(Value) _G.FarmSpeed = Value end
 VisualsTab:AddToggle("CoinsESPToggle", {
 Title = "Orange Coins ESP",
 Default = false,
-Callback = function(Value)
-_G.CoinsESP = Value
-end
+Callback = function(Value) _G.CoinsESP = Value end
 })
-Window:SelectTab(FarmingTab)
+Window:SelectTab(1)
 Fluent:Notify({
 Title = "MM2 Script",
 Content = "Script loaded successfully!",
 Duration = 5
 })
-
-
 
