@@ -1,4 +1,4 @@
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local Fluent = loadstring(game:HttpGet("https://github.com"))()
 
 local Window = Fluent:CreateWindow({
 Title = "MM2: Dex Fixed Auto Farm",
@@ -197,7 +197,7 @@ tween.Completed:Wait()
 local startCount = getCoinCount()
 local timeout = 0
 local success = false
-while coin.Parent and touchPart.Parent and timeout < 1.0 do
+while coin.Parent and touchPart.Parent and timeout < 0.4 do
 if getCoinCount() > startCount then
 success = true
 break
@@ -270,6 +270,9 @@ Title = "MM2 Script",
 Content = "Script loaded successfully!",
 Duration = 5
 })
+
+
+
 
 
  
