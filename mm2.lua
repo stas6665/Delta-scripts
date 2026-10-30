@@ -170,8 +170,10 @@ task.spawn(function()
 while true do
 task.wait(0.05)
 
-if _G.AutoFarmCoins then if not isBagFull() then local targetCoin = getClosestCoin() if targetCoin and targetCoin.Parent then local character = LocalPlayer.Character local myRoot = character and character:FindFirstChild("HumanoidRootPart") local hitboxPart = getHitboxPart(targetCoin) if myRoot and hitboxPart then toggleNoClip(true) local targetCFrame = hitboxPart.CFrame if _G.FarmUnderground then targetCFrame = hitboxPart.CFrame * CFrame.new(0, -4.5, 0) end local distance = (myRoot.Position - targetCFrame.Position).Magnitude local duration = distance / math.max(_G.FarmSpeed, 1) local tween = TweenService:Create( myRoot, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame} ) tween:Play() local initialCoins, _ = getCoinCount() while tween.PlaybackState == Enum.PlaybackState.Playing and _G.AutoFarmCoins and targetCoin.Parent and not isBagFull() do task.wait(0.02) end if not _G.AutoFarmCoins then tween:Cancel() toggleNoClip(false) else if targetCoin.Parent then local oldCFrame = myRoot.CFrame myRoot.CFrame = hitboxPart.CFrame task.wait(0.05) myRoot.CFrame = oldCFrame end 
+if _G.AutoFarmCoins then if not isBagFull() then local targetCoin = getClosestCoin() if targetCoin and targetCoin.Parent then local character = LocalPlayer.Character local myRoot = character and character:FindFirstChild("HumanoidRootPart") local hitboxPart = getHitboxPart(targetCoin) if myRoot and hitboxPart then toggleNoClip(true) local targetCFrame = hitboxPart.CFrame if _G.FarmUnderground then targetCFrame = hitboxPart.CFrame * CFrame.new(0, -4.5, 0) end local distance = (myRoot.Position - targetCFrame.Position).Magnitude local duration = distance / math.max(_G.FarmSpeed, 1) local tween = TweenService:Create( myRoot, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame} ) tween:Play() local initialCoins, _ = getCoinCount() while tween.PlaybackState == Enum.PlaybackState.Playing and _G.AutoFarmCoins and targetCoin.Parent and not isBagFull() do task.wait(0.02) end if not _G.AutoFarmCoins then tween:Cancel() toggleNoClip(false) else if targetCoin.Parent then local oldCFrame = myRoot.CFrame myRoot.CFrame = hitboxPart.CFrame task.wait(0.05) 
 
+myRoot.CFrame = oldCFrame
+end
 local currentCoins, _ = getCoinCount()
 local coinCollected = (not targetCoin.Parent) or (currentCoins > initialCoins)
 if coinCollected then
@@ -266,5 +268,6 @@ Title = "MM2 Script",
 Content = "Script loaded successfully!",
 Duration = 5
 })
+
 
 
