@@ -1,4 +1,4 @@
-Local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 _G.Fluent = Fluent
 
 _G.CollectedCoins = _G.CollectedCoins or {}
