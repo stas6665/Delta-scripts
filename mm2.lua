@@ -66,37 +66,43 @@ local function executeFlingOnTarget(targetType)
       if targetRoot and targetChar then
          local startTime = tick()
          
-         -- Отключаем коллизии у себя, чтобы не мешать
          for _, part in ipairs(character:GetDescendants()) do
             if part:IsA("BasePart") then
                part.CanCollide = false
             end
          end
          
+         local att = Instance.new("Attachment", root)
+         local angVel = Instance.new("AngularVelocity")
+         angVel.Attachment0 = att
+         angVel.MaxTorque = math.huge
+         angVel.AngularVelocity = Vector3.new(0, 50000, 0)
+         angVel.RelativeTo = Enum.ActuatorRelativeTo.World
+         angVel.Parent = root
+
          local connection
          connection = RunService.RenderStepped:Connect(function()
             if not character or not character:FindFirstChild("HumanoidRootPart") or not targetRoot or not targetRoot.Parent then
                if connection then connection:Disconnect() end
+               angVel:Destroy()
+               att:Destroy()
                return
             end
             
-            -- Включаем коллизии жертве для передачи импульса
             for _, part in ipairs(targetChar:GetDescendants()) do
                if part:IsA("BasePart") then
                   part.CanCollide = true
                end
             end
             
-            -- Агрессивное вращение и телепортация внутрь цели для гарантированного флинга
-            local angle = tick() * 50
-            local offset = CFrame.new(math.cos(angle) * 1.5, 0.5, math.sin(angle) * 1.5)
-            root.CFrame = targetRoot.CFrame * offset
-            
-            root.AssemblyLinearVelocity = Vector3.new(30000, 30000, 30000)
-            root.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999)
+            root.CFrame = targetRoot.CFrame
+            root.AssemblyLinearVelocity = Vector3.new(0, 50000, 0)
+            targetRoot.AssemblyLinearVelocity = Vector3.new(0, 50000, 0)
             
             if tick() - startTime > 1.2 then
                if connection then connection:Disconnect() end
+               angVel:Destroy()
+               att:Destroy()
                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                root.CFrame = originalCFrame
@@ -189,7 +195,7 @@ FarmingTab:CreateToggle({
                         executeFlingOnTarget("Murder")
                      end
                      
-                     break
+                     return
                   end
 
                   for _, child in ipairs(Workspace:GetChildren()) do
