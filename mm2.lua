@@ -1,289 +1,509 @@
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-_G.Fluent = Fluent
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
-_G.CollectedCoins = _G.CollectedCoins or {}
-_G.DetectedMurdererName = nil
-_G.AutoFarmCoins = false
-_G.FarmUnderground = false
-_G.FlingMurderer = false
-_G.AvoidMurderer = false
-_G.AutoGrabGun = false
-_G.FarmSpeed = 25
-_G.SafeDistance = 45
-_G.CoinsESP = false
-_G.MurderESP = false
-_G.SheriffESP = false
-_G.InnocentESP = false
-_G.HeroESP = false
-
-_G.AntiFlingEnabled = true
-_G.NoClipPlayersEnabled = true
-_G.IsFlingingActive = false
-
-_G.Window = _G.Fluent:CreateWindow({
-Title = "MM2 Premium Hack",
-SubTitle = "v3.5 Ultimate Edition",
-TabWidth = 160,
-Size = UDim2.fromOffset(580, 460),
-Acrylic = false,
-Theme = "Dark",
-MinimizeKey = Enum.KeyCode.LeftControl
+local Window = Rayfield:CreateWindow({
+   Name = "MM2 Hub",
+   LoadingTitle = "Loading...",
+   LoadingSubtitle = "by User",
+   ConfigurationSaving = { Enabled = false },
+   KeySystem = false,
 })
 
-_G.FarmingTab = _G.Window:AddTab({ Title = "Farming", Icon = "coin" })
-_G.CombatTab = _G.Window:AddTab({ Title = "Combat", Icon = "swords" })
-_G.FlingTab = _G.Window:AddTab({ Title = "Fling Tools", Icon = "zap" })
-_G.VisualsTab = _G.Window:AddTab({ Title = "Visuals", Icon = "eye" })
+local FarmingTab = Window:CreateTab("Farming", 4483362458)
+local VisualsTab = Window:CreateTab("Visuals", 4483362458)
 
-local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local LocalPlayer = Players.LocalPlayer
-_G.FindCoinContainer = function()
-for _, child in ipairs(Workspace:GetChildren()) do
-local container = child:FindFirstChild("CoinContainer") or child:FindFirstChild("coinContainer")
-if container then
-return container
-end
-end
-return nil
-end
+local autoFarmCandy = false
+local farmUnderground = false
+local stopWhenFull = false
+local flingMurder = false
+local killAllWhenFull = false
+local antiFlingEnabled = false
+local autoGrabGunEnabled = false
+local currentSpeed = 25
 
-_G.IsBagFull = function()
-local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
-local gameFolder = mainGui and mainGui:FindFirstChild("Game")
-local coinBags = gameFolder and gameFolder:FindFirstChild("CoinBags")
+local espPlayersEnabled = false
+local espCoinsEnabled = false
 
-if coinBags then local normalBag = coinBags:FindFirstChild("Coin") if normalBag and normalBag.Visible == true then local fullIcon = normalBag:FindFirstChild("FullBagIcon") if fullIcon and fullIcon.Visible == true then return true end end local container = coinBags:FindFirstChild("Container") if container then local candyBag = container:FindFirstChild("Candy") if candyBag and candyBag.Visible == true then local fullIcon = candyBag:FindFirstChild("FullBagIcon") if fullIcon and fullIcon.Visible == true then return true end end end end return false 
+local activeTween = nil
+local activeFarmRoutine = nil
 
-end
+FarmingTab:CreateToggle({
+   Name = "Auto Farm Candy",
+   CurrentValue = false,
+   Flag = "AutoFarmCandyToggle",
+   Callback = function(Value)
+      autoFarmCandy = Value
+      if autoFarmCandy then
+         if activeFarmRoutine then return end
+         activeFarmRoutine = task.spawn(function()
+            local Players = game:GetService("Players")
+            local Workspace = game:GetService("Workspace")
+            local TweenService = game:GetService("TweenService")
+            local player = Players.LocalPlayer
 
-_G.CurrentHeroName = _G.CurrentHeroName or nil
+            while autoFarmCandy do
+               pcall(function()
+                  for _, child in ipairs(Workspace:GetChildren()) do
+                     local container = child:FindFirstChild("CoinContainer")
+                     if container then
+                        for _, coinModel in ipairs(container:GetChildren()) do
+                           if not autoFarmCandy then break end
+                           if coinModel.Name == "Coin_Server" and player.Character then
+                              local root = player.Character:FindFirstChild("HumanoidRootPart")
+                              local visual = coinModel:FindFirstChild("CoinVisual")
+                              
+                              if root and visual and visual:IsA("BasePart") then
+                                 local targetCFrame = visual.CFrame
+                                 
+                                 if farmUnderground then
+                                    targetCFrame = visual.CFrame * CFrame.new(0, -3.5, 0) * CFrame.Angles(math.rad(90), 0, 0)
+                                 end
+                                 
+                                 if farmUnderground or math.abs(root.Position.Y - visual.Position.Y) < 30 then
+                                    local distance = (root.Position - targetCFrame.Position).Magnitude
+                                    local flySpeed = math.clamp(currentSpeed * 2, 5, 100)
+                                    local tweenTime = distance / flySpeed
+                                    
+                                    local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
+                                    activeTween = TweenService:Create(root, tweenInfo, {CFrame = targetCFrame})
+                                    
+                                    activeTween:Play()
+                                    activeTween.Completed:Wait()
+                                    activeTween = nil
+                                    
+                                    task.wait(0.2)
+                                 end
+                              end
+                           end
+                        end
+                     end
+                  end
+               end)
+               task.wait(0.5)
+            end
+            activeFarmRoutine = nil
+         end)
+      else
+         if activeTween then
+            activeTween:Cancel()
+            activeTween = nil
+         end
+         activeFarmRoutine = nil
+      end
+   end,
+})
 
-task.spawn(function()
-local lastDroppedGun = nil
-while task.wait(0.1) do
-local droppedGun = Workspace:FindFirstChild("GunDrop", true)
+FarmingTab:CreateToggle({
+   Name = "Farm Candies Underground",
+   CurrentValue = false,
+   Flag = "FarmUndergroundToggle",
+   Callback = function(Value)
+      farmUnderground = Value
+   end,
+})
 
-if droppedGun then lastDroppedGun = droppedGun else if lastDroppedGun then task.wait(0.1) for _, p in ipairs(Players:GetPlayers()) do local playerData = p:FindFirstChild("PlayerData") or (ReplicatedStorage:FindFirstChild("PlayerData") and ReplicatedStorage.PlayerData:FindFirstChild(p.Name)) local isRoleSheriff = playerData and playerData:FindFirstChild("Role") and playerData.Role.Value == "Sheriff" if not isRoleSheriff and ((p:FindFirstChild("Backpack") and p.Backpack:FindFirstChild("Gun")) or (p.Character and p.Character:FindFirstChild("Gun"))) then _G.CurrentHeroName = p.Name break end end lastDroppedGun = nil end end local container = _G.FindCoinContainer() local hasCoins = false if container then if container:FindFirstChild("CoinVisual", true) then hasCoins = true end end if not hasCoins then _G.CurrentHeroName = nil end end 
+FarmingTab:CreateSlider({
+   Name = "Farm Speed",
+   Range = {1, 50},
+   Increment = 1,
+   Suffix = "x",
+   CurrentValue = 25,
+   Flag = "FarmSpeedSlider",
+   Callback = function(Value)
+      currentSpeed = Value
+   end,
+})
 
-end)
+FarmingTab:CreateToggle({
+   Name = "Anti-Fling Protection",
+   CurrentValue = false,
+   Flag = "AntiFlingToggle",
+   Callback = function(Value)
+      antiFlingEnabled = Value
+      
+      if antiFlingEnabled then
+         task.spawn(function()
+            local Players = game:GetService("Players")
+            local RunService = game:GetService("RunService")
+            local player = Players.LocalPlayer
+            
+            local antiFlingConnection
+            antiFlingConnection = RunService.Stepped:Connect(function()
+               if not antiFlingEnabled then
+                  if antiFlingConnection then antiFlingConnection:Disconnect() end
+                  return
+               end
+               
+               pcall(function()
+                  local character = player.Character
+                  if character then
+                     local root = character:FindFirstChild("HumanoidRootPart")
+                     if root then
+                        if root.AssemblyLinearVelocity.Magnitude > 75 then
+                           root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                           root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                        end
+                        
+                        for _, p in ipairs(Players:GetPlayers()) do
+                           if p ~= player and p.Character then
+                              for _, part in ipairs(p.Character:GetDescendants()) do
+                                 if part:IsA("BasePart") then
+                                    part.CanCollide = false
+                                 end
+                              end
+                           end
+                        end
+                     end
+                  end
+               end)
+            end)
+         end)
+      end
+   end,
+})
 
-local function getRole(player)
-if not player then return "Innocent" end
+FarmingTab:CreateToggle({
+   Name = "Auto Grab Gun",
+   CurrentValue = false,
+   Flag = "AutoGrabGunToggle",
+   Callback = function(Value)
+      autoGrabGunEnabled = Value
+      if autoGrabGunEnabled then
+         task.spawn(function()
+            local Workspace = game:GetService("Workspace")
+            local Players = game:GetService("Players")
+            local player = Players.LocalPlayer
+            
+            while autoGrabGunEnabled do
+               pcall(function()
+                  local gunDrop = Workspace:FindFirstChild("GunDrop")
+                  if gunDrop and player.Character then
+                     local backpack = player:FindFirstChild("Backpack")
+                     local hasGun = (backpack and backpack:FindFirstChild("Gun")) or player.Character:FindFirstChild("Gun")
+                     
+                     if not hasGun then
+                        local handle = gunDrop:FindFirstChild("Handle") or gunDrop:FindFirstChild("Part") or gunDrop
+                        if handle and handle:IsA("BasePart") then
+                           local character = player.Character
+                           local hrp = character:FindFirstChild("HumanoidRootPart")
+                           local originalCFrame = hrp and hrp.CFrame
+                           
+                           if hrp then
+                              hrp.CFrame = handle.CFrame
+                              task.wait(0.15)
+                              if originalCFrame then
+                                 hrp.CFrame = originalCFrame
+                              end
+                           end
+                        end
+                     end
+                  end
+               end)
+               task.wait(0.5)
+            end
+         end)
+      end
+   end,
+})
 
-if player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Knife") then return "Murderer" end if player.Character and player.Character:FindFirstChild("Knife") then return "Murderer" end local playerData = player:FindFirstChild("PlayerData") or (ReplicatedStorage:FindFirstChild("PlayerData") and ReplicatedStorage.PlayerData:FindFirstChild(player.Name)) if playerData and playerData:FindFirstChild("Role") then if playerData.Role.Value == "Sheriff" then return "Sheriff" elseif playerData.Role.Value == "Murderer" then return "Murderer" end end if _G.CurrentHeroName and player.Name == _G.CurrentHeroName then return "Hero" end local hasGun = (player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Gun")) or (player.Character and player.Character:FindFirstChild("Gun")) if hasGun and not hasGun:FindFirstChild("Innocent") then return "Sheriff" end return "Innocent" 
+FarmingTab:CreateToggle({
+   Name = "Fling Murder When Full",
+   CurrentValue = false,
+   Flag = "FlingMurderToggle",
+   Callback = function(Value)
+      flingMurder = Value
+   end,
+})
 
-end
+FarmingTab:CreateToggle({
+   Name = "Kill All When Full (If Murder)",
+   CurrentValue = false,
+   Flag = "KillAllWhenFullToggle",
+   Callback = function(Value)
+      killAllWhenFull = Value
+   end,
+})
 
-_G.GetMurderer = function()
-for _, p in ipairs(Players:GetPlayers()) do
-if getRole(p) == "Murderer" then
-_G.DetectedMurdererName = p.Name
-return p
-end
-end
-return nil
-end
+FarmingTab:CreateToggle({
+   Name = "Stop Farm When Bag Is Full",
+   CurrentValue = false,
+   Flag = "StopWhenFullToggle",
+   Callback = function(Value)
+      stopWhenFull = Value
+      if stopWhenFull then
+         task.spawn(function()
+            local Players = game:GetService("Players")
+            local RunService = game:GetService("RunService")
+            local player = Players.LocalPlayer
+            
+            while stopWhenFull do
+               pcall(function()
+                  local reachedLimit = false
+                  local leaderstats = player:FindFirstChild("leaderstats")
+                  if leaderstats then
+                     local candyStat = leaderstats:FindFirstChild("Candy") or leaderstats:FindFirstChild("Coins")
+                     if candyStat and candyStat.Value >= 50 then
+                        reachedLimit = true
+                     end
+                  end
+                  
+                  local playerGui = player:FindFirstChild("PlayerGui")
+                  local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
+                  local gameFrame = mainGui and mainGui:FindFirstChild("Game")
+                  local coinBags = gameFrame and gameFrame:FindFirstChild("CoinBags")
+                  if coinBags then
+                     local candyBag = coinBags:FindFirstChild("Candy", true)
+                     local fullIcon = candyBag and candyBag:FindFirstChild("FullBagIcon")
+                     if fullIcon and fullIcon.Visible then
+                        reachedLimit = true
+                     end
+                  end
+                  
+                  if reachedLimit then
+                     autoFarmCandy = false
+                     if activeTween then
+                        activeTween:Cancel()
+                        activeTween = nil
+                     end
+                     
+                     local character = player.Character
+                     local backpack = player:FindFirstChild("Backpack")
+                     local isLocalMurderer = (backpack and backpack:FindFirstChild("Knife")) or (character and character:FindFirstChild("Knife"))
+                     
+                     if killAllWhenFull and isLocalMurderer then
+                        local root = character and character:FindFirstChild("HumanoidRootPart")
+                        if root then
+                           local originalCFrame = root.CFrame
+                           
+                           local knife = (backpack and backpack:FindFirstChild("Knife")) or (character and character:FindFirstChild("Knife"))
+                           if knife then
+                              knife.Parent = character
+                           end
+                           
+                           for _, p in ipairs(Players:GetPlayers()) do
+                              if p ~= player and p.Character then
+                                 local targetChar = p.Character
+                                 local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+                                 local targetHum = targetChar:FindFirstChild("Humanoid")
+                                 
+                                 if targetRoot and targetHum and targetHum.Health > 0 then
+                                    root.CFrame = targetRoot.CFrame
+                                    task.wait(0.03)
+                                    if knife then
+                                       pcall(function()
+                                          knife:Activate()
+                                       end)
+                                    end
+                                 end
+                              end
+                           end
+                           
+                           task.wait(0.1)
+                           root.CFrame = originalCFrame
+                        end
+                     elseif flingMurder then
+                        local targetRoot = nil
+                        local targetChar = nil
+                        for _, p in ipairs(Players:GetPlayers()) do
+                           if p ~= player and p.Character then
+                              local pBackpack = p:FindFirstChild("Backpack")
+                              local char = p.Character
+                              if (pBackpack and pBackpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife")) then
+                                 if char:FindFirstChild("HumanoidRootPart") then
+                                    targetChar = char
+                                    targetRoot = char.HumanoidRootPart
+                                    break
+                                 end
+                              end
+                           end
+                        end
+                        
+                        if targetRoot and targetChar and character and character:FindFirstChild("HumanoidRootPart") then
+                           local root = character.HumanoidRootPart
+                           local originalCFrame = root.CFrame
+                           local startTime = tick()
+                           
+                           local connection
+                           connection = RunService.RenderStepped:Connect(function()
+                              if not character or not character:FindFirstChild("HumanoidRootPart") or not targetRoot or not targetRoot.Parent then
+                                 if connection then connection:Disconnect() end
+                                 return
+                              end
+                              
+                              for _, part in ipairs(targetChar:GetDescendants()) do
+                                 if part:IsA("BasePart") then
+                                    part.CanCollide = true
+                                 end
+                              end
+                              
+                              local randomOffset = CFrame.new(math.random(-3, 3), math.random(-3, 3), math.random(-3, 3))
+                              root.CFrame = targetRoot.CFrame * randomOffset
+                              
+                              root.AssemblyLinearVelocity = Vector3.new(0, 500000, 0)
+                              root.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999)
+                              
+                              targetRoot.AssemblyLinearVelocity = Vector3.new(math.random(-50000, 50000), -500000, math.random(-50000, 50000))
+                              targetRoot.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999)
+                              
+                              if tick() - startTime > 1.5 then
+                                 if connection then connection:Disconnect() end
+                                 root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                 root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                                 root.CFrame = originalCFrame
+                              end
+                           end)
+                           
+                           task.wait(2)
+                        end
+                     end
+                     
+                     task.wait(5)
+                  end
+               end)
+               task.wait(1)
+            end
+         end)
+      end
+   end,
+})
 
-_G.GetSheriff = function()
-for _, p in ipairs(Players:GetPlayers()) do
-if getRole(p) == "Sheriff" then return p end
-end
-return nil
-end
+VisualsTab:CreateToggle({
+   Name = "Player ESP (Role Colors)",
+   CurrentValue = false,
+   Flag = "PlayerESPToggle",
+   Callback = function(Value)
+      espPlayersEnabled = Value
+      if espPlayersEnabled then
+         task.spawn(function()
+            local Players = game:GetService("Players")
+            local Workspace = game:GetService("Workspace")
+            local player = Players.LocalPlayer
+            
+            local originalSheriff = nil
+            local lastRoundTimer = nil
+            
+            while espPlayersEnabled do
+               pcall(function()
+                  local roundTimer = nil
+                  local playerGui = player:FindFirstChild("PlayerGui")
+                  local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
+                  local gameFrame = mainGui and mainGui:FindFirstChild("Game")
+                  local timerLabel = gameFrame and (gameFrame:FindFirstChild("Timer", true) or gameFrame:FindFirstChild("TimerLabel", true))
+                  if timerLabel then
+                     roundTimer = timerLabel.Text
+                  end
+                  
+                  if lastRoundTimer ~= roundTimer then
+                     lastRoundTimer = roundTimer
+                     originalSheriff = nil
+                  end
+                  
+                  if not originalSheriff then
+                     for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= player and p.Character then
+                           local backpack = p:FindFirstChild("Backpack")
+                           local char = p.Character
+                           if (backpack and backpack:FindFirstChild("Gun")) or char:FindFirstChild("Gun") then
+                              originalSheriff = p
+                              break
+                           end
+                        end
+                     end
+                  end
+                  
+                  for _, p in ipairs(Players:GetPlayers()) do
+                     if p ~= player and p.Character then
+                        local char = p.Character
+                        local highlight = char:FindFirstChild("ESPHighlight")
+                        
+                        if not highlight then
+                           highlight = Instance.new("Highlight")
+                           highlight.Name = "ESPHighlight"
+                           highlight.FillTransparency = 0.5
+                           highlight.OutlineTransparency = 0
+                           highlight.Parent = char
+                        end
+                        
+                        local backpack = p:FindFirstChild("Backpack")
+                        local isMurderer = (backpack and backpack:FindFirstChild("Knife")) or char:FindFirstChild("Knife")
+                        local hasGun = (backpack and backpack:FindFirstChild("Gun")) or char:FindFirstChild("Gun")
+                        
+                        if isMurderer then
+                           highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                           highlight.OutlineColor = Color3.fromRGB(150, 0, 0)
+                        elseif hasGun then
+                           if originalSheriff and p == originalSheriff then
+                              highlight.FillColor = Color3.fromRGB(0, 100, 255)
+                              highlight.OutlineColor = Color3.fromRGB(0, 50, 150)
+                           else
+                              highlight.FillColor = Color3.fromRGB(255, 255, 0)
+                              highlight.OutlineColor = Color3.fromRGB(200, 200, 0)
+                           end
+                        else
+                           highlight.FillColor = Color3.fromRGB(0, 255, 0)
+                           highlight.OutlineColor = Color3.fromRGB(0, 150, 0)
+                        end
+                     end
+                  end
+               end)
+               task.wait(1)
+            end
+            
+            for _, p in ipairs(Players:GetPlayers()) do
+               if p.Character and p.Character:FindFirstChild("ESPHighlight") then
+                  p.Character.ESPHighlight:Destroy()
+               end
+            end
+         end)
+      end
+   end,
+})
 
-_G.GetHero = function()
-for _, p in ipairs(Players:GetPlayers()) do
-if getRole(p) == "Hero" then return p end
-end
-return nil
-end
-
-Workspace.DescendantRemoving:Connect(function(descendant)
-local container = _G.FindCoinContainer()
-if container and descendant == container then
-_G.DetectedMurdererName = nil
-_G.CurrentHeroName = nil
-end
-end)
-local function applyHighlight(object, name, color, enabled)
-if not object then return end
-local existing = object:FindFirstChild(name)
-if enabled then
-if not existing then
-local hl = Instance.new("Highlight")
-hl.Name = name
-hl.FillColor = color
-hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-hl.FillTransparency = 0.25
-hl.OutlineTransparency = 0
-hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-hl.Enabled = true
-hl.Parent = object
-else
-existing.Enabled = true
-existing.FillColor = color
-end
-else
-if existing then existing:Destroy() end
-end
-end
-
-local function clearGlobalESP(espName)
-for _, descendant in ipairs(Workspace:GetDescendants()) do
-if descendant:IsA("Highlight") and descendant.Name == espName then descendant:Destroy() end
-end
-end
-
-task.spawn(function()
-while true do
-task.wait(0.3)
-if not _G.FindCoinContainer then continue end
-
-local container = _G.FindCoinContainer() if _G.CoinsESP and container then for _, obj in ipairs(container:GetDescendants()) do if obj.Name == "CoinVisual" and obj:IsA("BasePart") then applyHighlight(obj, "CoinESP", Color3.fromRGB(255, 110, 0), true) end end else clearGlobalESP("CoinESP") end local droppedGun = Workspace:FindFirstChild("GunDrop", true) if droppedGun then applyHighlight(droppedGun, "GunDropESP", Color3.fromRGB(0, 255, 255), _G.SheriffESP) else clearGlobalESP("GunDropESP") end for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer and p.Character then local role = getRole(p) if role == "Murderer" then if p.Character:FindFirstChild("SheriffESP") then p.Character.SheriffESP:Destroy() end if p.Character:FindFirstChild("InnocentHighlight") then p.Character.InnocentHighlight:Destroy() end if p.Character:FindFirstChild("HeroHighlight") then p.Character.HeroHighlight:Destroy() end applyHighlight(p.Character, "MurderESP", Color3.fromRGB(255, 0, 0), _G.MurderESP) elseif role == "Sheriff" then if p.Character:FindFirstChild("MurderESP") then p.Character.MurderESP:Destroy() end if p.Character:FindFirstChild("InnocentHighlight") then p.Character.InnocentHighlight:Destroy() end if p.Character:FindFirstChild("HeroHighlight") then p.Character.HeroHighlight:Destroy() end applyHighlight(p.Character, "SheriffESP", Color3.fromRGB(0, 120, 255), _G.SheriffESP) elseif role == "Hero" then if p.Character:FindFirstChild("MurderESP") then p.Character.MurderESP:Destroy() end if p.Character:FindFirstChild("SheriffESP") then p.Character.SheriffESP:Destroy() end if p.Character:FindFirstChild("InnocentHighlight") then p.Character.InnocentHighlight:Destroy() end applyHighlight(p.Character, "HeroHighlight", Color3.fromRGB(255, 255, 0), _G.HeroESP) elseif role == "Innocent" then if p.Character:FindFirstChild("MurderESP") then p.Character.MurderESP:Destroy() end if p.Character:FindFirstChild("SheriffESP") then p.Character.SheriffESP:Destroy() end if p.Character:FindFirstChild("HeroHighlight") then p.Character.HeroHighlight:Destroy() end applyHighlight(p.Character, "InnocentHighlight", Color3.fromRGB(0, 255, 0), _G.InnocentESP) end end end if not _G.SheriffESP then clearGlobalESP("SheriffESP") end if not _G.MurderESP then clearGlobalESP("MurderESP") end if not _G.InnocentESP then clearGlobalESP("InnocentHighlight") end if not _G.HeroESP then clearGlobalESP("HeroHighlight") end end 
-
-end)
-local noclipConnection = nil
-_G.ToggleNoClip = function(enable)
-if enable then
-if not noclipConnection then
-noclipConnection = RunService.Stepped:Connect(function()
-if LocalPlayer.Character then
-for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
-end
-end
-end)
-end
-else
-if noclipConnection then noclipConnection:Disconnect() noclipConnection = nil end
-end
-end
-
-RunService.Stepped:Connect(function()
-local character = LocalPlayer.Character
-if character and _G.NoClipPlayersEnabled then
-for _, player in ipairs(Players:GetPlayers()) do
-if player ~= LocalPlayer and player.Character then
-for _, part in ipairs(player.Character:GetDescendants()) do
-if part:IsA("BasePart") then
-part.CanCollide = false
-end
-end
-end
-end
-end
-end)
-
-local function applyGhostMode(character)
-if not character then return end
-
-local function disableCollisionWithOthers(otherChar) for _, myPart in ipairs(character:GetDescendants()) do if myPart:IsA("BasePart") then for _, otherPart in ipairs(otherChar:GetDescendants()) do if otherPart:IsA("BasePart") then local constraint = Instance.new("NoCollisionConstraint") constraint.Part0 = myPart constraint.Part1 = otherPart constraint.Parent = character end end end end end for _, player in ipairs(Players:GetPlayers()) do if player ~= LocalPlayer then if player.Character then disableCollisionWithOthers(player.Character) end player.CharacterAdded:Connect(function(otherChar) task.wait(0.1) if _G.AntiFlingEnabled and not _G.IsFlingingActive and LocalPlayer.Character == character then disableCollisionWithOthers(otherChar) end end) end end 
-
-end
-
-local function removeGhostMode(character)
-if not character then return end
-for _, obj in ipairs(character:GetDescendants()) do
-if obj:IsA("NoCollisionConstraint") then
-obj:Destroy()
-end
-end
-end
-
-Players.PlayerAdded:Connect(function(player)
-if player ~= LocalPlayer then
-player.CharacterAdded:Connect(function(otherChar)
-task.wait(0.1)
-if _G.AntiFlingEnabled and not _G.IsFlingingActive and LocalPlayer.Character then
-applyGhostMode(LocalPlayer.Character)
-end
-end)
-end
-end)
-
-LocalPlayer.CharacterAdded:Connect(function(character)
-task.wait(0.2)
-if _G.AntiFlingEnabled and not _G.IsFlingingActive then
-applyGhostMode(character)
-end
-end)
-
-if LocalPlayer.Character and _G.AntiFlingEnabled and not _G.IsFlingingActive then
-applyGhostMode(LocalPlayer.Character)
-end
-
-RunService.Heartbeat:Connect(function()
-local character = LocalPlayer.Character
-if not character then return end
-
-if _G.AntiFlingEnabled and not _G.IsFlingingActive then local hasConstraint = false for _, obj in ipairs(character:GetDescendants()) do if obj:IsA("NoCollisionConstraint") then hasConstraint = true break end end if not hasConstraint then applyGhostMode(character) end else removeGhostMode(character) end 
-
-end)
-
-local function toggleAnimations(enable)
-local character = LocalPlayer.Character
-local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
-if animator then
-for _, track in ipairs(animator:GetPlayingAnimationTracks()) do track:AdjustSpeed(enable and 1 or 0) end
-end
-end
-
-local function smoothTween(targetPosition)
-local character = LocalPlayer.Character
-local myRoot = character and character:FindFirstChild("HumanoidRootPart")
-if not myRoot then return end
-
-local distance = (myRoot.Position - targetPosition).Magnitude if distance < 1 then myRoot.CFrame = CFrame.new(targetPosition) return end local speed = math.max(15, _G.FarmSpeed) local duration = distance / speed local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut) local tween = TweenService:Create(myRoot, tweenInfo, {CFrame = CFrame.new(targetPosition)}) tween:Play() tween.Completed:Wait() 
-
-end
-
-local function flingTarget(targetPlayer, direction)
-if not targetPlayer or not targetPlayer.Character then return end
-local character = LocalPlayer.Character
-local myRoot = character and character:FindFirstChild("HumanoidRootPart")
-
-if myRoot then local oldCFrame = myRoot.CFrame _G.IsFlingingActive = true _G.ToggleNoClip(true) local startTime = tick() local duration = 0.5 local heartbeatConnection local angle = 0 local targetVelocityY = (direction == "up") and 60000 or -60000 heartbeatConnection = RunService.Heartbeat:Connect(function() local currentTargetChar = targetPlayer.Character local targetRoot = currentTargetChar and currentTargetChar:FindFirstChild("HumanoidRootPart") local targetHum = currentTargetChar and currentTargetChar:FindFirstChildOfClass("Humanoid") if targetRoot and targetRoot.Parent and (tick() - startTime < duration) then angle = angle + 180 local rad = math.rad(angle) local offsetX = math.cos(rad) * 1.5 local offsetZ = math.sin(rad) * 1.5 myRoot.CFrame = targetRoot.CFrame * CFrame.new(offsetX, 0, offsetZ) * CFrame.Angles(rad * 10, rad * 5, rad * 8) myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0) myRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0) targetRoot.AssemblyLinearVelocity = Vector3.new(math.random(-5000, 5000), targetVelocityY, math.random(-5000, 5000)) targetRoot.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999) if targetHum then targetHum:ChangeState(Enum.HumanoidStateType.Ragdoll) end else if heartbeatConnection then heartbeatConnection:Disconnect() heartbeatConnection = nil end end end) while tick() - startTime < duration do task.wait(0.01) end if heartbeatConnection then heartbeatConnection:Disconnect() end myRoot.AssemblyLinearVelocity = Vector3.new(0,0,0) myRoot.AssemblyAngularVelocity = Vector3.new(0,0,0) myRoot.CFrame = oldCFrame _G.ToggleNoClip(false) _G.IsFlingingActive = false end 
-
-end
-local function escapeFromMurderer(myRoot, mudRoot)
-if not mudRoot or not myRoot then return end
-local vector = (myRoot.Position - mudRoot.Position)
-local direction = vector.Magnitude > 0 and vector.Unit or Vector3.new(0, 1, 0)
-local targetPosition = myRoot.Position + (direction * 35)
-myRoot.CFrame = CFrame.new(targetPosition.X, mudRoot.Position.Y, targetPosition.Z)
-task.wait(0.1)
-end
-
-local function getBestCoin()
-if not _G.FindCoinContainer or not _G.GetMurderer then return nil end
-local coinContainer = _G.FindCoinContainer()
-if not coinContainer then return nil end
-
-local character = LocalPlayer.Character local myRoot = character and character:FindFirstChild("HumanoidRootPart") if not myRoot then return nil end local murderer = _G.GetMurderer() local mudRoot = murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") local closestTarget = nil local shortestDistance = math.huge for _, model in ipairs(coinContainer:GetChildren()) do local coinVisual = model:FindFirstChild("CoinVisual") local coinPart = coinVisual and (coinVisual:IsA("BasePart") and coinVisual or coinVisual:FindFirstChildWhichIsA("BasePart")) if coinPart then local coinPos = coinPart.Position if _G.AvoidMurderer and mudRoot then if (coinPos - mudRoot.Position).Magnitude < _G.SafeDistance then continue end end local dist = (myRoot.Position - coinPos).Magnitude if dist < shortestDistance then shortestDistance = dist closestTarget = coinPart end end end return closestTarget 
-
-end
-
-task.spawn(function()
-while true do
-task.wait(0.05)
-if not _G.IsBagFull then continue end
-
-local character = LocalPlayer.Character local myRoot = character and character:FindFirstChild("HumanoidRootPart") local hum = character and character:FindFirstChildOfClass("Humanoid") if hum and hum.Health > 0 and myRoot then local droppedGun = Workspace:FindFirstChild("GunDrop", true) if _G.AutoGrabGun and droppedGun and droppedGun:IsA("BasePart") then smoothTween(Vector3.new(droppedGun.Position.X, myRoot.Position.Y, droppedGun.Position.Z)) task.wait(0.1) elseif _G.AutoFarmCoins then local murderer = _G.GetMurderer() local mudRoot = murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") if not _G.IsBagFull() and _G.AvoidMurderer and mudRoot and (myRoot.Position - mudRoot.Position).Magnitude < _G.SafeDistance then escapeFromMurderer(myRoot, mudRoot) end if _G.IsBagFull() then if _G.FlingMurderer then if murderer and murderer.Character and murderer.Character:FindFirstChild("HumanoidRootPart") then toggleAnimations(true) flingTarget(murderer, "down") task.wait(0.5) else myRoot.AssemblyLinearVelocity = Vector3.new(0,0,0) myRoot.AssemblyAngularVelocity = Vector3.new(0,0,0) if _G.FarmUnderground then myRoot.CFrame = CFrame.new(myRoot.Position.X, -50, myRoot.Position.Z) end task.wait(0.2) end else _G.ToggleNoClip(false) toggleAnimations(true) myRoot.AssemblyLinearVelocity = Vector3.new(0,0,0) myRoot.AssemblyAngularVelocity = Vector3.new(0,0,0) task.wait(0.5) end else _G.ToggleNoClip(true) if _G.FarmUnderground == true then toggleAnimations(false) else toggleAnimations(true) end local touchPart = getBestCoin() if touchPart and touchPart.Parent then local coinPos = touchPart.Position local targetPos if _G.FarmUnderground == true then targetPos = Vector3.new(coinPos.X, -50, coinPos.Z) if touchPart:IsA("BasePart") then touchPart.Size = Vector3.new(touchPart.Size.X, 10, touchPart.Size.Z) touchPart.CanCollide = false end else targetPos = Vector3.new(coinPos.X, myRoot.Position.Y, coinPos.Z) end smoothTween(targetPos) else myRoot.AssemblyLinearVelocity = Vector3.new(0,0,0) myRoot.AssemblyAngularVelocity = Vector3.new(0,0,0) end end end else toggleAnimations(true) _G.ToggleNoClip(false) end end 
-
-end)
-if _G.FarmingTab and _G.CombatTab and _G.FlingTab and _G.VisualsTab and _G.Fluent then
-_G.FarmingTab:AddToggle("AutoFarmToggle", { Title = "Auto Farm Candy", Default = false, Callback = function(Value) _G.AutoFarmCoins = Value end })
-_G.FarmingTab:AddToggle("AvoidMurdererToggle", { Title = "Avoid the Murderer", Default = false, Callback = function(Value) _G.AvoidMurderer = Value end })
-_G.FarmingTab:AddToggle("FarmUndergroundToggle", { Title = "Farm Underground (Safe)", Default = false, Callback = function(Value) _G.FarmUnderground = Value end })
-_G.FarmingTab:AddToggle("FlingMurdererToggle", { Title = "Fling Murderer when Full", Default = false, Callback = function(Value) _G.FlingMurderer = Value end })
-
-_G.FarmingTab:AddButton({ Title = "Farm Speed -", Callback = function() _G.FarmSpeed = math.max(10, _G.FarmSpeed - 5) _G.Fluent:Notify({ Title = "Speed", Content = tostring(_G.FarmSpeed), Duration = 1 }) end }) _G.FarmingTab:AddButton({ Title = "Farm Speed +", Callback = function() _G.FarmSpeed = math.min(150, _G.FarmSpeed + 5) _G.Fluent:Notify({ Title = "Speed", Content = tostring(_G.FarmSpeed) .. " studs", Duration = 1 }) end }) _G.FarmingTab:AddButton({ Title = "Safe Distance -", Callback = function() _G.SafeDistance = math.max(15, _G.SafeDistance - 5) _G.Fluent:Notify({ Title = "Safe Distance", Content = tostring(_G.SafeDistance) .. " studs", Duration = 1 }) end }) _G.FarmingTab:AddButton({ Title = "Safe Distance +", Callback = function() _G.SafeDistance = math.min(100, _G.SafeDistance + 5) _G.Fluent:Notify({ Title = "Safe Distance", Content = tostring(_G.SafeDistance) .. " studs", Duration = 1 }) end }) _G.CombatTab:AddToggle("AutoGrabGunToggle", { Title = "Auto Grab Gun", Default = false, Callback = function(Value) _G.AutoGrabGun = Value end }) _G.FlingTab:AddToggle("AntiFlingToggle", { Title = "Best Anti-Fling", Default = true, Callback = function(Value) _G.AntiFlingEnabled = Value end }) _G.FlingTab:AddButton({ Title = "Fling Murderer (Down)", Callback = function() local target = _G.GetMurderer() if target then flingTarget(target, "down") else _G.Fluent:Notify({ Title = "Fling", Content = "Murderer not found", Duration = 3 }) end end }) _G.FlingTab:AddButton({ Title = "Fling Murderer (Up)", Callback = function() local target = _G.GetMurderer() if target then flingTarget(target, "up") else _G.Fluent:Notify({ Title = "Fling", Content = "Murderer not found", Duration = 3 }) end end }) _G.FlingTab:AddButton({ Title = "Fling Sheriff (Down)", Callback = function() local target = _G.GetSheriff() if target then flingTarget(target, "down") else _G.Fluent:Notify({ Title = "Fling", Content = "Sheriff not found", Duration = 3 }) end end }) _G.FlingTab:AddButton({ Title = "Fling Sheriff (Up)", Callback = function() local target = _G.GetSheriff() if target then flingTarget(target, "up") else _G.Fluent:Notify({ Title = "Fling", Content = "Sheriff not found", Duration = 3 }) end end }) _G.FlingTab:AddButton({ Title = "Fling Hero (Down)", Callback = function() local target = _G.GetHero() if target then flingTarget(target, "down") else _G.Fluent:Notify({ Title = "Fling", Content = "Hero not found", Duration = 3 }) end end }) _G.FlingTab:AddButton({ Title = "Fling Hero (Up)", Callback = function() local target = _G.GetHero() if target then flingTarget(target, "up") else _G.Fluent:Notify({ Title = "Fling", Content = "Hero not found", Duration = 3 }) end end }) _G.VisualsTab:AddToggle("CoinsESPToggle", { Title = "ESP Candy/Coins (Orange)", Default = false, Callback = function(Value) _G.CoinsESP = Value end }) _G.VisualsTab:AddToggle("MurderESPToggle", { Title = "ESP Murderer (Red)", Default = false, Callback = function(Value) _G.MurderESP = Value end }) _G.VisualsTab:AddToggle("SheriffESPToggle", { Title = "ESP Sheriff (Blue)", Default = false, Callback = function(Value) _G.SheriffESP = Value end }) _G.VisualsTab:AddToggle("InnocentESPToggle", { Title = "ESP Innocents (Green)", Default = false, Callback = function(Value) _G.InnocentESP = Value end }) _G.VisualsTab:AddToggle("HeroESPToggle", { Title = "ESP Hero (Yellow)", Default = false, Callback = function(Value) _G.HeroESP = Value end }) _G.Window:SelectTab(1) _G.Fluent:Notify({ Title = "MM2 Menu", Content = "Interface successfully connected with Anti-Fling & Direction Fling!", Duration = 5 }) 
-
-end
-
+VisualsTab:CreateToggle({
+   Name = "Coins / Candy ESP",
+   CurrentValue = false,
+   Flag = "CoinsESPToggle",
+   Callback = function(Value)
+      espCoinsEnabled = Value
+      if espCoinsEnabled then
+         task.spawn(function()
+            local Workspace = game:GetService("Workspace")
+            
+            while espCoinsEnabled do
+               pcall(function()
+                  for _, child in ipairs(Workspace:GetChildren()) do
+                     local container = child:FindFirstChild("CoinContainer")
+                     if container then
+                        for _, coinModel in ipairs(container:GetChildren()) do
+                           if coinModel.Name == "Coin_Server" then
+                              local visual = coinModel:FindFirstChild("CoinVisual")
+                              if visual and not visual:FindFirstChild("CoinHighlight") then
+                                 local highlight = Instance.new("Highlight")
+                                 highlight.Name = "CoinHighlight"
+                                 highlight.FillColor = Color3.fromRGB(255, 215, 0)
+                                 highlight.OutlineColor = Color3.fromRGB(255, 140, 0)
+                                 highlight.FillTransparency = 0.4
+                                 highlight.Parent = visual
+                              end
+                           end
+                        end
+                     end
+                  end
+               end)
+               task.wait(1)
+            end
+            
+            for _, child in ipairs(Workspace:GetChildren()) do
+               local container = child:FindFirstChild("CoinContainer")
+               if container then
+                  for _, coinModel in ipairs(container:GetChildren()) do
+                     local visual = coinModel:FindFirstChild("CoinVisual")
+                     if visual and visual:FindFirstChild("CoinHighlight") then
+                        visual.CoinHighlight:Destroy()
+                     end
+                  end
+               end
+            end
+         end)
+      end
+   end,
+})
