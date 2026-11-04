@@ -18,7 +18,7 @@ local flingMurderOnFull = false
 local killAllWhenFull = false
 local antiFlingEnabled = false
 local autoGrabGunEnabled = false
-local currentSpeed = 1
+local farmSpeed = 50 -- Реальная скорость полета в студах/сек
 
 local espPlayersEnabled = false
 local espCoinsEnabled = false
@@ -72,20 +72,10 @@ local function executeFlingOnTarget(targetType)
             end
          end
          
-         local att = Instance.new("Attachment", root)
-         local angVel = Instance.new("AngularVelocity")
-         angVel.Attachment0 = att
-         angVel.MaxTorque = math.huge
-         angVel.AngularVelocity = Vector3.new(0, 50000, 0)
-         angVel.RelativeTo = Enum.ActuatorRelativeTo.World
-         angVel.Parent = root
-
          local connection
          connection = RunService.RenderStepped:Connect(function()
             if not character or not character:FindFirstChild("HumanoidRootPart") or not targetRoot or not targetRoot.Parent then
                if connection then connection:Disconnect() end
-               angVel:Destroy()
-               att:Destroy()
                return
             end
             
@@ -95,14 +85,16 @@ local function executeFlingOnTarget(targetType)
                end
             end
             
-            root.CFrame = targetRoot.CFrame
-            root.AssemblyLinearVelocity = Vector3.new(0, 50000, 0)
-            targetRoot.AssemblyLinearVelocity = Vector3.new(0, 50000, 0)
+            local randomOffset = CFrame.new(math.random(-4, 4), math.random(-2, 2), math.random(-4, 4))
+            root.CFrame = targetRoot.CFrame * randomOffset
             
-            if tick() - startTime > 1.2 then
+            root.AssemblyLinearVelocity = Vector3.new(500000, 500000, 500000)
+            root.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999)
+            
+            targetRoot.AssemblyLinearVelocity = Vector3.new(math.random(-50000, 50000), -500000, math.random(-50000, 50000))
+            
+            if tick() - startTime > 1.5 then
                if connection then connection:Disconnect() end
-               angVel:Destroy()
-               att:Destroy()
                root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                root.CFrame = originalCFrame
@@ -129,23 +121,17 @@ FarmingTab:CreateToggle({
             while autoFarmCandy do
                pcall(function()
                   local reachedLimit = false
-                  local leaderstats = player:FindFirstChild("leaderstats")
-                  if leaderstats then
-                     local candyStat = leaderstats:FindFirstChild("Candy") or leaderstats:FindFirstChild("Coins")
-                     if candyStat and candyStat.Value >= 50 then
-                        reachedLimit = true
-                     end
-                  end
-                  
                   local playerGui = player:FindFirstChild("PlayerGui")
                   local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
                   local gameFrame = mainGui and mainGui:FindFirstChild("Game")
                   local coinBags = gameFrame and gameFrame:FindFirstChild("CoinBags")
                   if coinBags then
-                     local candyBag = coinBags:FindFirstChild("Candy", true)
-                     local fullIcon = candyBag and candyBag:FindFirstChild("FullBagIcon")
-                     if fullIcon and fullIcon.Visible then
-                        reachedLimit = true
+                     for _, bag in ipairs(coinBags:GetChildren()) do
+                        local fullIcon = bag:FindFirstChild("FullBagIcon")
+                        if fullIcon and fullIcon:IsA("GuiObject") and fullIcon.Visible then
+                           reachedLimit = true
+                           break
+                        end
                      end
                   end
                   
@@ -198,43 +184,54 @@ FarmingTab:CreateToggle({
                      return
                   end
 
-                  for _, child in ipairs(Workspace:GetChildren()) do
-                     local container = child:FindFirstChild("CoinContainer")
-                     if container then
-                        for _, coinModel in ipairs(container:GetChildren()) do
-                           if not autoFarmCandy then break end
-                           if coinModel.Name == "Coin_Server" and player.Character then
-                              local root = player.Character:FindFirstChild("HumanoidRootPart")
-                              local visual = coinModel:FindFirstChild("CoinVisual")
-                              
-                              if root and visual and visual:IsA("BasePart") then
-                                 local targetCFrame = visual.CFrame
-                                 
-                                 if farmUnderground then
-                                    targetCFrame = visual.CFrame * CFrame.new(0, -3.5, 0) * CFrame.Angles(math.rad(90), 0, 0)
-                                 end
-                                 
-                                 if farmUnderground or math.abs(root.Position.Y - visual.Position.Y) < 30 then
-                                    local distance = (root.Position - targetCFrame.Position).Magnitude
-                                    local flySpeed = math.clamp(currentSpeed * 4, 10, 200)
-                                    local tweenTime = distance / flySpeed
-                                    
-                                    local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
-                                    activeTween = TweenService:Create(root, tweenInfo, {CFrame = targetCFrame})
-                                    
-                                    activeTween:Play()
-                                    activeTween.Completed:Wait()
-                                    activeTween = nil
-                                    
-                                    task.wait(0.2)
+                  if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                     local root = player.Character.HumanoidRootPart
+                     local nearestCoinVisual = nil
+                     local shortestDistance = math.huge
+
+                     for _, child in ipairs(Workspace:GetChildren()) do
+                        local container = child:FindFirstChild("CoinContainer")
+                        if container then
+                           for _, coinModel in ipairs(container:GetChildren()) do
+                              if coinModel.Name == "Coin_Server" then
+                                 local visual = coinModel:FindFirstChild("CoinVisual")
+                                 if visual and visual:IsA("BasePart") then
+                                    local dist = (root.Position - visual.Position).Magnitude
+                                    if dist < shortestDistance then
+                                       shortestDistance = dist
+                                       nearestCoinVisual = visual
+                                    end
                                  end
                               end
                            end
                         end
                      end
+
+                     if nearestCoinVisual and autoFarmCandy then
+                        local targetCFrame = nearestCoinVisual.CFrame
+                        
+                        if farmUnderground then
+                           targetCFrame = nearestCoinVisual.CFrame * CFrame.new(0, -3.5, 0) * CFrame.Angles(math.rad(90), 0, 0)
+                        end
+                        
+                        if farmUnderground or math.abs(root.Position.Y - nearestCoinVisual.Position.Y) < 30 then
+                           local distance = (root.Position - targetCFrame.Position).Magnitude
+                           -- Скорость полета теперь зависит от реального значения в студах/сек
+                           local tweenTime = distance / math.clamp(farmSpeed, 10, 500)
+                           
+                           local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
+                           activeTween = TweenService:Create(root, tweenInfo, {CFrame = targetCFrame})
+                           
+                           activeTween:Play()
+                           activeTween.Completed:Wait()
+                           activeTween = nil
+                           
+                           task.wait(0.1)
+                        end
+                     end
                   end
                end)
-               task.wait(0.5)
+               task.wait(0.1)
             end
             activeFarmRoutine = nil
          end)
@@ -258,14 +255,14 @@ FarmingTab:CreateToggle({
 })
 
 FarmingTab:CreateSlider({
-   Name = "Farm Speed",
-   Range = {1, 50},
-   Increment = 1,
-   Suffix = "x",
-   CurrentValue = 1,
+   Name = "Farm Speed (Studs/s)",
+   Range = {10, 300},
+   Increment = 5,
+   Suffix = "s/s",
+   CurrentValue = 50,
    Flag = "FarmSpeedSlider",
    Callback = function(Value)
-      currentSpeed = Value
+      farmSpeed = Value
    end,
 })
 
@@ -381,7 +378,7 @@ FlingTab:CreateButton({
 })
 
 FlingTab:CreateButton({
-   Name = "Fling Sheriff",
+   Name = "Fling Sheriff / Hero",
    Callback = function()
       executeFlingOnTarget("Sheriff")
    end,
@@ -396,41 +393,10 @@ VisualsTab:CreateToggle({
       if espPlayersEnabled then
          task.spawn(function()
             local Players = game:GetService("Players")
-            local Workspace = game:GetService("Workspace")
             local player = Players.LocalPlayer
-            
-            local originalSheriff = nil
-            local lastRoundTimer = nil
             
             while espPlayersEnabled do
                pcall(function()
-                  local roundTimer = nil
-                  local playerGui = player:FindFirstChild("PlayerGui")
-                  local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
-                  local gameFrame = mainGui and mainGui:FindFirstChild("Game")
-                  local timerLabel = gameFrame and (gameFrame:FindFirstChild("Timer", true) or gameFrame:FindFirstChild("TimerLabel", true))
-                  if timerLabel then
-                     roundTimer = timerLabel.Text
-                  end
-                  
-                  if lastRoundTimer ~= roundTimer then
-                     lastRoundTimer = roundTimer
-                     originalSheriff = nil
-                  end
-                  
-                  if not originalSheriff then
-                     for _, p in ipairs(Players:GetPlayers()) do
-                        if p ~= player and p.Character then
-                           local backpack = p:FindFirstChild("Backpack")
-                           local char = p.Character
-                           if (backpack and backpack:FindFirstChild("Gun")) or char:FindFirstChild("Gun") then
-                              originalSheriff = p
-                              break
-                           end
-                        end
-                     end
-                  end
-                  
                   for _, p in ipairs(Players:GetPlayers()) do
                      if p ~= player and p.Character then
                         local char = p.Character
@@ -452,13 +418,8 @@ VisualsTab:CreateToggle({
                            highlight.FillColor = Color3.fromRGB(255, 0, 0)
                            highlight.OutlineColor = Color3.fromRGB(150, 0, 0)
                         elseif hasGun then
-                           if originalSheriff and p == originalSheriff then
-                              highlight.FillColor = Color3.fromRGB(0, 100, 255)
-                              highlight.OutlineColor = Color3.fromRGB(0, 50, 150)
-                           else
-                              highlight.FillColor = Color3.fromRGB(255, 255, 0)
-                              highlight.OutlineColor = Color3.fromRGB(200, 200, 0)
-                           end
+                           highlight.FillColor = Color3.fromRGB(0, 100, 255)
+                           highlight.OutlineColor = Color3.fromRGB(0, 50, 150)
                         else
                            highlight.FillColor = Color3.fromRGB(0, 255, 0)
                            highlight.OutlineColor = Color3.fromRGB(0, 150, 0)
@@ -466,7 +427,7 @@ VisualsTab:CreateToggle({
                      end
                   end
                end)
-               task.wait(1)
+               task.wait(0.5)
             end
             
             for _, p in ipairs(Players:GetPlayers()) do
@@ -494,7 +455,9 @@ VisualsTab:CreateToggle({
                   for _, child in ipairs(Workspace:GetChildren()) do
                      local container = child:FindFirstChild("CoinContainer")
                      if container then
-                        for _, coinModel in ipairs(container:GetChildren()) do
+                        local children = container:GetChildren()
+                        for i = 1, #children do
+                           local coinModel = children[i]
                            if coinModel.Name == "Coin_Server" then
                               local visual = coinModel:FindFirstChild("CoinVisual")
                               if visual and not visual:FindFirstChild("CoinHighlight") then
@@ -516,7 +479,9 @@ VisualsTab:CreateToggle({
             for _, child in ipairs(Workspace:GetChildren()) do
                local container = child:FindFirstChild("CoinContainer")
                if container then
-                  for _, coinModel in ipairs(container:GetChildren()) do
+                  local children = container:GetChildren()
+                  for i = 1, #children do
+                     local coinModel = children[i]
                      local visual = coinModel:FindFirstChild("CoinVisual")
                      if visual and visual:FindFirstChild("CoinHighlight") then
                         visual.CoinHighlight:Destroy()
