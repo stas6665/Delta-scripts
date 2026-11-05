@@ -11,6 +11,7 @@ local Window = Rayfield:CreateWindow({
 local FarmingTab = Window:CreateTab("Farming", 4483362458)
 local FlingTab = Window:CreateTab("Fling", 4483362458)
 local CombatTab = Window:CreateTab("Combat", 4483362458)
+local SkinsTab = Window:CreateTab("Skins", 4483362458)
 local VisualsTab = Window:CreateTab("Visuals", 4483362458)
 
 local autoFarmCandy = false
@@ -19,7 +20,7 @@ local flingMurderOnFull = false
 local killAllWhenFull = false
 local antiFlingEnabled = false
 local autoGrabGunEnabled = false
-local farmSpeed = 50 -- Стандартная скорость
+local farmSpeed = 20
 
 local espPlayersEnabled = false
 local espCoinsEnabled = false
@@ -31,6 +32,46 @@ local isFlingingActive = false
 
 local autoShootGui = nil
 local autoShootButtonEnabled = false
+
+local selectedWeaponType = "Gun"
+local activeSkinName = "Default"
+
+local skinDatabase = {
+   ["Default"] = {MeshId = "", TextureId = ""},
+
+   ["GingerScope"] = {
+      MeshId = "rbxassetid://15622152775", 
+      TextureId = "rbxassetid://15622152865"
+   },
+   ["Celestial"] = {
+      MeshId = "rbxassetid://14013441230", 
+      TextureId = "rbxassetid://14013441315"
+   },
+   ["Emberbow"] = {
+      MeshId = "rbxassetid://15622157077", 
+      TextureId = "rbxassetid://15622157144"
+   },
+   ["Combain"] = {
+      MeshId = "rbxassetid://13812499120", 
+      TextureId = "rbxassetid://13812499245"
+   },
+   ["Evergun"] = {
+      MeshId = "rbxassetid://15622157077", 
+      TextureId = "rbxassetid://15622157144"
+   },
+   ["Laser Gun"] = {
+      MeshId = "rbxassetid://460652273",
+      TextureId = "rbxassetid://460652303"
+   },
+   ["Luger"] = {
+      MeshId = "rbxassetid://460652516",
+      TextureId = "rbxassetid://460652545"
+   },
+   ["Corrupt Knife"] = {
+      MeshId = "rbxassetid://460651877",
+      TextureId = "rbxassetid://460651900"
+   }
+}
 
 local function createAutoShootGui()
    if autoShootGui then return end
@@ -60,7 +101,7 @@ local function createAutoShootGui()
       corner.Parent = btn
       
       btn.MouseButton1Click:Connect(function()
-         pcall(function()
+         local success, err = pcall(function()
             local char = player.Character
             local backpack = player:FindFirstChild("Backpack")
             local gun = (backpack and backpack:FindFirstChild("Gun")) or (char and char:FindFirstChild("Gun"))
@@ -87,16 +128,17 @@ local function createAutoShootGui()
                local targetRoot = targetChar.HumanoidRootPart
                gun:Activate()
                task.wait(0.05)
-               pcall(function()
-                  local args = {
-                     [1] = 1,
-                     [2] = targetRoot.Position,
-                     [3] = "AH"
-                  }
-                  gun:FindFirstChild("RemoteEvent"):FireServer(unpack(args))
-               end)
+               local args = {
+                  [1] = 1,
+                  [2] = targetRoot.Position,
+                  [3] = "AH"
+               }
+               gun:FindFirstChild("RemoteEvent"):FireServer(unpack(args))
             end
          end)
+         if not success then
+            warn("AutoShoot Error:", err)
+         end
       end)
       
       autoShootGui.Parent = playerGui
@@ -191,6 +233,46 @@ local function executeFlingOnTarget(targetType)
    end)
 end
 
+local function applySkinToTool(tool)
+   if not tool or activeSkinName == "Default" then return end
+   
+   local handle = tool:FindFirstChild("Handle")
+   if not handle then return end
+   
+   local skinData = skinDatabase[activeSkinName]
+   if not skinData then return end
+   
+   local mesh = handle:FindFirstChildOfClass("SpecialMesh")
+   if not mesh then
+      mesh = Instance.new("SpecialMesh")
+      mesh.Parent = handle
+   end
+   
+   if skinData.MeshId ~= "" then mesh.MeshId = skinData.MeshId end
+   if skinData.TextureId ~= "" then mesh.TextureId = skinData.TextureId end
+   
+   local oldHighlight = handle:FindFirstChild("SkinGlow")
+   if oldHighlight then oldHighlight:Destroy() end
+   
+   if activeSkinName == "GingerScope" then
+      local glow = Instance.new("SelectionBox")
+      glow.Name = "SkinGlow"
+      glow.Color3 = Color3.fromRGB(255, 140, 0)
+      glow.LineThickness = 0.03
+      glow.Adornee = handle
+      glow.Parent = handle
+      
+      tool.Activated:Connect(function()
+         pcall(function()
+            local originalSound = handle:FindFirstChild("FireSound") or handle:FindFirstChildOfClass("Sound")
+            if originalSound then
+               originalSound:Play()
+            end
+         end)
+      end)
+   end
+end
+
 FarmingTab:CreateToggle({
    Name = "Auto Farm Candy",
    CurrentValue = false,
@@ -214,7 +296,7 @@ FarmingTab:CreateToggle({
             local player = Players.LocalPlayer
 
             while autoFarmCandy and (currentFarmSession == mySessionId) do
-               pcall(function()
+               local success, err = pcall(function()
                   local reachedLimit = false
                   local playerGui = player:FindFirstChild("PlayerGui")
                   local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
@@ -273,7 +355,9 @@ FarmingTab:CreateToggle({
                   end
 
                   if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                     local root = player.Character.HumanoidRootPart
+                     local character = player.Character
+                     local root = character.HumanoidRootPart
+                     
                      local nearestCoinVisual = nil
                      local shortestDistance = math.huge
 
@@ -301,10 +385,11 @@ FarmingTab:CreateToggle({
                            targetCFrame = nearestCoinVisual.CFrame * CFrame.new(0, -3.5, 0) * CFrame.Angles(math.rad(90), 0, 0)
                         end
                         
+                        root.Anchored = true
+                        
                         local distance = (root.Position - targetCFrame.Position).Magnitude
-                        -- Защита от деления на ноль, если ползунок выставлен на 1
-                        local currentSpeed = math.clamp(farmSpeed, 1, 500)
-                        local tweenTime = distance / currentSpeed
+                        local selectedSpeed = math.clamp(farmSpeed, 1, 33)
+                        local tweenTime = distance / selectedSpeed
                         
                         local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
                         activeTween = TweenService:Create(root, tweenInfo, {CFrame = targetCFrame})
@@ -317,14 +402,34 @@ FarmingTab:CreateToggle({
                               activeTween = nil
                               break
                            end
-                           task.wait(0.03)
+                           
+                           if not nearestCoinVisual or not nearestCoinVisual.Parent or not nearestCoinVisual.Parent.Parent then
+                              activeTween:Cancel()
+                              activeTween = nil
+                              break
+                           end
+                           
+                           task.wait(0.02)
                         end
                         activeTween = nil
+                        
+                        if root then
+                           root.Anchored = false
+                        end
                      end
                   end
                end)
-               task.wait(0.02)
+               if not success then
+                  warn("AutoFarm Error:", err)
+               end
+               task.wait(0.01)
             end
+            
+            pcall(function()
+               if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                  player.Character.HumanoidRootPart.Anchored = false
+               end
+            end)
             
             if currentFarmSession == mySessionId then
                activeFarmRoutine = nil
@@ -343,13 +448,12 @@ FarmingTab:CreateToggle({
    end,
 })
 
--- Ползунок скорости изменен: диапазон от 1 до 200, шаг 1 (1 = очень медленно, ~100 = средняя/быстрая)
 FarmingTab:CreateSlider({
    Name = "Farm Speed (Studs/s)",
-   Range = {1, 200},
+   Range = {1, 33},
    Increment = 1,
    Suffix = "s/s",
-   CurrentValue = 50,
+   CurrentValue = 20,
    Flag = "FarmSpeedSlider",
    Callback = function(Value)
       farmSpeed = Value
@@ -470,6 +574,83 @@ FlingTab:CreateButton({
    end,
 })
 
+SkinsTab:CreateDropdown({
+   Name = "Select Weapon Slot",
+   Options = {"Knife", "Gun"},
+   CurrentOption = "Gun",
+   Flag = "SkinSlotDropdown",
+   Callback = function(Option)
+      selectedWeaponType = Option
+   end,
+})
+
+SkinsTab:CreateDropdown({
+   Name = "Select Skin",
+   Options = {"Default", "GingerScope", "Celestial", "Emberbow", "Combain", "Evergun", "Laser Gun", "Luger", "Corrupt Knife"},
+   CurrentOption = "Default",
+   Flag = "SkinNameDropdown",
+   Callback = function(Option)
+      activeSkinName = Option
+   end,
+})
+
+SkinsTab:CreateButton({
+   Name = "Apply & Equip Skin",
+   Callback = function()
+      pcall(function()
+         local Players = game:GetService("Players")
+         local player = Players.LocalPlayer
+         local character = player.Character
+         local backpack = player:FindFirstChild("Backpack")
+         
+         local targetTool = (character and character:FindFirstChild(selectedWeaponType)) or (backpack and backpack:FindFirstChild(selectedWeaponType))
+         if targetTool then
+            applySkinToTool(targetTool)
+         end
+      end)
+   end,
+})
+
+task.spawn(function()
+   local Players = game:GetService("Players")
+   local player = Players.LocalPlayer
+   
+   local function monitorTool(tool)
+      if tool:IsA("Tool") and (tool.Name == "Knife" or tool.Name == "Gun") then
+         tool.Equipped:Connect(function()
+            task.wait(0.02)
+            applySkinToTool(tool)
+         end)
+         applySkinToTool(tool)
+      end
+   end
+
+   local function setupCharacterListener(char)
+      if not char then return end
+      char.ChildAdded:Connect(monitorTool)
+      for _, child in ipairs(char:GetChildren()) do
+         monitorTool(child)
+      end
+      
+      local backpack = player:FindFirstChild("Backpack")
+      if backpack then
+         backpack.ChildAdded:Connect(monitorTool)
+         for _, child in ipairs(backpack:GetChildren()) do
+            monitorTool(child)
+         end
+      end
+   end
+   
+   if player.Character then setupCharacterListener(player.Character) end
+   player.CharacterAdded:Connect(setupCharacterListener)
+   
+   player.ChildAdded:Connect(function(child)
+      if child.Name == "Backpack" then
+         child.ChildAdded:Connect(monitorTool)
+      end
+   end)
+end)
+
 task.spawn(function()
    local Players = game:GetService("Players")
    local RunService = game:GetService("RunService")
@@ -576,17 +757,15 @@ VisualsTab:CreateToggle({
                      if container then
                         local children = container:GetChildren()
                         for i = 1, #children do
-                           val = children[i]
                            local coinModel = children[i]
                            if coinModel.Name == "Coin_Server" then
-                              local visual = coinModel:FindFirstChild("CoinVisual")
-                              if visual and not visual:FindFirstChild("CoinHighlight") then
+                              if not coinModel:FindFirstChild("CoinHighlight") then
                                  local highlight = Instance.new("Highlight")
                                  highlight.Name = "CoinHighlight"
                                  highlight.FillColor = Color3.fromRGB(255, 215, 0)
                                  highlight.OutlineColor = Color3.fromRGB(255, 140, 0)
                                  highlight.FillTransparency = 0.4
-                                 highlight.Parent = visual
+                                 highlight.Parent = coinModel
                               end
                            end
                         end
@@ -602,9 +781,8 @@ VisualsTab:CreateToggle({
                   local children = container:GetChildren()
                   for i = 1, #children do
                      local coinModel = children[i]
-                     local visual = coinModel:FindFirstChild("CoinVisual")
-                     if visual and visual:FindFirstChild("CoinHighlight") then
-                        visual.CoinHighlight:Destroy()
+                     if coinModel:FindFirstChild("CoinHighlight") then
+                        coinModel.CoinHighlight:Destroy()
                      end
                   end
                end
