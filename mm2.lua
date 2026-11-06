@@ -3,7 +3,7 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
 Name = "MM2 Hub",
 LoadingTitle = "Loading...",
-LoadingSubtitle = "by User",
+LoadingSubtitle = "by Stas",
 ConfigurationSaving = { Enabled = false },
 KeySystem = false,
 })
@@ -99,40 +99,31 @@ autoShootGui.ResetOnSpawn = false
 
 local btn = Instance.new("TextButton")  
   btn.Name = "ShootButton"  
-  btn.Size = UDim2.new(0, 240, 0, 85)  
-  btn.Position = UDim2.new(0.5, -120, 0.75, 0)  
-  btn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)  
-  btn.BackgroundTransparency = 0.1  
+  btn.Size = UDim2.new(0, 320, 0, 60)  
+  btn.Position = UDim2.new(0.5, -160, 0.75, 0)  
+  btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)  
+  btn.BackgroundTransparency = 1  
   btn.Text = ""  
   btn.AutoButtonColor = false  
   btn.Parent = autoShootGui  
     
   local corner = Instance.new("UICorner")  
-  corner.CornerRadius = UDim.new(0, 6)  
+  corner.CornerRadius = UDim.new(0, 12)  
   corner.Parent = btn  
     
   local stroke = Instance.new("UIStroke")  
-  stroke.Color = Color3.fromRGB(150, 25, 25)  
-  stroke.Thickness = 3  
+  stroke.Color = Color3.fromRGB(255, 0, 0)  
+  stroke.Thickness = 4  
   stroke.Parent = btn  
     
   local textLabel = Instance.new("TextLabel")  
-  textLabel.Size = UDim2.new(1, 0, 0, 40)  
-  textLabel.Position = UDim2.new(0, 0, 0, 8)  
+  textLabel.Size = UDim2.new(1, 0, 1, 0)  
   textLabel.BackgroundTransparency = 1  
-  textLabel.Text = "SHOOT MURDERER"  
-  textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)  
-  textLabel.TextSize = 20  
+  textLabel.Text = "Shoot Murder"  
+  textLabel.TextColor3 = Color3.fromRGB(0, 0, 0)  
+  textLabel.TextSize = 24  
   textLabel.Font = Enum.Font.GothamBold  
   textLabel.Parent = btn  
-    
-  local gunIcon = Instance.new("ImageLabel")  
-  gunIcon.Size = UDim2.new(0, 45, 0, 25)  
-  gunIcon.Position = UDim2.new(0.5, -22, 0, 50)  
-  gunIcon.BackgroundTransparency = 1  
-  gunIcon.Image = "rbxassetid://6023426915"  
-  gunIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)  
-  gunIcon.Parent = btn  
 
   local dragging = false  
   local activeInput = nil  
@@ -166,15 +157,19 @@ local btn = Instance.new("TextButton")
            pcall(function()  
               local char = player.Character  
               if not char or not char:FindFirstChild("HumanoidRootPart") then return end  
-              local root = char.HumanoidRootPart  
                 
               local backpack = player:FindFirstChild("Backpack")  
               local gun = char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun"))  
               if not gun then return end  
                 
               if gun.Parent == backpack then  
-                 gun.Parent = char  
-                 task.wait(0.05)  
+                 local humanoid = char:FindFirstChildOfClass("Humanoid")  
+                 if humanoid then  
+                    humanoid:EquipTool(gun)  
+                 else  
+                    gun.Parent = char  
+                 end  
+                 task.wait(0.1)  
               end  
                 
               local targetRoot = nil  
@@ -197,18 +192,20 @@ local btn = Instance.new("TextButton")
               if targetRoot then  
                  local targetPos = targetRoot.Position + (targetRoot.AssemblyLinearVelocity * 0.05)  
                    
-                 local raycastParams = RaycastParams.new()  
-                 raycastParams.FilterType = Enum.RaycastFilterType.Exclude  
-                 raycastParams.FilterDescendantsInstances = {char, targetRoot.Parent}  
-                   
-                 local raycastResult = workspace:Raycast(root.Position, targetPos - root.Position, raycastParams)  
-                 if not raycastResult then  
-                    local remote = gun:FindFirstChild("Shoot") or gun:FindFirstChild("RemoteEvent") or gun:FindFirstChildOfClass("RemoteEvent")  
-                    if remote and remote:IsA("RemoteEvent") then  
-                       remote:FireServer(targetPos)  
-                    else  
-                       gun:Activate()  
+                 local remote = gun:FindFirstChild("Shoot") or gun:FindFirstChild("RemoteEvent") or gun:FindFirstChildOfClass("RemoteEvent")  
+                 if not remote then  
+                    for _, obj in ipairs(gun:GetDescendants()) do  
+                       if obj:IsA("RemoteEvent") then  
+                          remote = obj  
+                          break  
+                       end  
                     end  
+                 end  
+                   
+                 if remote and remote:IsA("RemoteEvent") then  
+                    remote:FireServer(targetPos)  
+                 else  
+                    gun:Activate()  
                  end  
               end  
            end)  
@@ -241,9 +238,13 @@ local character = player.Character
 
 if not character or not character:FindFirstChild("HumanoidRootPart") then return end  
   local root = character.HumanoidRootPart  
+  local humanoid = character:FindFirstChildOfClass("Humanoid")  
   local originalCFrame = root.CFrame  
-    
+
   local targetRoot = nil  
+  local targetHum = nil  
+  local targetChar = nil  
+    
   for _, p in ipairs(Players:GetPlayers()) do  
      if p ~= player and p.Character then  
         local backpack = p:FindFirstChild("Backpack")  
@@ -252,33 +253,48 @@ if not character or not character:FindFirstChild("HumanoidRootPart") then return
         local isGun = (backpack and backpack:FindFirstChild("Gun")) or char:FindFirstChild("Gun")  
           
         if (targetType == "Murder" and isKnife) or (targetType == "Sheriff" and isGun) then  
-           if char:FindFirstChild("HumanoidRootPart") then  
+           if char:FindFirstChild("HumanoidRootPart") and char:FindFirstChildOfClass("Humanoid") then  
               targetRoot = char.HumanoidRootPart  
+              targetHum = char:FindFirstChildOfClass("Humanoid")  
+              targetChar = char  
               break  
            end  
         end  
      end  
   end  
-    
-  if targetRoot then  
+
+  if targetRoot and targetChar then  
      isFlingingActive = true  
-       
+
      local originalCollisions = {}  
-     for _, part in ipairs(character:GetDescendants()) do  
-        if part:IsA("BasePart") then  
-           originalCollisions[part] = part.CanCollide  
-           part.CanCollide = false  
+     local targetPartsCollisions = {}  
+     
+     pcall(function()
+        for _, part in ipairs(character:GetDescendants()) do  
+           if part:IsA("BasePart") then  
+              originalCollisions[part] = part.CanCollide  
+              part.CanCollide = false  
+           end  
         end  
-     end  
-       
+
+        for _, part in ipairs(targetChar:GetDescendants()) do  
+           if part:IsA("BasePart") then  
+              targetPartsCollisions[part] = part.CanCollide  
+           end  
+        end  
+     end)  
+
+     if humanoid then humanoid.PlatformStand = true end  
+
      local startTime = tick()  
      local connection  
-       
+
      connection = RunService.Heartbeat:Connect(function()  
         if not character or not character.Parent or not targetRoot or not targetRoot.Parent then  
            if connection then connection:Disconnect() end  
            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)  
            root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
+           if humanoid then humanoid.PlatformStand = false end  
            root.CFrame = originalCFrame  
            for part, canCollideState in pairs(originalCollisions) do  
               if part and part.Parent then part.CanCollide = canCollideState end  
@@ -286,23 +302,57 @@ if not character or not character:FindFirstChild("HumanoidRootPart") then return
            isFlingingActive = false  
            return  
         end  
-          
-        root.CFrame = targetRoot.CFrame  
-        root.AssemblyLinearVelocity = Vector3.new(20000, 40000, 20000)  
-        root.AssemblyAngularVelocity = Vector3.new(50000, 50000, 50000)  
-          
-        if tick() - startTime > 0.15 then  
+
+        pcall(function()  
+           if targetHum and targetHum.Parent then  
+              targetHum.PlatformStand = true  
+              targetHum.WalkSpeed = 0  
+              targetHum.JumpPower = 0  
+              targetHum.AutoRotate = false  
+           end  
+           if targetRoot and targetRoot.Parent then  
+              targetRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)  
+              targetRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
+           end  
+           for part, _ in pairs(targetPartsCollisions) do  
+              if part and part.Parent then  
+                 part.CanCollide = false  
+              end  
+           end  
+        end)  
+
+        root.CFrame = targetRoot.CFrame * CFrame.new(0, 0.5, 0)  
+        root.AssemblyLinearVelocity = Vector3.new(35000, 35000, 35000)  
+        root.AssemblyAngularVelocity = Vector3.new(0, 99999, 0)  
+
+        if tick() - startTime > 0.3 then  
            if connection then connection:Disconnect() end  
+             
+           pcall(function()  
+              if targetHum and targetHum.Parent then  
+                 targetHum.PlatformStand = false  
+                 targetHum.WalkSpeed = 16  
+                 targetHum.JumpPower = 50  
+                 targetHum.AutoRotate = true  
+              end  
+              for part, canCollideState in pairs(targetPartsCollisions) do  
+                 if part and part.Parent then  
+                    part.CanCollide = canCollideState  
+                 end  
+              end  
+           end)  
+
            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)  
            root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
+           if humanoid then humanoid.PlatformStand = false end  
            root.CFrame = originalCFrame  
-             
+
            for part, canCollideState in pairs(originalCollisions) do  
               if part and part.Parent then  
                  part.CanCollide = canCollideState  
               end  
            end  
-             
+
            isFlingingActive = false  
         end  
      end)  
@@ -430,6 +480,27 @@ end
 return false
 end
 
+-- Автоматический полноценный флинг убийцы при заполнении сумки до 50
+task.spawn(function()
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local lastFlingTime = 0
+
+while true do
+pcall(function()
+if flingMurderOnFull then
+if checkBagFull(player) then
+if tick() - lastFlingTime > 15 then
+lastFlingTime = tick()
+executeFlingOnTarget("Murder")
+end
+end
+end
+end)
+task.wait(1)
+end
+end)
+
 local xrayConnection = nil
 
 local function setupXrayPart(part)
@@ -546,6 +617,11 @@ if autoFarmCandy then
 
         while autoFarmCandy and (currentFarmSession == mySessionId) do  
            local success, err = pcall(function()  
+              if checkBagFull(player) then  
+                 task.wait(2)  
+                 return  
+              end  
+
               if not checkBagVisible(player) then  
                  task.wait(1)  
                  return  
@@ -559,41 +635,6 @@ if autoFarmCandy then
                 
               local root = character.HumanoidRootPart  
               local humanoid = character:FindFirstChildOfClass("Humanoid")  
-                
-              if checkBagFull(player) then  
-                 autoFarmCandy = false  
-                 currentFarmSession = currentFarmSession + 1  
-                 if humanoid then humanoid.PlatformStand = false end  
-                   
-                 if flingMurderOnFull then  
-                    executeFlingOnTarget("Murder")  
-                 elseif killAllWhenFull then  
-                    local backpack = player:FindFirstChild("Backpack")  
-                    local knife = (backpack and backpack:FindFirstChild("Knife")) or (character and character:FindFirstChild("Knife"))  
-                    if knife then  
-                       knife.Parent = character  
-                         
-                       for _, p in ipairs(Players:GetPlayers()) do  
-                          if p ~= player and p.Character then  
-                             local targetChar = p.Character  
-                             local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")  
-                             local targetHum = targetChar:FindFirstChild("Humanoid")  
-                               
-                             if targetRoot and targetHum and targetHum.Health > 0 then  
-                                pcall(function()  
-                                   local remote = knife:FindFirstChild("RemoteEvent") or knife:FindFirstChildOfClass("RemoteEvent")  
-                                   if remote then  
-                                      remote:FireServer("Throw", targetRoot.Position)  
-                                   end  
-                                end)  
-                                task.wait(0.02)  
-                             end  
-                          end  
-                       end  
-                    end  
-                 end  
-                 return  
-              end  
 
               local container = findCoinContainerDeep()  
               if not container or #container:GetChildren() == 0 then  
@@ -636,6 +677,8 @@ if autoFarmCandy then
                           if humanoid and humanoid.Parent then  
                              humanoid.PlatformStand = false  
                           end  
+                          root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)  
+                          root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
                           for part, canCollideState in pairs(originalCollisions) do  
                              if part and part.Parent then  
                                 part.CanCollide = canCollideState  
@@ -649,13 +692,17 @@ if autoFarmCandy then
                           cleanupFarm()  
                           return  
                        end  
-                       root.CFrame = (root.CFrame - root.CFrame.Position) + nearestCoin.Position  
+                       root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)  
+                       root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
+                       root.CFrame = CFrame.new(nearestCoin.Position)  
                          
                        for _, coinDataObj in ipairs(availableCoins) do  
                           if coinDataObj and coinDataObj.Position and coinDataObj.Instance and coinDataObj.Instance.Parent then  
                              if (root.Position - coinDataObj.Position).Magnitude <= 8 then  
                                 pcall(function()  
-                                   root.CFrame = (root.CFrame - root.CFrame.Position) + coinDataObj.Position  
+                                   root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)  
+                                   root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
+                                   root.CFrame = CFrame.new(coinDataObj.Position)  
                                    task.wait(0.2)  
                                 end)  
                              end  
@@ -675,16 +722,18 @@ if autoFarmCandy then
                           local alpha = math.clamp(elapsed / travelTime, 0, 1)  
                             
                           root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)  
+                          root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
                             
-                          local currentRotation = root.CFrame - root.CFrame.Position  
                           local currentPos = startPos:Lerp(targetPos, alpha)  
-                          root.CFrame = currentRotation + currentPos  
+                          root.CFrame = CFrame.new(currentPos)  
                             
                           for _, coinDataObj in ipairs(availableCoins) do  
                              if coinDataObj and coinDataObj.Position and coinDataObj.Instance and coinDataObj.Instance.Parent then  
                                 if (root.Position - coinDataObj.Position).Magnitude <= 8 then  
                                    pcall(function()  
-                                      root.CFrame = (root.CFrame - root.CFrame.Position) + coinDataObj.Position  
+                                      root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)  
+                                      root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
+                                      root.CFrame = CFrame.new(coinDataObj.Position)  
                                       task.wait(0.2)  
                                    end)  
                                 end  
@@ -696,7 +745,9 @@ if autoFarmCandy then
                        end  
 
                        if autoFarmCandy and (currentFarmSession == mySessionId) and checkBagVisible(player) then  
-                          root.CFrame = (root.CFrame - root.CFrame.Position) + targetPos  
+                          root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)  
+                          root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
+                          root.CFrame = CFrame.new(targetPos)  
                        end  
                     end  
 
@@ -849,7 +900,7 @@ local visual = cm:FindFirstChild("CoinVisual") or (cm.Name == "CoinVisual" and c
 if visual and visual:IsA("BasePart") and not visual:FindFirstChild("CoinHighlight") then
 local hl = Instance.new("Highlight")
 hl.Name = "CoinHighlight"
-hl.FillColor = Color3.fromRGB(255, 215, 0)
+hl.FillColor = Color3.fromRGB(255, 140, 0) -- Оранжевый цвет
 hl.OutlineColor = Color3.fromRGB(255, 255, 255)
 hl.FillTransparency = 0.4
 hl.Parent = visual
