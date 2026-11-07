@@ -84,7 +84,7 @@ local function updateAntiFling()
    end
 end
 
--- Auto Grab Gun (Телепортація до пістолета на 0.05 сек)
+-- Auto Grab Gun
 task.spawn(function()
    local Workspace = game:GetService("Workspace")
    local Players = game:GetService("Players")
@@ -114,7 +114,7 @@ task.spawn(function()
                   if handle then
                      local origCFrame = root.CFrame
                      root.CFrame = handle.CFrame + Vector3.new(0, 1, 0)
-                     task.wait(0.05) -- Ривок рівно на 0.05 секунд
+                     task.wait(0.05)
                      root.CFrame = origCFrame
                   end
                end
@@ -125,7 +125,7 @@ task.spawn(function()
    end
 end)
 
--- Кнопка Shoot Murder (Звук, анімація, строгий пошук Knife)
+-- Shoot Murder Button (Без поворота/лока камеры, только чистый серверный удар и анимация)
 local function createAutoShootGui()
    if autoShootGui then return end
    local Players = game:GetService("Players")
@@ -206,7 +206,7 @@ local function createAutoShootGui()
                   local gun = char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun"))  
                   
                   if not gun then 
-                     Rayfield:Notify({Title = "Shoot", Content = "Немає пістолета в руках чи рюкзаці!", Duration = 2})
+                     Rayfield:Notify({Title = "Shoot", Content = "No gun found in hands or backpack!", Duration = 2})
                      return 
                   end  
                     
@@ -223,7 +223,7 @@ local function createAutoShootGui()
                         local pRoot = pChar:FindFirstChild("HumanoidRootPart")  
                         local pHum = pChar:FindFirstChild("Humanoid")  
                           
-                        local hasKnife = (pBackpack and pBackpack:FindFirstChild("Knife")) or pChar:FindFirstChild("Knife")  
+                        local hasKnife = (pBackpack and pBackpack:FindFirstChild("Knife")) or (pChar and pChar:FindFirstChild("Knife"))  
                           
                         if hasKnife and pRoot and pHum and pHum.Health > 0 then  
                            targetRoot = pRoot  
@@ -233,36 +233,21 @@ local function createAutoShootGui()
                   end  
                     
                   if not targetRoot then
-                     Rayfield:Notify({Title = "Shoot", Content = "Маньяка з ножем не знайдено на карті!", Duration = 2})
+                     Rayfield:Notify({Title = "Shoot", Content = "Murderer with a knife not found on the map!", Duration = 2})
                      return
                   end
 
-                  local targetPos = targetRoot.Position + Vector3.new(0, 0.2, 0)  
+                  local targetPos = targetRoot.Position + Vector3.new(0, 0.5, 0)  
 
-                  local attachmentCFrame = nil
                   local rayAttach = char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment")
-                  if rayAttach then
-                     attachmentCFrame = rayAttach.WorldCFrame
-                  else
-                     attachmentCFrame = char.HumanoidRootPart.CFrame
-                  end
+                  local attachmentCFrame = rayAttach and rayAttach.WorldCFrame or char.HumanoidRootPart.CFrame
 
                   local remote = gun:FindFirstChild("Shoot") or gun:FindFirstChildOfClass("RemoteEvent")
                   if remote and remote:IsA("RemoteEvent") then  
                      remote:FireServer(attachmentCFrame, targetPos)
-                     Rayfield:Notify({Title = "Shoot", Content = "Постріл у маньяка відправлено!", Duration = 1.5})
                   end  
                   
-                  -- Активація анімації і звуку
                   gun:Activate()  
-                  
-                  local handle = gun:FindFirstChild("Handle")
-                  if handle then
-                     local sound = handle:FindFirstChildOfClass("Sound") or handle:FindFirstChild("Fire") or handle:FindFirstChild("ShootSound")
-                     if sound and sound:IsA("Sound") then
-                        sound:Play()
-                     end
-                  end
                end)  
             end  
               
@@ -282,7 +267,7 @@ local function removeAutoShootGui()
    if autoShootGui then autoShootGui:Destroy() autoShootGui = nil end
 end
 
--- Безпечний Fling
+-- Fling
 local function executeFlingOnTarget(targetType)
    if isFlingingActive then return end
    task.spawn(function()
@@ -303,8 +288,8 @@ local function executeFlingOnTarget(targetType)
             local backpack = p:FindFirstChild("Backpack")  
             local char = p.Character  
             
-            local isKnife = (backpack and backpack:FindFirstChild("Knife")) or char:FindFirstChild("Knife")  
-            local isGun = (backpack and backpack:FindFirstChild("Gun")) or char:FindFirstChild("Gun")  
+            local isKnife = (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife"))
+            local isGun = (backpack and backpack:FindFirstChild("Gun")) or (char and char:FindFirstChild("Gun"))
 
             if (targetType == "Murder" and isKnife) or (targetType == "Sheriff" and isGun) or (targetType == "All") then  
                if char:FindFirstChild("HumanoidRootPart") then  
@@ -318,11 +303,13 @@ local function executeFlingOnTarget(targetType)
       if targetRoot then  
          isFlingingActive = true  
 
-         if humanoid then humanoid.PlatformStand = true end  
+         if humanoid then 
+            humanoid.PlatformStand = true 
+         end  
 
          local bv = Instance.new("BodyVelocity")
-         bv.MaxForce = Vector3.new(100000, 100000, 100000)
-         bv.Velocity = Vector3.new(0, 15000, 0)
+         bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+         bv.Velocity = Vector3.new(0, 30000, 0)
          bv.Parent = root
 
          local startTime = tick()  
@@ -338,14 +325,19 @@ local function executeFlingOnTarget(targetType)
                return  
             end  
 
-            root.CFrame = targetRoot.CFrame * CFrame.new(0, 0.5, 0)
-            bv.Velocity = Vector3.new(math.random(-10000, 10000), 20000, math.random(-10000, 10000))
+            root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 0)
+            root.AssemblyAngularVelocity = Vector3.new(0, 99999, 0)
+            bv.Velocity = Vector3.new(math.random(-30000, 30000), 50000, math.random(-30000, 30000))
 
-            if tick() - startTime > 0.8 then  
+            if tick() - startTime > 0.6 then  
                if connection then connection:Disconnect() end  
                if bv then bv:Destroy() end
                if humanoid then humanoid.PlatformStand = false end
-               root.CFrame = originalCFrame  
+               
+               root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+               root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+               root.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)  
+               
                isFlingingActive = false  
             end  
          end)  
@@ -413,7 +405,7 @@ local function executeAutoKillWhenFull()
             if not char or not char:FindFirstChild("HumanoidRootPart") then return end
             local root = char.HumanoidRootPart
             local backpack = player:FindFirstChild("Backpack")
-            local knife = char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife"))
+            local knife = (char and char:FindFirstChild("Knife")) or (backpack and backpack:FindFirstChild("Knife"))
             
             local hum = char:FindFirstChildOfClass("Humanoid")
             if knife and knife.Parent == backpack and hum then
@@ -490,7 +482,6 @@ local function updateXray()
    end
 end
 
--- Вкладка Farming
 FarmingTab:CreateDropdown({
    Name = "Farm Method",
    Options = {"Teleport", "Fly"},
@@ -572,10 +563,10 @@ FarmingTab:CreateToggle({
                      if farmMethod == "Teleport" then  
                         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                         root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                        root.CFrame = CFrame.new(nearestCoin.Position + Vector3.new(0, 0.5, 0))  
+                        root.CFrame = CFrame.new(nearestCoin.Position + Vector3.new(0, 0.8, 0))  
                         task.wait(0.2)  
                      else  
-                        local targetPos = nearestCoin.Position + Vector3.new(0, 0.5, 0)
+                        local targetPos = nearestCoin.Position + Vector3.new(0, 0.8, 0)
                         local distance = (root.Position - targetPos).Magnitude
                         local travelTime = distance / math.clamp(farmSpeed, 1, 33)
 
@@ -591,10 +582,12 @@ FarmingTab:CreateToggle({
 
                            local currentPos = root.Position
                            local nextPos = currentPos:Lerp(targetPos, 0.4)
-                           root.CFrame = CFrame.new(nextPos) * root.CFrame.Rotation
+                           
+                           local lookRot = CFrame.lookAt(nextPos, targetPos).Rotation
+                           root.CFrame = CFrame.new(nextPos) * (CFrame.Angles(0, select(2, lookRot:ToOrientation()), 0))
 
                            if (root.Position - targetPos).Magnitude < 1 or alpha >= 1 then
-                              root.CFrame = CFrame.new(targetPos) * root.CFrame.Rotation
+                              root.CFrame = CFrame.new(targetPos)
                               break
                            end
                            task.wait(0.01)
@@ -633,7 +626,6 @@ FarmingTab:CreateToggle({
    end,
 })
 
--- Вкладка Fling
 FlingTab:CreateButton({
    Name = "Fling Murder",
    Callback = function() executeFlingOnTarget("Murder") end,
@@ -644,7 +636,6 @@ FlingTab:CreateButton({
    Callback = function() executeFlingOnTarget("Sheriff") end,
 })
 
--- Вкладка Combat
 CombatTab:CreateToggle({
    Name = "Auto Grab Gun",
    CurrentValue = false,
@@ -662,7 +653,6 @@ CombatTab:CreateToggle({
    end,
 })
 
--- Вкладка Skins
 SkinsTab:CreateDropdown({
    Name = "Select Weapon Slot",
    Options = {"Knife", "Gun"},
@@ -690,7 +680,6 @@ SkinsTab:CreateButton({
    end,
 })
 
--- Вкладка Visuals
 VisualsTab:CreateToggle({
    Name = "Player ESP (Role Colors)",
    CurrentValue = false,
@@ -716,9 +705,12 @@ VisualsTab:CreateToggle({
                            hl.Parent = char
                         end
                         local bp = p:FindFirstChild("Backpack")
-                        if (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife") then
+                        local hasK = (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife")
+                        local hasG = (bp and bp:FindFirstChild("Gun")) or char:FindFirstChild("Gun")
+
+                        if hasK then
                            hl.FillColor = Color3.fromRGB(255, 0, 0)
-                        elseif (bp and bp:FindFirstChild("Gun")) or char:FindFirstChild("Gun") then
+                        elseif hasG then
                            hl.FillColor = Color3.fromRGB(0, 100, 255)
                         else
                            hl.FillColor = Color3.fromRGB(0, 255, 0)
