@@ -16,8 +16,10 @@ local VisualsTab = Window:CreateTab("Visuals", 4483362458)
 
 local autoFarmCandy = false
 local flingMurderOnFull = false
-local killAllWhenFull = false
 local antiFlingEnabled = false
+local autoGrabGunEnabled = false
+local killAllEnabled = false
+
 local farmSpeed = 25
 local farmMethod = "Teleport"
 
@@ -83,6 +85,40 @@ local function updateAntiFling()
    end
 end
 
+-- Auto Grab Gun
+task.spawn(function()
+   local Workspace = game:GetService("Workspace")
+   local Players = game:GetService("Players")
+   
+   while true do
+      pcall(function()
+         if autoGrabGunEnabled then
+            local player = Players.LocalPlayer
+            local backpack = player:FindFirstChild("Backpack")
+            local char = player.Character
+            
+            local hasGun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:FindFirstChild("Gun"))
+            
+            if not hasGun and backpack then
+               for _, obj in ipairs(Workspace:GetChildren()) do
+                  if obj.Name == "GunDrop" then
+                     obj.Parent = backpack
+                     Rayfield:Notify({
+                        Title = "Auto Grab Gun",
+                        Content = "Successfully grabbed the gun!",
+                        Duration = 3,
+                        Image = 4483362458
+                     })
+                  end
+               end
+            end
+         end
+      end)
+      task.wait(0.3)
+   end
+end)
+
+-- Auto Shoot GUI
 local function createAutoShootGui()
    if autoShootGui then return end
    local Players = game:GetService("Players")
@@ -100,7 +136,7 @@ local function createAutoShootGui()
       btn.Size = UDim2.new(0, 320, 0, 60)  
       btn.Position = UDim2.new(0.5, -160, 0.75, 0)  
       btn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-      btn.BackgroundTransparency = 0.4
+      btn.BackgroundTransparency = 0.3
       btn.Text = ""  
       btn.AutoButtonColor = false  
       btn.Parent = autoShootGui  
@@ -110,8 +146,10 @@ local function createAutoShootGui()
       corner.Parent = btn  
         
       local stroke = Instance.new("UIStroke")  
+      stroke.Name = "BorderStroke"
       stroke.Color = Color3.fromRGB(255, 0, 0)  
-      stroke.Thickness = 3  
+      stroke.Thickness = 4  
+      stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
       stroke.Parent = btn  
         
       local textLabel = Instance.new("TextLabel")  
@@ -155,19 +193,15 @@ local function createAutoShootGui()
                pcall(function()  
                   local char = player.Character  
                   if not char or not char:FindFirstChild("HumanoidRootPart") then return end  
+                  local hum = char:FindFirstChildOfClass("Humanoid")
                     
                   local backpack = player:FindFirstChild("Backpack")  
                   local gun = char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun"))  
                   if not gun then return end  
                     
-                  if gun.Parent == backpack then  
-                     local hum = char:FindFirstChildOfClass("Humanoid")
-                     if hum then
-                        hum:EquipTool(gun)
-                     else
-                        gun.Parent = char
-                     end
-                     task.wait(0.1)  
+                  if gun.Parent == backpack and hum then  
+                     hum:EquipTool(gun)
+                     task.wait(0.05)
                   end  
                     
                   local targetRoot = nil  
@@ -190,21 +224,16 @@ local function createAutoShootGui()
                   if targetRoot then  
                      local targetPos = targetRoot.Position  
                        
-                     local remote = gun:FindFirstChild("Shoot") or gun:FindFirstChild("RemoteEvent") or gun:FindFirstChildOfClass("RemoteEvent")  
-                     if not remote then  
-                        for _, obj in ipairs(gun:GetDescendants()) do  
-                           if obj:IsA("RemoteEvent") then  
-                              remote = obj  
-                              break  
-                           end  
-                        end  
+                     local remote = gun:FindFirstChild("Shoot")
+                     if not remote then
+                        remote = gun:FindFirstChildOfClass("RemoteEvent")
                      end  
                        
                      if remote and remote:IsA("RemoteEvent") then  
                         remote:FireServer(targetPos)  
-                     else  
-                        gun:Activate()  
                      end  
+                     
+                     gun:Activate()  
                   end  
                end)  
             end  
@@ -225,7 +254,6 @@ local function removeAutoShootGui()
    if autoShootGui then autoShootGui:Destroy() autoShootGui = nil end
 end
 
--- ФЛИЗ С ФИЗИЧЕСКИМ СТОЛКНОВЕНИЕМ
 local function executeFlingOnTarget(targetType)
    if isFlingingActive then return end
    task.spawn(function()
@@ -240,7 +268,6 @@ local function executeFlingOnTarget(targetType)
       local originalCFrame = root.CFrame  
 
       local targetRoot = nil  
-      local targetHum = nil  
       local targetChar = nil  
         
       for _, p in ipairs(Players:GetPlayers()) do  
@@ -250,17 +277,10 @@ local function executeFlingOnTarget(targetType)
             
             local isKnife = (backpack and backpack:FindFirstChild("Knife")) or char:FindFirstChild("Knife")  
             local isGun = (backpack and backpack:FindFirstChild("Gun")) or char:FindFirstChild("Gun")  
-            
-            if not isKnife and backpack then
-               for _, item in ipairs(backpack:GetChildren()) do
-                  if item:IsA("Tool") and item.Name:lower():find("knife") then isKnife = item break end
-               end
-            end
 
-            if (targetType == "Murder" and isKnife) or (targetType == "Sheriff" and isGun) then  
-               if char:FindFirstChild("HumanoidRootPart") and char:FindFirstChildOfClass("Humanoid") then  
+            if (targetType == "Murder" and isKnife) or (targetType == "Sheriff" and isGun) or (targetType == "All") then  
+               if char:FindFirstChild("HumanoidRootPart") then  
                   targetRoot = char.HumanoidRootPart  
-                  targetHum = char:FindFirstChildOfClass("Humanoid")  
                   targetChar = char  
                   break  
                end  
@@ -275,8 +295,13 @@ local function executeFlingOnTarget(targetType)
 
          local bav = Instance.new("BodyAngularVelocity")
          bav.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-         bav.AngularVelocity = Vector3.new(0, 99999, 0)
+         bav.AngularVelocity = Vector3.new(99999, 99999, 99999)
          bav.Parent = root
+
+         local bv = Instance.new("BodyVelocity")
+         bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+         bv.Velocity = Vector3.new(0, 0, 0)
+         bv.Parent = root
 
          local startTime = tick()  
          local connection  
@@ -285,30 +310,21 @@ local function executeFlingOnTarget(targetType)
             if not character or not character.Parent or not targetRoot or not targetRoot.Parent then  
                if connection then connection:Disconnect() end  
                if bav then bav:Destroy() end
+               if bv then bv:Destroy() end
                if humanoid then humanoid.PlatformStand = false end  
                root.CFrame = originalCFrame  
                isFlingingActive = false  
                return  
             end  
 
-            pcall(function()  
-               if targetHum and targetHum.Parent then  
-                  targetHum.PlatformStand = true  
-               end  
-            end)  
-
             root.CFrame = targetRoot.CFrame
+            bv.Velocity = Vector3.new(math.random(-30000, 30000), math.random(30000, 50000), math.random(-30000, 30000))
 
-            if tick() - startTime > 1.5 then  
+            if tick() - startTime > 1.2 then  
                if connection then connection:Disconnect() end  
                if bav then bav:Destroy() end
+               if bv then bv:Destroy() end
                  
-               pcall(function()  
-                  if targetHum and targetHum.Parent then  
-                     targetHum.PlatformStand = false  
-                  end  
-               end)  
-
                if humanoid then humanoid.PlatformStand = false end  
                root.CFrame = originalCFrame  
                isFlingingActive = false  
@@ -333,9 +349,12 @@ end
 
 local function findCoinContainerDeep()
    local Workspace = game:GetService("Workspace")
-   for _, obj in ipairs(Workspace:GetDescendants()) do
-      if obj:IsA("Instance") and obj.Name == "CoinContainer" then
-         return obj
+   for _, child in ipairs(Workspace:GetChildren()) do
+      if child:IsA("Model") and child.Name ~= "Lobby" and child ~= Workspace.CurrentCamera then
+         local container = child:FindFirstChild("CoinContainer", true)
+         if container then
+            return container
+         end
       end
    end
    return nil
@@ -354,16 +373,22 @@ local function checkBagFull(player)
    local playerGui = player:FindFirstChild("PlayerGui")
    local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
    local gameFrame = mainGui and mainGui:FindFirstChild("Game")
-   local coinBags = gameFrame and gameFrame:FindFirstChild("CoinBags")
+   
+   if not gameFrame or not gameFrame.Visible then
+      return true
+   end
 
-   if coinBags then
+   local coinBags = gameFrame:FindFirstChild("CoinBags")
+   if coinBags and coinBags.Visible then
       for _, obj in ipairs(coinBags:GetDescendants()) do
          if obj.Name == "FullBagIcon" and obj:IsA("GuiObject") and obj.Visible then
             return true
          end
       end
+      return false
    end
-   return false
+
+   return true
 end
 
 task.spawn(function()
@@ -386,7 +411,26 @@ task.spawn(function()
    end
 end)
 
-local xrayConnection = nil
+task.spawn(function()
+   local Players = game:GetService("Players")
+   while true do
+      pcall(function()
+         if killAllEnabled then
+            local player = Players.LocalPlayer
+            for _, p in ipairs(Players:GetPlayers()) do
+               if p ~= player and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+                  if not isFlingingActive then
+                     executeFlingOnTarget("All")
+                     task.wait(1.5)
+                  end
+               end
+            end
+         end
+      end)
+      task.wait(1)
+   end
+end)
+
 local function setupXrayPart(part)
    if not part:IsA("BasePart") then return end
    if part.Name:find("Coin") or part.Parent.Name:find("Coin") then return end
@@ -456,7 +500,7 @@ FarmingTab:CreateToggle({
             while autoFarmCandy and (currentFarmSession == mySessionId) do  
                local success, err = pcall(function()  
                   if checkBagFull(player) then  
-                     task.wait(1.5)  
+                     task.wait(1)  
                      return  
                   end  
 
@@ -482,47 +526,73 @@ FarmingTab:CreateToggle({
                      end  
                   end  
 
-                  if #availableCoins > 0 then  
-                     local nearestCoin = nil  
-                     local nearestDist = math.huge  
+                  if #availableCoins == 0 then
+                     task.wait(0.5)
+                     return
+                  end
 
-                     for _, coinData in ipairs(availableCoins) do  
-                        local dist = (root.Position - coinData.Position).Magnitude  
-                        if dist < nearestDist then  
-                           nearestDist = dist  
-                           nearestCoin = coinData  
-                        end  
+                  local nearestCoin = nil  
+                  local nearestDist = math.huge  
+
+                  for _, coinData in ipairs(availableCoins) do  
+                     local dist = (root.Position - coinData.Position).Magnitude  
+                     if dist < nearestDist then  
+                        nearestDist = dist  
+                        nearestCoin = coinData  
                      end  
+                  end  
 
-                     if nearestCoin then  
-                        if farmMethod == "Teleport" then  
+                  if nearestCoin and nearestCoin.Instance and nearestCoin.Instance.Parent then  
+                     if farmMethod == "Teleport" then  
+                        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                        root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                        root.CFrame = CFrame.new(nearestCoin.Position + Vector3.new(0, 0.5, 0))  
+                        task.wait(0.2)  
+                        
+                        if not nearestCoin.Instance.Parent then
+                           Rayfield:Notify({
+                              Title = "Auto Farm",
+                              Content = "+1 Candy",
+                              Duration = 1.5,
+                              Image = 4483362458
+                           })
+                        end
+                     else  
+                        local targetPos = nearestCoin.Position + Vector3.new(0, 0.5, 0)
+                        local distance = (root.Position - targetPos).Magnitude
+                        local travelTime = distance / math.clamp(farmSpeed, 1, 33)
+
+                        local startTime = tick()
+                        while autoFarmCandy and (currentFarmSession == mySessionId) do
+                           if not nearestCoin.Instance.Parent then break end
+
+                           local elapsed = tick() - startTime
+                           local alpha = math.clamp(elapsed / travelTime, 0, 1)
+
                            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                            root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                           root.CFrame = CFrame.new(nearestCoin.Position + Vector3.new(0, 0.5, 0))  
-                           task.wait(0.25)  
-                        else  
-                           local startPos = root.Position  
-                           local targetPos = nearestCoin.Position + Vector3.new(0, 0.5, 0)
-                           local distance = (startPos - targetPos).Magnitude  
-                           local travelTime = distance / math.clamp(farmSpeed, 1, 33)  
-                           local startTime = tick()  
 
-                           while autoFarmCandy and (currentFarmSession == mySessionId) do  
-                              local elapsed = tick() - startTime  
-                              local alpha = math.clamp(elapsed / travelTime, 0, 1)  
-                                
-                              root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                              root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                              root.CFrame = CFrame.new(startPos:Lerp(targetPos, alpha))  
+                           local currentPos = root.Position
+                           local nextPos = currentPos:Lerp(targetPos, 0.4)
+                           root.CFrame = CFrame.new(nextPos) * root.CFrame.Rotation
 
-                              if alpha >= 1 then break end  
-                              task.wait(0.01)  
-                           end  
-                           task.wait(0.1)
-                        end  
+                           if (root.Position - targetPos).Magnitude < 1 or alpha >= 1 then
+                              root.CFrame = CFrame.new(targetPos) * root.CFrame.Rotation
+                              break
+                           end
+                           task.wait(0.01)
+                        end
+                        task.wait(0.05)
+
+                        if not nearestCoin.Instance.Parent then
+                           Rayfield:Notify({
+                              Title = "Auto Farm",
+                              Content = "+1 Candy",
+                              Duration = 1.5,
+                              Image = 4483362458
+                           })
+                        end
                      end  
-                  else  
-                     task.wait(0.5)  
                   end  
                end)  
                if not success then warn("AutoFarm Error:", err) end  
@@ -544,10 +614,17 @@ FarmingTab:CreateToggle({
 })
 
 FarmingTab:CreateToggle({
-   Name = "Fling Murder When Full",
+   Name = "Fling Murder When Full Bag",
    CurrentValue = false,
    Flag = "FlingMurderWhenFullToggle",
    Callback = function(Value) flingMurderOnFull = Value end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Auto Grab Gun",
+   CurrentValue = false,
+   Flag = "AutoGrabGunToggle",
+   Callback = function(Value) autoGrabGunEnabled = Value end,
 })
 
 CombatTab:CreateToggle({
@@ -558,6 +635,13 @@ CombatTab:CreateToggle({
       autoShootButtonEnabled = Value
       if autoShootButtonEnabled then createAutoShootGui() else removeAutoShootGui() end
    end,
+})
+
+CombatTab:CreateToggle({
+   Name = "Kill All (Fling All)",
+   CurrentValue = false,
+   Flag = "KillAllToggle",
+   Callback = function(Value) killAllEnabled = Value end,
 })
 
 FlingTab:CreateButton({
