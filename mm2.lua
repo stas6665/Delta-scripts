@@ -23,7 +23,11 @@ local autoKillWhenFull = false
 local farmSpeed = 25
 local farmMethod = "Teleport"
 
-local espPlayersEnabled = false
+-- ESP Variables
+local espMurderEnabled = false
+local espSheriffHeroEnabled = false
+local espInnocentEnabled = false
+
 local espCoinsEnabled = false
 local xrayEnabled = false
 local xrayTransparency = 0.65
@@ -49,7 +53,109 @@ local skinDatabase = {
    ["Corrupt Knife"] = {MeshId = "rbxassetid://460651877", TextureId = "rbxassetid://460651900"}
 }
 
--- Anti-Fling Protection
+-- Custom Bottom-Right Notification System
+local notifyGui = nil
+local function showCustomNotification(title, message, isSuccess)
+   pcall(function()
+      local player = game:GetService("Players").LocalPlayer
+      local playerGui = player:FindFirstChild("PlayerGui")
+      if not playerGui then return end
+
+      if not notifyGui or not notifyGui.Parent then
+         notifyGui = Instance.new("ScreenGui")
+         notifyGui.Name = "MM2CustomNotifications"
+         notifyGui.ResetOnSpawn = false
+         notifyGui.Parent = playerGui
+      end
+
+      local notifFrame = Instance.new("Frame")
+      notifFrame.Size = UDim2.new(0, 240, 0, 45)
+      notifFrame.Position = UDim2.new(1, -250, 1, -55)
+      notifFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+      notifFrame.BackgroundTransparency = 0.3
+      notifFrame.BorderSizePixel = 0
+      notifFrame.Parent = notifyGui
+
+      local corner = Instance.new("UICorner")
+      corner.CornerRadius = UDim.new(0, 8)
+      corner.Parent = notifFrame
+
+      local stroke = Instance.new("UIStroke")
+      stroke.Color = isSuccess and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 140, 0)
+      stroke.Thickness = 2
+      stroke.Parent = notifFrame
+
+      local iconLabel = Instance.new("TextLabel")
+      iconLabel.Size = UDim2.new(0, 30, 1, 0)
+      iconLabel.Position = UDim2.new(0, 5, 0, 0)
+      iconLabel.BackgroundTransparency = 1
+      iconLabel.Text = isSuccess and "✓" or "!"
+      iconLabel.TextColor3 = isSuccess and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 140, 0)
+      iconLabel.TextSize = 22
+      iconLabel.Font = Enum.Font.GothamBold
+      iconLabel.Parent = notifFrame
+
+      local titleLabel = Instance.new("TextLabel")
+      titleLabel.Size = UDim2.new(1, -40, 0, 18)
+      titleLabel.Position = UDim2.new(0, 35, 0, 4)
+      titleLabel.BackgroundTransparency = 1
+      titleLabel.Text = title
+      titleLabel.TextColor3 = isSuccess and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 140, 0)
+      titleLabel.TextSize = 13
+      titleLabel.Font = Enum.Font.GothamBold
+      titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+      titleLabel.Parent = notifFrame
+
+      local msgLabel = Instance.new("TextLabel")
+      msgLabel.Size = UDim2.new(1, -40, 0, 18)
+      msgLabel.Position = UDim2.new(0, 35, 0, 22)
+      msgLabel.BackgroundTransparency = 1
+      msgLabel.Text = message
+      msgLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+      msgLabel.TextSize = 12
+      msgLabel.Font = Enum.Font.Gotham
+      msgLabel.TextXAlignment = Enum.TextXAlignment.Left
+      msgLabel.Parent = notifFrame
+
+      task.spawn(function()
+         task.wait(1.5)
+         if notifFrame and notifFrame.Parent then
+            notifFrame:Destroy()
+         end
+      end)
+   end)
+end
+
+-- GunDrop Tracking
+local gunWasDropped = false
+local gunPickedUpDetected = false
+
+task.spawn(function()
+   local Workspace = game:GetService("Workspace")
+   while true do
+      pcall(function()
+         local foundGunDrop = false
+         local descendants = Workspace:GetDescendants()
+         for _, obj in ipairs(descendants) do
+            if obj.Name == "GunDrop" or obj.Name == "GunDropModel" then
+               foundGunDrop = true
+               break
+            end
+         end
+
+         if foundGunDrop then
+            gunWasDropped = true
+         else
+            if gunWasDropped then
+               gunPickedUpDetected = true
+            end
+         end
+      end)
+      task.wait(0.3)
+   end
+end)
+
+-- Anti Fling & No-Push Protection
 local antiFlingConnection = nil
 local function updateAntiFling()
    local RunService = game:GetService("RunService")
@@ -65,12 +171,15 @@ local function updateAntiFling()
                if char and char:FindFirstChild("HumanoidRootPart") then
                   local root = char.HumanoidRootPart
                   root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                  root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
 
-                  for _, p in ipairs(Players:GetPlayers()) do  
+                  local playersList = Players:GetPlayers()
+                  for _, p in ipairs(playersList) do  
                      if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then  
                         local pRoot = p.Character.HumanoidRootPart  
-                        if (root.Position - pRoot.Position).Magnitude < 5 then  
+                        if (root.Position - pRoot.Position).Magnitude < 6 then  
                            pRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                           pRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                         end  
                      end  
                   end  
@@ -104,7 +213,8 @@ task.spawn(function()
                local root = char.HumanoidRootPart
                
                local gunDrop = nil
-               for _, obj in ipairs(Workspace:GetDescendants()) do
+               local descendants = Workspace:GetDescendants()
+               for _, obj in ipairs(descendants) do
                   if obj.Name == "GunDrop" or obj.Name == "GunDropModel" then
                      gunDrop = obj
                      break
@@ -127,7 +237,7 @@ task.spawn(function()
    end
 end)
 
--- Shoot Murder Button UI
+-- Shoot Murder Button UI (Silent Aim + Prediction + Success Notification)
 local function createAutoShootGui()
    if autoShootGui then return end
    local Players = game:GetService("Players")
@@ -207,15 +317,18 @@ local function createAutoShootGui()
                   local backpack = player:FindFirstChild("Backpack")  
                   local gun = char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun"))  
                   
-                  if not gun then return end  
+                  if not gun then 
+                     showCustomNotification("Shoot Murder", "Gun not found!", false)
+                     return 
+                  end  
                     
                   if gun.Parent == backpack and hum then  
                      hum:EquipTool(gun)
-                     task.wait(0.05)
                   end  
                     
                   local targetRoot = nil  
-                  for _, p in ipairs(Players:GetPlayers()) do  
+                  local playersList = Players:GetPlayers()
+                  for _, p in ipairs(playersList) do  
                      if p ~= player and p.Character then  
                         local pBackpack = p:FindFirstChild("Backpack")  
                         local pChar = p.Character  
@@ -231,18 +344,33 @@ local function createAutoShootGui()
                      end  
                   end  
                     
-                  if not targetRoot then return end
+                  if not targetRoot then 
+                     showCustomNotification("Shoot Murder", "Murder not found!", false)
+                     return 
+                  end
 
-                  local targetPos = targetRoot.Position + Vector3.new(0, 0.5, 0)  
+                  -- Movement Prediction for accurate hit
+                  local targetPos = targetRoot.Position + Vector3.new(0, 0.5, 0)
+                  local targetVelocity = targetRoot.AssemblyLinearVelocity
+                  if targetVelocity.Magnitude > 0 then
+                     targetPos = targetPos + (targetVelocity * 0.05)
+                  end
+
                   local rayAttach = char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment")
                   local attachmentCFrame = rayAttach and rayAttach.WorldCFrame or char.HumanoidRootPart.CFrame
 
+                  local calculatedCFrame = CFrame.new(attachmentCFrame.Position, targetPos)
+
                   local remote = gun:FindFirstChild("Shoot") or gun:FindFirstChildOfClass("RemoteEvent")
                   if remote and remote:IsA("RemoteEvent") then  
-                     remote:FireServer(attachmentCFrame, targetPos)
+                     remote:FireServer(calculatedCFrame, targetPos)
                   end  
                   
-                  gun:Activate()  
+                  gun.Parent = char
+                  gun:Activate()
+                  
+                  -- Successful shot: show green checkmark and notification
+                  showCustomNotification("Shoot Murder", "Shot fired successfully!", true)
                end)  
             end  
               
@@ -262,7 +390,7 @@ local function removeAutoShootGui()
    if autoShootGui then autoShootGui:Destroy() autoShootGui = nil end
 end
 
--- Fling Engine
+-- Drill Down Fling Engine
 local function executeDrillDownFling(targetType)
    if isFlingingActive then return end
    isFlingingActive = true
@@ -302,6 +430,7 @@ local function executeDrillDownFling(targetType)
          if root and root.Parent then
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
+            root.Velocity = Vector3.zero
             if originalCFrame then root.CFrame = originalCFrame end
          end
          
@@ -316,7 +445,8 @@ local function executeDrillDownFling(targetType)
          humanoid = character:FindFirstChildOfClass("Humanoid")  
          originalCFrame = root.CFrame  
 
-         for _, p in ipairs(Players:GetPlayers()) do  
+         local playersList = Players:GetPlayers()
+         for _, p in ipairs(playersList) do  
             if p ~= player and p.Character then  
                local backpack = p:FindFirstChild("Backpack")  
                local char = p.Character  
@@ -335,11 +465,12 @@ local function executeDrillDownFling(targetType)
 
          if not targetPlayer or not targetRoot then error("Target not found") end  
 
-         for _, part in ipairs(character:GetDescendants()) do
+         local descendants = character:GetDescendants()
+         for _, part in ipairs(descendants) do
             if part:IsA("BasePart") then
                originalProperties[part] = part.CustomPhysicalProperties
                originalCanCollideStates[part] = part.CanCollide
-               part.CustomPhysicalProperties = PhysicalProperties.new(100, 0, 1, 100, 100)
+               part.CustomPhysicalProperties = PhysicalProperties.new(200, 0, 1, 200, 200)
                part.CanCollide = true
             end
          end
@@ -351,7 +482,8 @@ local function executeDrillDownFling(targetType)
          end  
 
          local startTime = tick()  
-         local speed = 2000 
+         local speed = 3000  
+         local verticalForce = -25000  
 
          connection = RunService.Heartbeat:Connect(function()  
             local runSuccess, runErr = pcall(function()
@@ -372,9 +504,14 @@ local function executeDrillDownFling(targetType)
                local spinY = elapsed * speed
                local spinZ = math.cos(elapsed * speed) * math.pi
 
-               root.CFrame = targetRoot.CFrame * CFrame.Angles(spinX, spinY, spinZ)
-               root.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999)
-               root.AssemblyLinearVelocity = Vector3.new(math.random(-30000, 30000), -90000, math.random(-30000, 30000))
+               root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 0) * CFrame.Angles(spinX, spinY, spinZ)
+               
+               root.AssemblyAngularVelocity = Vector3.new(3000, 3000, 3000)
+               root.AssemblyLinearVelocity = Vector3.new(math.random(-8000, 8000), 100, math.random(-8000, 8000))
+               root.Velocity = Vector3.new(math.random(-8000, 8000), 100, math.random(-8000, 8000))
+
+               targetRoot.AssemblyLinearVelocity = Vector3.new(math.random(-4000, 4000), verticalForce, math.random(-4000, 4000))
+               targetRoot.Velocity = Vector3.new(math.random(-4000, 4000), verticalForce, math.random(-4000, 4000))
             end)
 
             if not runSuccess then cleanup() end
@@ -387,7 +524,8 @@ end
 
 local function findCoinContainerDeep()
    local Workspace = game:GetService("Workspace")
-   for _, child in ipairs(Workspace:GetChildren()) do
+   local children = Workspace:GetChildren()
+   for _, child in ipairs(children) do
       if child:IsA("Model") and child.Name ~= "Lobby" and child ~= Workspace.CurrentCamera then
          local container = child:FindFirstChild("CoinContainer", true)
          if container then return container end
@@ -412,7 +550,8 @@ local function checkBagFull(player)
 
    local coinBags = gameFrame:FindFirstChild("CoinBags")
    if coinBags and coinBags.Visible then
-      for _, obj in ipairs(coinBags:GetDescendants()) do
+      local descendants = coinBags:GetDescendants()
+      for _, obj in ipairs(descendants) do
          if obj.Name == "FullBagIcon" and obj:IsA("GuiObject") and obj.Visible then return true end
       end
       return false
@@ -444,7 +583,7 @@ local function executeAutoFlingMurderWhenFull()
    end)
 end
 
--- Auto Kill All (When Bag Full + Knife Check + Force Attachment)
+-- Auto Kill All (When Bag Full)
 local function executeAutoKillWhenFull()
    task.spawn(function()
       local Players = game:GetService("Players")
@@ -479,7 +618,8 @@ local function executeAutoKillWhenFull()
             end
 
             local targetRoots = {}
-            for _, p in ipairs(Players:GetPlayers()) do
+            local PlayersList = Players:GetPlayers()
+            for _, p in ipairs(PlayersList) do
                if p ~= player and p.Character and autoKillWhenFull then
                   local pChar = p.Character
                   local pRoot = pChar:FindFirstChild("HumanoidRootPart")
@@ -487,7 +627,8 @@ local function executeAutoKillWhenFull()
 
                   if pRoot and pHum and pHum.Health > 0 then
                      table.insert(targetRoots, pRoot)
-                     for _, part in ipairs(pChar:GetDescendants()) do
+                     local pCharDescendants = pChar:GetDescendants()
+                     for _, part in ipairs(pCharDescendants) do
                         if part:IsA("BasePart") then
                            part.CanCollide = false
                         end
@@ -533,7 +674,8 @@ local function executeAutoKillWhenFull()
             for _, tRoot in ipairs(targetRoots) do
                if tRoot and tRoot.Parent then
                   local pChar = tRoot.Parent
-                  for _, part in ipairs(pChar:GetDescendants()) do
+                  local pCharDescendants = pChar:GetDescendants()
+                  for _, part in ipairs(pCharDescendants) do
                      if part:IsA("BasePart") then
                         part.CanCollide = true
                      end
@@ -563,11 +705,14 @@ local function applySkinToTool(tool)
    if skinData.TextureId ~= "" then mesh.TextureId = skinData.TextureId end
 end
 
+-- Optimized X-ray Logic
 local function setupXrayPart(part)
    if not part:IsA("BasePart") then return end
    if part.Name:find("Coin") or part.Parent.Name:find("Coin") then return end
    
    local Players = game:GetService("Players")
+   local player = Players.LocalPlayer
+   if player.Character and part:IsDescendantOf(player.Character) then return end
    for _, p in ipairs(Players:GetPlayers()) do
       if p.Character and part:IsDescendantOf(p.Character) then return end
    end
@@ -596,6 +741,17 @@ local function updateXray()
       end
    end
 end
+
+-- Automatic tracking for newly loaded map parts
+workspace.DescendantAdded:Connect(function(obj)
+   if xrayEnabled and obj:IsA("BasePart") then
+      task.delay(0.1, function()
+         if obj and obj.Parent then
+            setupXrayPart(obj)
+         end
+      end)
+   end
+end)
 
 -- UI Elements Creation (Farming Tab)
 FarmingTab:CreateDropdown({
@@ -651,10 +807,23 @@ FarmingTab:CreateToggle({
                   end  
 
                   local availableCoins = {}  
-                  for _, cm in ipairs(container:GetChildren()) do  
+                  local containerChildren = container:GetChildren()
+                  for _, cm in ipairs(containerChildren) do  
                      local pos = getCoinPosition(cm)  
-                     if pos then table.insert(availableCoins, {Instance = cm, Position = pos}) end  
+                     if pos then 
+                        local dist = (root.Position - pos).Magnitude
+                        if dist <= 100 then
+                           table.insert(availableCoins, {Instance = cm, Position = pos}) 
+                        end
+                     end  
                   end  
+
+                  if #availableCoins == 0 then
+                     for _, cm in ipairs(containerChildren) do  
+                        local pos = getCoinPosition(cm)  
+                        if pos then table.insert(availableCoins, {Instance = cm, Position = pos}) end  
+                     end
+                  end
 
                   if #availableCoins == 0 then task.wait(0.5); return end
 
@@ -669,35 +838,45 @@ FarmingTab:CreateToggle({
                      if farmMethod == "Teleport" then  
                         root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                         root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                        root.CFrame = CFrame.new(nearestCoin.Position + Vector3.new(0, 0.8, 0))  
-                        task.wait(0.2)  
-                     else  
-                        local targetPos = nearestCoin.Position + Vector3.new(0, 0.8, 0)
-                        local distance = (root.Position - targetPos).Magnitude
-                        local travelTime = distance / math.clamp(farmSpeed, 1, 33)
+                        root.Velocity = Vector3.new(0, 0, 0)
+                        
+                        root.CFrame = CFrame.new(nearestCoin.Position + Vector3.new(0, 0.2, 0))  
+                        
+                        showCustomNotification("Auto Farm", "+1 Candy Collected!", true)
 
-                        local startTime = tick()
-                        while autoFarmCandy and (currentFarmSession == mySessionId) do
-                           if not nearestCoin.Instance.Parent then break end
-
-                           local elapsed = tick() - startTime
-                           local alpha = math.clamp(elapsed / travelTime, 0, 1)
-
+                        task.wait(0.01)
+                        if root and root.Parent then
                            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                            root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-
+                           root.Velocity = Vector3.new(0, 0, 0)
+                        end
+                        task.wait(0.1)  
+                     else  
+                        local targetPos = nearestCoin.Position + Vector3.new(0, 0.2, 0)
+                        local RunService = game:GetService("RunService")
+                        
+                        while autoFarmCandy and (currentFarmSession == mySessionId) do
+                           if not nearestCoin.Instance or not nearestCoin.Instance.Parent then break end
+                           
                            local currentPos = root.Position
-                           local nextPos = currentPos:Lerp(targetPos, 0.4)
-                           local lookRot = CFrame.lookAt(nextPos, targetPos).Rotation
-                           root.CFrame = CFrame.new(nextPos) * (CFrame.Angles(0, select(2, lookRot:ToOrientation()), 0))
-
-                           if (root.Position - targetPos).Magnitude < 1 or alpha >= 1 then
+                           local distance = (currentPos - targetPos).Magnitude
+                           
+                           if distance < 1 then
                               root.CFrame = CFrame.new(targetPos)
+                              showCustomNotification("Auto Farm", "+1 Candy Collected!", true)
                               break
                            end
-                           task.wait(0.01)
+                           
+                           local step = math.clamp(farmSpeed * 0.08, 0.5, 3)
+                           local nextPos = currentPos:Lerp(targetPos, math.min(step / distance, 1))
+                           
+                           root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                           root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                           root.CFrame = CFrame.new(nextPos, targetPos)
+                           
+                           RunService.Heartbeat:Wait()
                         end
-                        task.wait(0.05)
+                        task.wait(0.02)
                      end  
                   end  
                end)  
@@ -734,7 +913,7 @@ FarmingTab:CreateToggle({
 })
 
 FarmingTab:CreateToggle({
-   Name = "Anti-Fling Protection",
+   Name = "Anti Fling",
    CurrentValue = false,
    Flag = "AntiFlingToggle",
    Callback = function(Value)
@@ -802,52 +981,89 @@ SkinsTab:CreateButton({
 
 -- UI Elements Creation (Visuals Tab)
 VisualsTab:CreateToggle({
-   Name = "Player ESP (Role Colors)",
+   Name = "ESP Murder",
    CurrentValue = false,
-   Flag = "PlayerESPToggle",
+   Flag = "ESPMurderToggle",
    Callback = function(Value)
-      espPlayersEnabled = Value
-      if espPlayersEnabled then
-         task.spawn(function()
-            local Players = game:GetService("Players")
-            local player = Players.LocalPlayer
-            while espPlayersEnabled do
-               pcall(function()
-                  for _, p in ipairs(Players:GetPlayers()) do
-                     if p ~= player and p.Character then
-                        local char = p.Character
-                        local hl = char:FindFirstChild("ESPHighlight")
-                        if not hl then
-                           hl = Instance.new("Highlight")
-                           hl.Name = "ESPHighlight"
-                           hl.FillTransparency = 0.5
-                           hl.OutlineTransparency = 0
-                           hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-                           hl.Parent = char
-                        end
-                        local bp = p:FindFirstChild("Backpack")
-                        local hasK = (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife")
-                        local hasG = (bp and bp:FindFirstChild("Gun")) or char:FindFirstChild("Gun")
-
-                        if hasK then
-                           hl.FillColor = Color3.fromRGB(255, 0, 0)
-                        elseif hasG then
-                           hl.FillColor = Color3.fromRGB(0, 100, 255)
-                        else
-                           hl.FillColor = Color3.fromRGB(0, 255, 0)
-                        end
-                     end
-                  end
-               end)
-               task.wait(0.5)
-            end
-            for _, p in ipairs(Players:GetPlayers()) do
-               if p.Character and p.Character:FindFirstChild("ESPHighlight") then p.Character.ESPHighlight:Destroy() end
-            end
-         end)
-      end
+      espMurderEnabled = Value
    end,
 })
+
+VisualsTab:CreateToggle({
+   Name = "ESP Sheriff/Hero",
+   CurrentValue = false,
+   Flag = "ESPSheriffHeroToggle",
+   Callback = function(Value)
+      espSheriffHeroEnabled = Value
+   end,
+})
+
+VisualsTab:CreateToggle({
+   Name = "ESP Innocent",
+   CurrentValue = false,
+   Flag = "ESPInnocentToggle",
+   Callback = function(Value)
+      espInnocentEnabled = Value
+   end,
+})
+
+-- Main ESP Loop
+task.spawn(function()
+   local Players = game:GetService("Players")
+   local player = Players.LocalPlayer
+
+   while true do
+      pcall(function()
+         local playersList = Players:GetPlayers()
+         for _, p in ipairs(playersList) do
+            if p ~= player and p.Character then
+               local char = p.Character
+               local hl = char:FindFirstChild("ESPHighlight")
+               
+               local bp = p:FindFirstChild("Backpack")
+               local hasK = (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife")
+               local hasG = (bp and bp:FindFirstChild("Gun")) or char:FindFirstChild("Gun")
+
+               local shouldHighlight = false
+               local highlightColor = Color3.fromRGB(255, 255, 255)
+
+               if hasK and espMurderEnabled then
+                  shouldHighlight = true
+                  highlightColor = Color3.fromRGB(255, 0, 0) -- Red (Murder)
+               elseif hasG and not hasK and espSheriffHeroEnabled then
+                  if gunPickedUpDetected then
+                     shouldHighlight = true
+                     highlightColor = Color3.fromRGB(255, 255, 0) -- Hero (Yellow)
+                  else
+                     shouldHighlight = true
+                     highlightColor = Color3.fromRGB(0, 100, 255) -- Sheriff (Blue)
+                  end
+               elseif not hasK and not hasG and espInnocentEnabled then
+                  shouldHighlight = true
+                  highlightColor = Color3.fromRGB(0, 255, 0) -- Green (Innocent)
+               end
+
+               if shouldHighlight then
+                  if not hl then
+                     hl = Instance.new("Highlight")
+                     hl.Name = "ESPHighlight"
+                     hl.FillTransparency = 0.5
+                     hl.OutlineTransparency = 0
+                     hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                     hl.Parent = char
+                  end
+                  hl.FillColor = highlightColor
+               else
+                  if hl then
+                     hl:Destroy()
+                  end
+               end
+            end
+         end
+      end)
+      task.wait(0.5)
+   end
+end)
 
 VisualsTab:CreateToggle({
    Name = "Coins / Candy ESP (Orange)",
@@ -861,7 +1077,8 @@ VisualsTab:CreateToggle({
                pcall(function()
                   local container = findCoinContainerDeep()
                   if container then
-                     for _, cm in ipairs(container:GetChildren()) do
+                     local containerChildren = container:GetChildren()
+                     for _, cm in ipairs(containerChildren) do
                         local visual = cm:FindFirstChild("CoinVisual") or (cm.Name == "CoinVisual" and cm)
                         if visual and visual:IsA("BasePart") and not visual:FindFirstChild("CoinHighlight") then
                            local hl = Instance.new("Highlight")
@@ -881,8 +1098,9 @@ VisualsTab:CreateToggle({
    end,
 })
 
+-- X-ray Toggle
 VisualsTab:CreateToggle({
-   Name = "X-Ray (Transparent Walls)",
+   Name = "X-ray",
    CurrentValue = false,
    Flag = "XRayToggle",
    Callback = function(Value)
