@@ -1,4 +1,4 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
 
 local Window = Rayfield:CreateWindow({
 Name = "MM2 Hub [Instant Optimized]",
@@ -210,7 +210,7 @@ end
 end
 end
 
--- Auto Grab Gun (Виправлено помилку з неоголошеною змінною)
+-- Auto Grab Gun
 task.spawn(function()
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
