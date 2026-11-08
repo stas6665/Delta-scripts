@@ -17,6 +17,7 @@ local VisualsTab = Window:CreateTab("Visuals", 4483362458)
 local autoFarmCandy = false
 local antiFlingEnabled = false
 local autoGrabGunEnabled = false
+local autoFlingMurderWhenFull = false
 local autoKillWhenFull = false
 
 local farmSpeed = 25
@@ -48,6 +49,7 @@ local skinDatabase = {
    ["Corrupt Knife"] = {MeshId = "rbxassetid://460651877", TextureId = "rbxassetid://460651900"}
 }
 
+-- Anti-Fling Protection
 local antiFlingConnection = nil
 local function updateAntiFling()
    local RunService = game:GetService("RunService")
@@ -125,7 +127,7 @@ task.spawn(function()
    end
 end)
 
--- Shoot Murder Button (Без поворота/лока камеры, только чистый серверный удар и анимация)
+-- Shoot Murder Button UI
 local function createAutoShootGui()
    if autoShootGui then return end
    local Players = game:GetService("Players")
@@ -205,10 +207,7 @@ local function createAutoShootGui()
                   local backpack = player:FindFirstChild("Backpack")  
                   local gun = char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun"))  
                   
-                  if not gun then 
-                     Rayfield:Notify({Title = "Shoot", Content = "No gun found in hands or backpack!", Duration = 2})
-                     return 
-                  end  
+                  if not gun then return end  
                     
                   if gun.Parent == backpack and hum then  
                      hum:EquipTool(gun)
@@ -221,7 +220,7 @@ local function createAutoShootGui()
                         local pBackpack = p:FindFirstChild("Backpack")  
                         local pChar = p.Character  
                         local pRoot = pChar:FindFirstChild("HumanoidRootPart")  
-                        local pHum = pChar:FindFirstChild("Humanoid")  
+                        local pHum = pChar:FindFirstChildOfClass("Humanoid")  
                           
                         local hasKnife = (pBackpack and pBackpack:FindFirstChild("Knife")) or (pChar and pChar:FindFirstChild("Knife"))  
                           
@@ -232,13 +231,9 @@ local function createAutoShootGui()
                      end  
                   end  
                     
-                  if not targetRoot then
-                     Rayfield:Notify({Title = "Shoot", Content = "Murderer with a knife not found on the map!", Duration = 2})
-                     return
-                  end
+                  if not targetRoot then return end
 
                   local targetPos = targetRoot.Position + Vector3.new(0, 0.5, 0)  
-
                   local rayAttach = char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment")
                   local attachmentCFrame = rayAttach and rayAttach.WorldCFrame or char.HumanoidRootPart.CFrame
 
@@ -267,81 +262,126 @@ local function removeAutoShootGui()
    if autoShootGui then autoShootGui:Destroy() autoShootGui = nil end
 end
 
--- Fling
-local function executeFlingOnTarget(targetType)
+-- Fling Engine
+local function executeDrillDownFling(targetType)
    if isFlingingActive then return end
+   isFlingingActive = true
+
    task.spawn(function()
       local Players = game:GetService("Players")
       local RunService = game:GetService("RunService")
       local player = Players.LocalPlayer
-      local character = player.Character
+      local character, root, humanoid, targetRoot, targetPlayer
+      local originalProperties = {}
+      local originalCanCollideStates = {}
+      local propertiesModified = false
+      local connection = nil
+      local cleanedUp = false
+      local originalCFrame = nil
 
-      if not character or not character:FindFirstChild("HumanoidRootPart") then return end  
-      local root = character.HumanoidRootPart  
-      local humanoid = character:FindFirstChildOfClass("Humanoid")  
-      local originalCFrame = root.CFrame  
+      local function cleanup()
+         if cleanedUp then return end
+         cleanedUp = true
 
-      local targetRoot = nil  
-        
-      for _, p in ipairs(Players:GetPlayers()) do  
-         if p ~= player and p.Character then  
-            local backpack = p:FindFirstChild("Backpack")  
-            local char = p.Character  
-            
-            local isKnife = (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife"))
-            local isGun = (backpack and backpack:FindFirstChild("Gun")) or (char and char:FindFirstChild("Gun"))
+         if connection then connection:Disconnect() end
 
-            if (targetType == "Murder" and isKnife) or (targetType == "Sheriff" and isGun) or (targetType == "All") then  
-               if char:FindFirstChild("HumanoidRootPart") then  
-                  targetRoot = char.HumanoidRootPart  
-                  break  
+         if propertiesModified then
+            for part, prop in pairs(originalProperties) do
+               if part and part.Parent then
+                  part.CustomPhysicalProperties = prop
+                  part.CanCollide = originalCanCollideStates[part]
+               end
+            end
+         end
+
+         if humanoid and humanoid.Parent then 
+            humanoid.PlatformStand = false 
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+         end
+         
+         if root and root.Parent then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            if originalCFrame then root.CFrame = originalCFrame end
+         end
+         
+         isFlingingActive = false  
+      end
+
+      local success, err = pcall(function()
+         character = player.Character
+         if not character or not character:FindFirstChild("HumanoidRootPart") then error("Local character missing") end  
+
+         root = character.HumanoidRootPart  
+         humanoid = character:FindFirstChildOfClass("Humanoid")  
+         originalCFrame = root.CFrame  
+
+         for _, p in ipairs(Players:GetPlayers()) do  
+            if p ~= player and p.Character then  
+               local backpack = p:FindFirstChild("Backpack")  
+               local char = p.Character  
+               local isKnife = (backpack and backpack:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife"))
+               local isGun = (backpack and backpack:FindFirstChild("Gun")) or (char and char:FindFirstChild("Gun"))
+
+               if (targetType == "Murder" and isKnife) or (targetType == "Sheriff" and isGun) then  
+                  if char:FindFirstChild("HumanoidRootPart") then  
+                     targetPlayer = p
+                     targetRoot = char.HumanoidRootPart  
+                     break  
+                  end  
                end  
             end  
          end  
-      end  
 
-      if targetRoot then  
-         isFlingingActive = true  
+         if not targetPlayer or not targetRoot then error("Target not found") end  
+
+         for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+               originalProperties[part] = part.CustomPhysicalProperties
+               originalCanCollideStates[part] = part.CanCollide
+               part.CustomPhysicalProperties = PhysicalProperties.new(100, 0, 1, 100, 100)
+               part.CanCollide = true
+            end
+         end
+         propertiesModified = true 
 
          if humanoid then 
             humanoid.PlatformStand = true 
+            humanoid:ChangeState(Enum.HumanoidStateType.Physics)
          end  
 
-         local bv = Instance.new("BodyVelocity")
-         bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-         bv.Velocity = Vector3.new(0, 30000, 0)
-         bv.Parent = root
-
          local startTime = tick()  
-         local connection  
+         local speed = 2000 
 
          connection = RunService.Heartbeat:Connect(function()  
-            if not character or not character.Parent or not targetRoot or not targetRoot.Parent then  
-               if connection then connection:Disconnect() end  
-               if bv then bv:Destroy() end
-               if humanoid then humanoid.PlatformStand = false end
-               root.CFrame = originalCFrame  
-               isFlingingActive = false  
-               return  
-            end  
+            local runSuccess, runErr = pcall(function()
+               if not targetPlayer.Parent or not targetPlayer.Character or targetPlayer.Character ~= targetRoot.Parent or not targetRoot.Parent then  
+                  cleanup()
+                  return  
+               end  
 
-            root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 0)
-            root.AssemblyAngularVelocity = Vector3.new(0, 99999, 0)
-            bv.Velocity = Vector3.new(math.random(-30000, 30000), 50000, math.random(-30000, 30000))
+               local targetHum = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+               if not targetHum or targetHum.Health <= 0 or (tick() - startTime > 2.0) then  
+                  cleanup()
+                  return  
+               end
 
-            if tick() - startTime > 0.6 then  
-               if connection then connection:Disconnect() end  
-               if bv then bv:Destroy() end
-               if humanoid then humanoid.PlatformStand = false end
+               local elapsed = tick() - startTime
                
-               root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-               root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-               root.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)  
-               
-               isFlingingActive = false  
-            end  
-         end)  
-      end
+               local spinX = math.sin(elapsed * speed) * math.pi
+               local spinY = elapsed * speed
+               local spinZ = math.cos(elapsed * speed) * math.pi
+
+               root.CFrame = targetRoot.CFrame * CFrame.Angles(spinX, spinY, spinZ)
+               root.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999)
+               root.AssemblyLinearVelocity = Vector3.new(math.random(-30000, 30000), -90000, math.random(-30000, 30000))
+            end)
+
+            if not runSuccess then cleanup() end
+         end)
+      end)
+
+      if not success then cleanup() end
    end)
 end
 
@@ -350,9 +390,7 @@ local function findCoinContainerDeep()
    for _, child in ipairs(Workspace:GetChildren()) do
       if child:IsA("Model") and child.Name ~= "Lobby" and child ~= Workspace.CurrentCamera then
          local container = child:FindFirstChild("CoinContainer", true)
-         if container then
-            return container
-         end
+         if container then return container end
       end
    end
    return nil
@@ -361,9 +399,7 @@ end
 local function getCoinPosition(cm)
    if not cm then return nil end
    local visual = cm:FindFirstChild("CoinVisual") or (cm.Name == "CoinVisual" and cm) or cm:FindFirstChild("CoinVisual", true)
-   if visual and visual:IsA("BasePart") then
-      return visual.Position
-   end
+   if visual and visual:IsA("BasePart") then return visual.Position end
    return nil
 end
 
@@ -372,26 +408,47 @@ local function checkBagFull(player)
    local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
    local gameFrame = mainGui and mainGui:FindFirstChild("Game")
    
-   if not gameFrame or not gameFrame.Visible then
-      return true
-   end
+   if not gameFrame or not gameFrame.Visible then return true end
 
    local coinBags = gameFrame:FindFirstChild("CoinBags")
    if coinBags and coinBags.Visible then
       for _, obj in ipairs(coinBags:GetDescendants()) do
-         if obj.Name == "FullBagIcon" and obj:IsA("GuiObject") and obj.Visible then
-            return true
-         end
+         if obj.Name == "FullBagIcon" and obj:IsA("GuiObject") and obj.Visible then return true end
       end
       return false
    end
-
    return true
 end
 
+-- Auto Fling Murder (When Bag Full)
+local function executeAutoFlingMurderWhenFull()
+   task.spawn(function()
+      local Players = game:GetService("Players")
+      local player = Players.LocalPlayer
+      
+      while autoFlingMurderWhenFull do
+         pcall(function()
+            if not checkBagFull(player) then
+               task.wait(1)
+               return
+            end
+
+            executeDrillDownFling("Murder")
+            
+            while autoFlingMurderWhenFull and checkBagFull(player) do
+               task.wait(2)
+            end
+         end)
+         task.wait(1)
+      end
+   end)
+end
+
+-- Auto Kill All (When Bag Full + Knife Check + Force Attachment)
 local function executeAutoKillWhenFull()
    task.spawn(function()
       local Players = game:GetService("Players")
+      local RunService = game:GetService("RunService")
       local player = Players.LocalPlayer
       
       while autoKillWhenFull do
@@ -402,35 +459,93 @@ local function executeAutoKillWhenFull()
             end
 
             local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+            if not char or not char:FindFirstChild("HumanoidRootPart") then
+               task.wait(1)
+               return
+            end
             local root = char.HumanoidRootPart
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
             local backpack = player:FindFirstChild("Backpack")
-            local knife = (char and char:FindFirstChild("Knife")) or (backpack and backpack:FindFirstChild("Knife"))
-            
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if knife and knife.Parent == backpack and hum then
-               hum:EquipTool(knife)
+
+            local knife = char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife"))
+            if not knife then
+               task.wait(1)
+               return
+            end
+
+            if knife.Parent == backpack and humanoid then
+               humanoid:EquipTool(knife)
                task.wait(0.05)
             end
 
+            local targetRoots = {}
             for _, p in ipairs(Players:GetPlayers()) do
-               if not autoKillWhenFull or not checkBagFull(player) then break end
-               if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+               if p ~= player and p.Character and autoKillWhenFull then
                   local pChar = p.Character
                   local pRoot = pChar:FindFirstChild("HumanoidRootPart")
-                  local pHum = pChar:FindFirstChild("Humanoid")
+                  local pHum = pChar:FindFirstChildOfClass("Humanoid")
 
-                  if pHum and pHum.Health > 0 then
-                     pRoot.CFrame = root.CFrame * CFrame.new(0, 0, -3)
-                     if knife and knife.Parent == char then
-                        knife:Activate()
+                  if pRoot and pHum and pHum.Health > 0 then
+                     table.insert(targetRoots, pRoot)
+                     for _, part in ipairs(pChar:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                           part.CanCollide = false
+                        end
                      end
-                     task.wait(0.2)
                   end
                end
             end
+
+            if #targetRoots == 0 then
+               task.wait(1)
+               return
+            end
+
+            local startTime = tick()
+            local connection
+            connection = RunService.Heartbeat:Connect(function()
+               pcall(function()
+                  if not checkBagFull(player) or (tick() - startTime > 5) then
+                     if connection then connection:Disconnect() end
+                     return
+                  end
+
+                  for _, tRoot in ipairs(targetRoots) do
+                     if tRoot and tRoot.Parent then
+                        tRoot.CFrame = root.CFrame * CFrame.new(0, 0, -2.5)
+                        tRoot.AssemblyLinearVelocity = Vector3.zero
+                        tRoot.AssemblyAngularVelocity = Vector3.zero
+                     end
+                  end
+
+                  if knife.Parent == char then
+                     knife:Activate()
+                  end
+               end)
+            end)
+
+            while autoKillWhenFull and checkBagFull(player) and (tick() - startTime < 5) do
+               task.wait(0.2)
+            end
+
+            if connection then connection:Disconnect() end
+
+            for _, tRoot in ipairs(targetRoots) do
+               if tRoot and tRoot.Parent then
+                  local pChar = tRoot.Parent
+                  for _, part in ipairs(pChar:GetDescendants()) do
+                     if part:IsA("BasePart") then
+                        part.CanCollide = true
+                     end
+                  end
+               end
+            end
+
+            while autoKillWhenFull and checkBagFull(player) do
+               task.wait(2)
+            end
          end)
-         task.wait(0.5)
+         task.wait(1)
       end
    end)
 end
@@ -482,6 +597,7 @@ local function updateXray()
    end
 end
 
+-- UI Elements Creation (Farming Tab)
 FarmingTab:CreateDropdown({
    Name = "Farm Method",
    Options = {"Teleport", "Fly"},
@@ -528,7 +644,6 @@ FarmingTab:CreateToggle({
                   end  
                     
                   local root = character.HumanoidRootPart  
-
                   local container = findCoinContainerDeep()  
                   if not container or #container:GetChildren() == 0 then  
                      task.wait(1)  
@@ -538,25 +653,16 @@ FarmingTab:CreateToggle({
                   local availableCoins = {}  
                   for _, cm in ipairs(container:GetChildren()) do  
                      local pos = getCoinPosition(cm)  
-                     if pos then  
-                        table.insert(availableCoins, {Instance = cm, Position = pos})  
-                     end  
+                     if pos then table.insert(availableCoins, {Instance = cm, Position = pos}) end  
                   end  
 
-                  if #availableCoins == 0 then
-                     task.wait(0.5)
-                     return
-                  end
+                  if #availableCoins == 0 then task.wait(0.5); return end
 
                   local nearestCoin = nil  
                   local nearestDist = math.huge  
-
                   for _, coinData in ipairs(availableCoins) do  
                      local dist = (root.Position - coinData.Position).Magnitude  
-                     if dist < nearestDist then  
-                        nearestDist = dist  
-                        nearestCoin = coinData  
-                     end  
+                     if dist < nearestDist then nearestDist = dist; nearestCoin = coinData end  
                   end  
 
                   if nearestCoin and nearestCoin.Instance and nearestCoin.Instance.Parent then  
@@ -582,7 +688,6 @@ FarmingTab:CreateToggle({
 
                            local currentPos = root.Position
                            local nextPos = currentPos:Lerp(targetPos, 0.4)
-                           
                            local lookRot = CFrame.lookAt(nextPos, targetPos).Rotation
                            root.CFrame = CFrame.new(nextPos) * (CFrame.Angles(0, select(2, lookRot:ToOrientation()), 0))
 
@@ -605,7 +710,19 @@ FarmingTab:CreateToggle({
 })
 
 FarmingTab:CreateToggle({
-   Name = "Auto Kill (When Bag Full)",
+   Name = "Fling Murder (When Bag Full)",
+   CurrentValue = false,
+   Flag = "AutoFlingMurderWhenFullToggle",
+   Callback = function(Value)
+      autoFlingMurderWhenFull = Value
+      if autoFlingMurderWhenFull then
+         executeAutoFlingMurderWhenFull()
+      end
+   end,
+})
+
+FarmingTab:CreateToggle({
+   Name = "Kill All (When Bag Full)",
    CurrentValue = false,
    Flag = "AutoKillWhenFullToggle",
    Callback = function(Value)
@@ -626,16 +743,18 @@ FarmingTab:CreateToggle({
    end,
 })
 
+-- UI Elements Creation (Fling Tab)
 FlingTab:CreateButton({
    Name = "Fling Murder",
-   Callback = function() executeFlingOnTarget("Murder") end,
+   Callback = function() executeDrillDownFling("Murder") end,
 })
 
 FlingTab:CreateButton({
    Name = "Fling Sheriff / Hero",
-   Callback = function() executeFlingOnTarget("Sheriff") end,
+   Callback = function() executeDrillDownFling("Sheriff") end,
 })
 
+-- UI Elements Creation (Combat Tab)
 CombatTab:CreateToggle({
    Name = "Auto Grab Gun",
    CurrentValue = false,
@@ -653,6 +772,7 @@ CombatTab:CreateToggle({
    end,
 })
 
+-- UI Elements Creation (Skins Tab)
 SkinsTab:CreateDropdown({
    Name = "Select Weapon Slot",
    Options = {"Knife", "Gun"},
@@ -680,6 +800,7 @@ SkinsTab:CreateButton({
    end,
 })
 
+-- UI Elements Creation (Visuals Tab)
 VisualsTab:CreateToggle({
    Name = "Player ESP (Role Colors)",
    CurrentValue = false,
@@ -738,7 +859,7 @@ VisualsTab:CreateToggle({
          task.spawn(function()
             while espCoinsEnabled do
                pcall(function()
-                  container = findCoinContainerDeep()
+                  local container = findCoinContainerDeep()
                   if container then
                      for _, cm in ipairs(container:GetChildren()) do
                         local visual = cm:FindFirstChild("CoinVisual") or (cm.Name == "CoinVisual" and cm)
