@@ -210,7 +210,7 @@ end
 end
 end
 
--- Виправлений Auto Grab Gun (з глибоким пошуком через GetDescendants)
+-- Auto Grab Gun
 task.spawn(function()
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
@@ -261,7 +261,7 @@ local hasGun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:F
 end
 end)
 
--- Кнопка Shoot Murder (Миттєвий телепорт впритул + реальний вистріл + повернення назад)
+-- Shoot Murder GUI (Option 1: Micro-teleport + Real Shot with Invisible Camera Lock)
 local function createAutoShootGui()
 if autoShootGui then return end
 local Players = game:GetService("Players")
@@ -336,21 +336,24 @@ local btn = Instance.new("TextButton")
         if not hasMoved then    
            pcall(function()    
               local char = player.Character    
-              if not char or not char:FindFirstChild("HumanoidRootPart") then return end    
-              local root = char.HumanoidRootPart
+              if not char or not char:FindFirstChild("HumanoidRootPart") then   
+                 showCustomNotification("Error", "Character not found!", false)  
+                 return   
+              end    
+              local root = char.HumanoidRootPart  
               local hum = char:FindFirstChildOfClass("Humanoid")  
                   
               local backpack = player:FindFirstChild("Backpack")    
               local gun = char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun"))    
                 
               if not gun then   
-                 showCustomNotification("Shoot Murder", "Gun not found!", false)  
+                 showCustomNotification("Shoot Murder", "Gun not in inventory!", false)  
                  return   
               end    
                   
               if gun.Parent == backpack and hum then    
                  hum:EquipTool(gun)  
-                 task.wait(0.01)  
+                 task.wait(0.02)  
               end    
 
               if gun:FindFirstChild("CantShoot") then  
@@ -364,7 +367,7 @@ local btn = Instance.new("TextButton")
                     local pBackpack = p:FindFirstChild("Backpack")    
                     local pChar = p.Character    
                     local pRoot = pChar:FindFirstChild("HumanoidRootPart")    
-                    local pHum = pChar:FindFirstChildOfClass("Humanoid")    
+                    local pHum = pChar:FindFirstChild("Humanoid")    
                         
                     local hasKnife = (pBackpack and pBackpack:FindFirstChild("Knife")) or (pChar and pChar:FindFirstChild("Knife"))    
                         
@@ -376,39 +379,49 @@ local btn = Instance.new("TextButton")
               end    
                   
               if not targetRoot then   
-                 showCustomNotification("Shoot Murder", "Murder not found!", false)  
+                 showCustomNotification("Shoot Murder", "Murderer not found!", false)  
                  return   
               end  
 
-              local originalCFrame = root.CFrame
+              local originalCFrame = root.CFrame  
+              local camera = workspace.CurrentCamera
+              local originalCameraType = camera.CameraType
+              local originalCameraCFrame = camera.CFrame
 
-              -- 1. Стрибок впритул до маньяка на 1 кадр
-              root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 1)
-              RunService.Heartbeat:Wait()
+              -- Lock camera locally so the screen doesn't jump or flicker
+              camera.CameraType = Enum.CameraType.Scriptable
+              camera.CFrame = originalCameraCFrame
 
-              -- 2. Реальний вистріл через активацію зброї
-              if gun.Parent == char then
-                 gun:Activate()
-              end
+              -- 1. Micro-teleport to murder for 1 frame (invisible to eyes)
+              root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 1)  
+              RunService.Heartbeat:Wait()  
+
+              -- 2. Real activation & RemoteEvent shot
+              if gun.Parent == char then  
+                 gun:Activate()  
+              end  
 
               local targetPos = targetRoot.Position + Vector3.new(0, 0.5, 0)  
               local rayAttach = root:FindFirstChild("GunRaycastAttachment")  
               local attachmentCFrame = rayAttach and rayAttach.WorldCFrame or root.CFrame  
               local calculatedCFrame = CFrame.new(attachmentCFrame.Position, targetPos)  
 
-              local remote = gun:FindFirstChild("Shoot")   
-                             or gun:FindFirstChild("Shootts")  
-                             or (gun:FindFirstChild("GunClient") and (gun.GunClient:FindFirstChild("Shoot") or gun.GunClient:FindFirstChild("Shootts")))  
+              local remote = gun:FindFirstChild("Shoot", true)   
+                             or gun:FindFirstChild("Shootts", true)  
                              or gun:FindFirstChildOfClass("RemoteEvent")  
 
               if remote and remote:IsA("RemoteEvent") then    
                  remote:FireServer(calculatedCFrame, targetPos)  
               end    
 
-              -- 3. Миттєве повернення на твоє місце
-              root.CFrame = originalCFrame
+              -- 3. Instant return to original position
+              root.CFrame = originalCFrame  
 
-              showCustomNotification("Shoot Murder", "Instant shot fired!", true)  
+              -- Restore camera instantly
+              camera.CFrame = originalCameraCFrame
+              camera.CameraType = originalCameraType
+
+              showCustomNotification("Shoot Murder", "Shot fired!", true)  
            end)    
         end    
             
@@ -416,7 +429,7 @@ local btn = Instance.new("TextButton")
         activeInput = nil    
         dragStart = nil    
         startPos = nil    
-        hasMoved = false    
+        hasMoved = false     
      end    
   end)    
 
@@ -874,8 +887,7 @@ if autoFarmCandy then
                     root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
                     root.Velocity = Vector3.new(0, 0, 0)  
                       
-                    root.CFrame = CFrame.new(nearestCoin.Position + Vector3.new(0, 0.2, 0))    
-                      
+                    root.CFrame = CFrame.new(nearestCoin.Position)    
                     showCustomNotification("Auto Farm", "+1 Candy", true)  
 
                     task.wait(0.01)  
@@ -884,9 +896,9 @@ if autoFarmCandy then
                        root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
                        root.Velocity = Vector3.new(0, 0, 0)  
                     end  
-                    task.wait(0.1)    
+                    task.wait(0.05)    
                  else    
-                    local targetPos = nearestCoin.Position + Vector3.new(0, 0.2, 0)  
+                    local targetPos = nearestCoin.Position  
                     local RunService = game:GetService("RunService")  
                       
                     while autoFarmCandy and (currentFarmSession == mySessionId) do  
@@ -906,18 +918,20 @@ if autoFarmCandy then
                          
                        root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)  
                        root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)  
-                       root.CFrame = CFrame.new(nextPos, targetPos)  
+                       
+                       local flatTarget = Vector3.new(targetPos.X, nextPos.Y, targetPos.Z)
+                       root.CFrame = CFrame.new(nextPos, flatTarget)  
                          
                        RunService.Heartbeat:Wait()  
                     end  
-                    task.wait(0.02)  
+                    task.wait(0.01)  
                  end    
               end    
            end)    
            if not success then warn("AutoFarm Error:", err) end    
            task.wait(0.01)    
         end    
-     end)    
+     end    
   end
 end,
 })
@@ -1041,7 +1055,7 @@ espInnocentEnabled = Value
 end,
 })
 
--- Main ESP Loop
+-- Main ESP Loop (Fixed for second round Sheriff/Hero check)
 task.spawn(function()
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -1056,7 +1070,7 @@ local hl = char:FindFirstChild("ESPHighlight")
 
 local bp = p:FindFirstChild("Backpack")  
            local hasK = (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife")  
-           local hasG = (bp and bp:FindFirstChild("Gun")) or char:FindFirstChild("Gun")  
+           local hasG = (bp and bp:FindFirstChild("Gun")) or (bp and bp:FindFirstChild("GunDrop")) or char:FindFirstChild("Gun")  
 
            local shouldHighlight = false  
            local highlightColor = Color3.fromRGB(255, 255, 255)  
@@ -1065,12 +1079,11 @@ local bp = p:FindFirstChild("Backpack")
               shouldHighlight = true  
               highlightColor = Color3.fromRGB(255, 0, 0) -- Red (Murder)  
            elseif hasG and not hasK and espSheriffHeroEnabled then  
+              shouldHighlight = true  
               if gunPickedUpDetected then  
-                 shouldHighlight = true  
-                 highlightColor = Color3.fromRGB(255, 255, 0) -- Hero (Yellow)  
+                 highlightColor = Color3.fromRGB(255, 255, 0) -- Yellow (Hero)  
               else  
-                 shouldHighlight = true  
-                 highlightColor = Color3.fromRGB(0, 100, 255) -- Sheriff (Blue)  
+                 highlightColor = Color3.fromRGB(0, 100, 255) -- Blue (Sheriff)  
               end  
            elseif not hasK and not hasG and espInnocentEnabled then  
               shouldHighlight = true  
