@@ -210,7 +210,7 @@ end
 end
 end
 
--- Auto Grab Gun
+-- Auto Grab Gun (Виправлено помилку з неоголошеною змінною)
 task.spawn(function()
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
@@ -245,7 +245,7 @@ local hasGun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:F
               root.CFrame = gunDrop.CFrame  
               
               local prompt = gunDrop:FindFirstChildOfClass("ProximityPrompt")   
-                             or (gun.Parent and gunDrop.Parent:FindFirstChildOfClass("ProximityPrompt"))  
+                             or (gunDrop.Parent and gunDrop.Parent:FindFirstChildOfClass("ProximityPrompt"))  
               if prompt then  
                  fireproximityprompt(prompt)  
               end  
@@ -261,7 +261,7 @@ local hasGun = (char and char:FindFirstChild("Gun")) or (backpack and backpack:F
 end
 end)
 
--- Shoot Murder GUI (Option 1: Micro-teleport + Real Shot with Invisible Camera Lock)
+-- Shoot Murder GUI
 local function createAutoShootGui()
 if autoShootGui then return end
 local Players = game:GetService("Players")
@@ -384,15 +384,8 @@ local btn = Instance.new("TextButton")
               end  
 
               local originalCFrame = root.CFrame  
-              local camera = workspace.CurrentCamera
-              local originalCameraType = camera.CameraType
-              local originalCameraCFrame = camera.CFrame
 
-              -- Lock camera locally so the screen doesn't jump or flicker
-              camera.CameraType = Enum.CameraType.Scriptable
-              camera.CFrame = originalCameraCFrame
-
-              -- 1. Micro-teleport to murder for 1 frame (invisible to eyes)
+              -- 1. Micro-teleport to murder for 1 frame
               root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 1)  
               RunService.Heartbeat:Wait()  
 
@@ -416,10 +409,6 @@ local btn = Instance.new("TextButton")
 
               -- 3. Instant return to original position
               root.CFrame = originalCFrame  
-
-              -- Restore camera instantly
-              camera.CFrame = originalCameraCFrame
-              camera.CameraType = originalCameraType
 
               showCustomNotification("Shoot Murder", "Shot fired!", true)  
            end)    
@@ -1055,7 +1044,7 @@ espInnocentEnabled = Value
 end,
 })
 
--- Main ESP Loop (Fixed for second round Sheriff/Hero check)
+-- Main ESP Loop
 task.spawn(function()
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
