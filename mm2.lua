@@ -158,7 +158,7 @@ task.spawn(function()
     end
 end)
 
--- Anti Fling & No-Push Protection (Optimized: does not interfere with jumping)
+-- Anti Fling & No-Push Protection
 local antiFlingConnection = nil
 local function updateAntiFling()
     local RunService = game:GetService("RunService")
@@ -253,7 +253,7 @@ task.spawn(function()
     end
 end)
 
--- Shoot Murder GUI (One-frame teleport, shoot, and instant return)
+-- Shoot Murder GUI
 local function createAutoShootGui()
     if autoShootGui then return end
     local Players = game:GetService("Players")
@@ -383,7 +383,6 @@ local function createAutoShootGui()
                         camera.CameraType = Enum.CameraType.Scriptable  
                         camera.CFrame = originalCameraCFrame  
 
-                        -- ONE-FRAME TELEPORT TO MURDERER
                         root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 1)    
                         RunService.Heartbeat:Wait()    
 
@@ -404,7 +403,6 @@ local function createAutoShootGui()
                            remote:FireServer(calculatedCFrame, targetPos)    
                         end      
 
-                        -- INSTANT RETURN TO ORIGINAL POSITION
                         root.CFrame = originalCFrame    
 
                         camera.CFrame = originalCameraCFrame  
@@ -430,7 +428,7 @@ local function removeAutoShootGui()
     if autoShootGui then autoShootGui:Destroy() autoShootGui = nil end
 end
 
--- Drill Down Fling Engine (ручной запуск с вкладки Fling, если понадобится)
+-- Drill Down Fling Engine
 local function executeDrillDownFling(targetType)
     if isFlingingActive then return end
     isFlingingActive = true
@@ -1003,7 +1001,10 @@ VisualsTab:CreateSlider({
     end,
 })
 
--- Принудительный фокус на вкладку Farming при запуске
-pcall(function()
-    Window:SelectTab(FarmingTab)
+-- Обход бага Rayfield Gen2: принудительный перехват фокуса на вкладку Farming через задержку
+task.spawn(function()
+    task.wait(0.15)
+    pcall(function()
+        Window:SelectTab(FarmingTab)
+    end)
 end)
