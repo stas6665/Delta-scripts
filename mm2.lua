@@ -1,23 +1,24 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/gen2'))()
 
 local Window = Rayfield:CreateWindow({
-    Name = "MM2 Hub",
-    LoadingTitle = "Loading MM2...",
-    LoadingSubtitle = "by Stas",
-    ConfigurationSaving = { Enabled = false },
-    KeySystem = false,
+    name = "MM2 Hub",
+    loadingTitle = "Loading MM2...",
+    loadingSubtitle = "by Stas",
+    configurationSaving = { enabled = false },
+    keySystem = false,
 })
 
--- Создаем вкладку Farming САМОЙ ПЕРВОЙ, чтобы она шла первой в списке
-local FarmingTab = Window:CreateTab("Farming")
-local FlingTab = Window:CreateTab("Fling")
-local CombatTab = Window:CreateTab("Combat")
-local SkinsTab = Window:CreateTab("Skins")
-local VisualsTab = Window:CreateTab("Visuals")
+local FarmingTab = Window:CreateTab({ name = "Farming", icon = "bookmark" })
+local FlingTab = Window:CreateTab({ name = "Fling", icon = "user" })
+local CombatTab = Window:CreateTab({ name = "Combat", icon = "shield" })
+local SkinsTab = Window:CreateTab({ name = "Skins", icon = "package" })
+local VisualsTab = Window:CreateTab({ name = "Visuals", icon = "eye" })
 
 local autoFarmCandy = false
 local antiFlingEnabled = false
 local autoGrabGunEnabled = false
+local autoFlingMurderWhenFull = false
+local autoKillWhenFull = false
 
 local farmSpeed = 25
 local farmMethod = "Teleport"
@@ -595,6 +596,30 @@ local function checkBagFull(player)
     return true
 end
 
+-- Auto Fling Murder (When Bag Full) Logic
+local function executeAutoFlingMurderWhenFull()
+    task.spawn(function()
+        local Players = game:GetService("Players")
+        local player = Players.LocalPlayer
+
+        while autoFlingMurderWhenFull do
+            pcall(function()
+                if not checkBagFull(player) then
+                    task.wait(1)
+                    return
+                end
+
+                executeDrillDownFling("Murder")    
+                    
+                while autoFlingMurderWhenFull and checkBagFull(player) do    
+                   task.wait(2)    
+                end    
+            end)    
+            task.wait(1)
+        end
+    end)
+end
+
 local function applySkinToTool(tool)
     if not tool then return end
     local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildOfClass("BasePart")
@@ -655,31 +680,31 @@ workspace.DescendantAdded:Connect(function(obj)
     end
 end)
 
--- UI Elements Creation (Farming Tab)
+-- UI Elements Creation (Farming Tab) - Gen2 Syntax
 FarmingTab:CreateDropdown({
-    Name = "Farm Method",
-    Options = {"Teleport", "Fly"},
-    CurrentOption = "Teleport",
-    Flag = "FarmMethodDropdown",
-    Callback = function(Option) farmMethod = Option end,
+    name = "Farm Method",
+    options = {"Teleport", "Fly"},
+    currentOption = "Teleport",
+    flag = "FarmMethodDropdown",
+    callback = function(option) farmMethod = option end,
 })
 
 FarmingTab:CreateSlider({
-    Name = "Farm Speed (Fly Only)",
-    Range = {1, 33},
-    Increment = 1,
-    Suffix = "s/s",
-    CurrentValue = 25,
-    Flag = "FarmSpeedSlider",
-    Callback = function(Value) farmSpeed = Value end,
+    name = "Farm Speed (Fly Only)",
+    range = {1, 33},
+    increment = 1,
+    suffix = "s/s",
+    currentValue = 25,
+    flag = "FarmSpeedSlider",
+    callback = function(value) farmSpeed = value end,
 })
 
 FarmingTab:CreateToggle({
-    Name = "Auto Farm Candy",
-    CurrentValue = false,
-    Flag = "AutoFarmCandyToggle",
-    Callback = function(Value)
-        autoFarmCandy = Value
+    name = "Auto Farm Candy",
+    currentValue = false,
+    flag = "AutoFarmCandyToggle",
+    callback = function(value)
+        autoFarmCandy = value
         currentFarmSession = currentFarmSession + 1
         local mySessionId = currentFarmSession
 
@@ -793,65 +818,78 @@ FarmingTab:CreateToggle({
     end,
 })
 
+-- Возвращенный тумблер Auto Fling Murder (When Bag Full)
 FarmingTab:CreateToggle({
-    Name = "Anti Fling",
-    CurrentValue = false,
-    Flag = "AntiFlingToggle",
-    Callback = function(Value)
-        antiFlingEnabled = Value
+    name = "Fling Murder (When Bag Full)",
+    currentValue = false,
+    flag = "AutoFlingMurderWhenFullToggle",
+    callback = function(value)
+        autoFlingMurderWhenFull = value
+        if autoFlingMurderWhenFull then
+            executeAutoFlingMurderWhenFull()
+        end
+    end,
+})
+
+FarmingTab:CreateToggle({
+    name = "Anti Fling",
+    currentValue = false,
+    flag = "AntiFlingToggle",
+    callback = function(value)
+        antiFlingEnabled = value
         updateAntiFling()
     end,
 })
 
--- UI Elements Creation (Fling Tab)
+-- UI Elements Creation (Fling Tab) - Gen2 Syntax
 FlingTab:CreateButton({
-    Name = "Fling Murder",
-    Callback = function() executeDrillDownFling("Murder") end,
+    name = "Fling Murder",
+    callback = function() executeDrillDownFling("Murder") end,
 })
 
 FlingTab:CreateButton({
-    Name = "Fling Sheriff / Hero",
-    Callback = function() executeDrillDownFling("Sheriff") end,
+    name = "Fling Sheriff / Hero",
+    callback = function() executeDrillDownFling("Sheriff") end,
 })
 
--- UI Elements Creation (Combat Tab)
+-- UI Elements Creation (Combat Tab) - Gen2 Syntax
 CombatTab:CreateToggle({
-    Name = "Auto Grab Gun",
-    CurrentValue = false,
-    Flag = "AutoGrabGunToggle",
-    Callback = function(Value) autoGrabGunEnabled = Value end,
+    name = "Auto Grab Gun",
+    currentValue = false,
+    flag = "AutoGrabGunToggle",
+    callback = function(value) autoGrabGunEnabled = value end,
 })
 
 CombatTab:CreateToggle({
-    Name = "Auto Shoot Button",
-    CurrentValue = false,
-    Flag = "AutoShootButtonToggle",
-    Callback = function(Value)
-        autoShootButtonEnabled = Value
+    name = "Auto Shoot Button",
+    currentValue = false,
+    flag = "AutoShootButtonToggle",
+    callback = function(value)
+        autoShootButtonEnabled = value
         if autoShootButtonEnabled then createAutoShootGui() else removeAutoShootGui() end
     end,
 })
 
--- UI Elements Creation (Skins Tab)
+-- UI Elements Creation (Skins Tab) - Gen2 Syntax
 SkinsTab:CreateDropdown({
-    Name = "Select Weapon Slot",
-    Options = {"Knife", "Gun"},
-    CurrentOption = "Gun",
-    Flag = "SkinSlotDropdown",
-    Callback = function(Option) selectedWeaponType = Option end,
+    name = "Select Weapon Slot",
+    options = {"Knife", "Gun"},
+    currentOption = "Gun",
+    flag = "SkinSlotDropdown",
+    callback = function(option) selectedWeaponType = option end,
 })
 
 SkinsTab:CreateDropdown({
-    Name = "Select Skin",
-    Options = {"Default", "GingerScope", "Celestial", "Emberbow", "Combain", "Evergun", "Laser Gun", "Luger", "Corrupt Knife"},
-    CurrentOption = "Default",
-    Flag = "SkinNameDropdown",
-    Callback = function(Option) activeSkinName = Option end,
+    name = "Select Skin",
+    options = {"Default", "GingerScope", "Celestial", "Emberbow", "Combain", "Evergun", "Laser Gun", "Luger", "Corrupt Knife"},
+    currentOption = "Default",
+    flag = "SkinNameDropdown",
+    callback = function(option) activeSkinName = option end,
 })
 
 SkinsTab:CreateButton({
-    Name = "Apply & Equip Skin",
-    Callback = function()
+    name = "Apply & Equip Skin",
+    callback = function()
         pcall(function()
             local player = game:GetService("Players").LocalPlayer
             local tool = (player.Character and player.Character:FindFirstChild(selectedWeaponType)) or (player.Backpack and player.Backpack:FindFirstChild(selectedWeaponType))
@@ -860,31 +898,31 @@ SkinsTab:CreateButton({
     end,
 })
 
--- UI Elements Creation (Visuals Tab)
+-- UI Elements Creation (Visuals Tab) - Gen2 Syntax
 VisualsTab:CreateToggle({
-    Name = "ESP Murder",
-    CurrentValue = false,
-    Flag = "ESPMurderToggle",
-    Callback = function(Value)
-        espMurderEnabled = Value
+    name = "ESP Murder",
+    currentValue = false,
+    flag = "ESPMurderToggle",
+    callback = function(value)
+        espMurderEnabled = value
     end,
 })
 
 VisualsTab:CreateToggle({
-    Name = "ESP Sheriff/Hero",
-    CurrentValue = false,
-    Flag = "ESPSheriffHeroToggle",
-    Callback = function(Value)
-        espSheriffHeroEnabled = Value
+    name = "ESP Sheriff/Hero",
+    currentValue = false,
+    flag = "ESPSheriffHeroToggle",
+    callback = function(value)
+        espSheriffHeroEnabled = value
     end,
 })
 
 VisualsTab:CreateToggle({
-    Name = "ESP Innocent",
-    CurrentValue = false,
-    Flag = "ESPInnocentToggle",
-    Callback = function(Value)
-        espInnocentEnabled = Value
+    name = "ESP Innocent",
+    currentValue = false,
+    flag = "ESPInnocentToggle",
+    callback = function(value)
+        espInnocentEnabled = value
     end,
 })
 
@@ -946,11 +984,11 @@ task.spawn(function()
 end)
 
 VisualsTab:CreateToggle({
-    Name = "Coins / Candy ESP (Orange)",
-    CurrentValue = false,
-    Flag = "CoinsESPToggle",
-    Callback = function(Value)
-        espCoinsEnabled = Value
+    name = "Coins / Candy ESP (Orange)",
+    currentValue = false,
+    flag = "CoinsESPToggle",
+    callback = function(value)
+        espCoinsEnabled = value
         if espCoinsEnabled then
             task.spawn(function()
                 while espCoinsEnabled do
@@ -980,29 +1018,24 @@ VisualsTab:CreateToggle({
 
 -- X-Ray Toggle
 VisualsTab:CreateToggle({
-    Name = "X-Ray",
-    CurrentValue = false,
-    Flag = "XRayToggle",
-    Callback = function(Value)
-        xrayEnabled = Value
+    name = "X-Ray",
+    currentValue = false,
+    flag = "XRayToggle",
+    callback = function(value)
+        xrayEnabled = value
         updateXray()
     end,
 })
 
 VisualsTab:CreateSlider({
-    Name = "X-Ray Transparency",
-    Range = {0, 1},
-    Increment = 0.05,
-    Suffix = "",
-    CurrentValue = 0.65,
-    Flag = "XRayTransparencySlider",
-    Callback = function(Value)
-        xrayTransparency = Value
+    name = "X-Ray Transparency",
+    range = {0, 1},
+    increment = 0.05,
+    suffix = "",
+    currentValue = 0.65,
+    flag = "XRayTransparencySlider",
+    callback = function(value)
+        xrayTransparency = value
         if xrayEnabled then updateXray() end
     end,
 })
-
--- Самый жесткий перехват: принудительно выбираем первую вкладку
-pcall(function()
-    Window:SelectTab(FarmingTab)
-end)
