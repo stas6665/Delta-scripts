@@ -160,7 +160,7 @@ task.spawn(function()
     end
 end)
 
--- Anti Fling & No-Push Protection (Optimized: does not interfere with jumping)
+-- Anti Fling & No-Push Protection (Optimized)
 local antiFlingConnection = nil
 local function updateAntiFling()
     local RunService = game:GetService("RunService")
@@ -255,7 +255,7 @@ task.spawn(function()
     end
 end)
 
--- Shoot Murder GUI (One-frame teleport, shoot, and instant return)
+-- Shoot Murder GUI
 local function createAutoShootGui()
     if autoShootGui then return end
     local Players = game:GetService("Players")
@@ -385,7 +385,6 @@ local function createAutoShootGui()
                         camera.CameraType = Enum.CameraType.Scriptable  
                         camera.CFrame = originalCameraCFrame  
 
-                        -- ONE-FRAME TELEPORT TO MURDERER
                         root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 1)    
                         RunService.Heartbeat:Wait()    
 
@@ -406,7 +405,6 @@ local function createAutoShootGui()
                            remote:FireServer(calculatedCFrame, targetPos)    
                         end      
 
-                        -- INSTANT RETURN TO ORIGINAL POSITION
                         root.CFrame = originalCFrame    
 
                         camera.CFrame = originalCameraCFrame  
@@ -879,7 +877,7 @@ FarmingTab:CreateToggle({
                                 root.Velocity = Vector3.new(0, 0, 0)    
                                     
                                 root.CFrame = CFrame.new(nearestCoin.Position)      
-                                task.wait(0.03) -- Даем клиенту время обработать подбор и показать "+1 Candy"
+                                task.wait(0.03)    
                                 showCustomNotification("Auto Farm", "+1 Candy", true)    
 
                                 task.wait(0.01)    
@@ -901,7 +899,7 @@ FarmingTab:CreateToggle({
                                        
                                    if distance < 1 then    
                                       root.CFrame = CFrame.new(targetPos)    
-                                      task.wait(0.03) -- Стабильное появление уведомления при полете
+                                      task.wait(0.03)    
                                       showCustomNotification("Auto Farm", "+1 Candy", true)    
                                       break    
                                    end    
@@ -1161,3 +1159,9 @@ VisualsTab:CreateSlider({
         if xrayEnabled then updateXray() end
     end,
 })
+
+-- Принудительное переключение на первую вкладку (Farming) при запуске
+pcall(function()
+    Window:SelectTab(1)
+end)
+ 
