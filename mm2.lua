@@ -8,6 +8,7 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false,
 })
 
+-- Создаем вкладку Farming САМОЙ ПЕРВОЙ, чтобы она шла первой в списке
 local FarmingTab = Window:CreateTab("Farming")
 local FlingTab = Window:CreateTab("Fling")
 local CombatTab = Window:CreateTab("Combat")
@@ -786,7 +787,7 @@ FarmingTab:CreateToggle({
                        end)      
                        if not success then warn("AutoFarm Error:", err) end      
                        task.wait(0.01)      
-                end      
+                end    
             end)
         end
     end,
@@ -1001,10 +1002,7 @@ VisualsTab:CreateSlider({
     end,
 })
 
--- Обход бага Rayfield Gen2: принудительный перехват фокуса на вкладку Farming через задержку
-task.spawn(function()
-    task.wait(0.15)
-    pcall(function()
-        Window:SelectTab(FarmingTab)
-    end)
+-- Самый жесткий перехват: принудительно выбираем первую вкладку
+pcall(function()
+    Window:SelectTab(FarmingTab)
 end)
