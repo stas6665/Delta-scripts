@@ -17,8 +17,6 @@ local VisualsTab = Window:CreateTab("Visuals")
 local autoFarmCandy = false
 local antiFlingEnabled = false
 local autoGrabGunEnabled = false
-local autoFlingMurderWhenFull = false
-local autoKillWhenFull = false
 
 local farmSpeed = 25
 local farmMethod = "Teleport"
@@ -160,7 +158,7 @@ task.spawn(function()
     end
 end)
 
--- Anti Fling & No-Push Protection (Optimized)
+-- Anti Fling & No-Push Protection (Optimized: does not interfere with jumping)
 local antiFlingConnection = nil
 local function updateAntiFling()
     local RunService = game:GetService("RunService")
@@ -255,7 +253,7 @@ task.spawn(function()
     end
 end)
 
--- Shoot Murder GUI
+-- Shoot Murder GUI (One-frame teleport, shoot, and instant return)
 local function createAutoShootGui()
     if autoShootGui then return end
     local Players = game:GetService("Players")
@@ -385,6 +383,7 @@ local function createAutoShootGui()
                         camera.CameraType = Enum.CameraType.Scriptable  
                         camera.CFrame = originalCameraCFrame  
 
+                        -- ONE-FRAME TELEPORT TO MURDERER
                         root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 1)    
                         RunService.Heartbeat:Wait()    
 
@@ -405,6 +404,7 @@ local function createAutoShootGui()
                            remote:FireServer(calculatedCFrame, targetPos)    
                         end      
 
+                        -- INSTANT RETURN TO ORIGINAL POSITION
                         root.CFrame = originalCFrame    
 
                         camera.CFrame = originalCameraCFrame  
@@ -430,7 +430,7 @@ local function removeAutoShootGui()
     if autoShootGui then autoShootGui:Destroy() autoShootGui = nil end
 end
 
--- Drill Down Fling Engine
+-- Drill Down Fling Engine (ручной запуск с вкладки Fling, если понадобится)
 local function executeDrillDownFling(targetType)
     if isFlingingActive then return end
     isFlingingActive = true
@@ -439,7 +439,7 @@ local function executeDrillDownFling(targetType)
         local Players = game:GetService("Players")
         local RunService = game:GetService("RunService")
         local player = Players.LocalPlayer
-        local character, root, humanoid, targetRoot, targetPlayer
+        local character, root, humanoid, targetRoot
         local originalProperties = {}
         local originalCanCollideStates = {}
         local propertiesModified = false
@@ -594,139 +594,6 @@ local function checkBagFull(player)
         return false
     end
     return true
-end
-
--- Auto Fling Murder (When Bag Full)
-local function executeAutoFlingMurderWhenFull()
-    task.spawn(function()
-        local Players = game:GetService("Players")
-        local player = Players.LocalPlayer
-
-        while autoFlingMurderWhenFull do
-            pcall(function()
-                if not checkBagFull(player) then
-                    task.wait(1)
-                    return
-                end
-
-                executeDrillDownFling("Murder")    
-                    
-                while autoFlingMurderWhenFull and checkBagFull(player) do    
-                   task.wait(2)    
-                end    
-            end)    
-            task.wait(1)
-        end
-    end)
-end
-
--- Auto Kill All (When Bag Full)
-local function executeAutoKillWhenFull()
-    task.spawn(function()
-        local Players = game:GetService("Players")
-        local RunService = game:GetService("RunService")
-        local player = Players.LocalPlayer
-
-        while autoKillWhenFull do
-            pcall(function()
-                if not checkBagFull(player) then
-                    task.wait(1)
-                    return
-                end
-
-                local char = player.Character    
-                if not char or not char:FindFirstChild("HumanoidRootPart") then    
-                   task.wait(1)    
-                   return    
-                end    
-                local root = char.HumanoidRootPart    
-                local humanoid = char:FindFirstChildOfClass("Humanoid")    
-                local backpack = player:FindFirstChild("Backpack")    
-
-                local knife = char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife"))    
-                if not knife then    
-                   task.wait(1)    
-                   return    
-                end    
-
-                if knife.Parent == backpack and humanoid then    
-                   humanoid:EquipTool(knife)    
-                   task.wait(0.05)    
-                end    
-
-                local targetRoots = {}    
-                local PlayersList = Players:GetPlayers()    
-                for _, p in ipairs(PlayersList) do    
-                   if p ~= player and p.Character and autoKillWhenFull then    
-                      local pChar = p.Character    
-                      local pRoot = pChar:FindFirstChild("HumanoidRootPart")    
-                      local pHum = pChar:FindFirstChildOfClass("Humanoid")    
-
-                      if pRoot and pHum and pHum.Health > 0 then    
-                         table.insert(targetRoots, pRoot)    
-                         local pCharDescendants = pChar:GetDescendants()    
-                         for _, part in ipairs(pCharDescendants) do    
-                            if part:IsA("BasePart") then    
-                               part.CanCollide = false    
-                            end    
-                         end    
-                      end    
-                   end    
-                end    
-
-                if #targetRoots == 0 then    
-                   task.wait(1)    
-                   return    
-                end    
-
-                local startTime = tick()    
-                local connection    
-                connection = RunService.Heartbeat:Connect(function()    
-                   pcall(function()    
-                      if not checkBagFull(player) or (tick() - startTime > 5) then    
-                         if connection then connection:Disconnect() end    
-                         return    
-                      end    
-
-                      for _, tRoot in ipairs(targetRoots) do    
-                         if tRoot and tRoot.Parent then    
-                            tRoot.CFrame = root.CFrame * CFrame.new(0, 0, -2.5)    
-                            tRoot.AssemblyLinearVelocity = Vector3.zero    
-                            tRoot.AssemblyAngularVelocity = Vector3.zero    
-                         end    
-                      end    
-
-                      if knife.Parent == char then    
-                         knife:Activate()    
-                      end    
-                   end)    
-                end    )    
-
-                while autoKillWhenFull and checkBagFull(player) and (tick() - startTime < 5) do    
-                   task.wait(0.2)    
-                end    
-
-                if connection then connection:Disconnect() end    
-
-                for _, tRoot in ipairs(targetRoots) do    
-                   if tRoot and tRoot.Parent then    
-                      local pChar = tRoot.Parent    
-                      local pCharDescendants = pChar:GetDescendants()    
-                      for _, part in ipairs(pCharDescendants) do    
-                         if part:IsA("BasePart") then    
-                            part.CanCollide = true    
-                         end    
-                      end    
-                   end    
-                end    
-
-                while autoKillWhenFull and checkBagFull(player) do    
-                   task.wait(2)    
-                end    
-            end)    
-            task.wait(1)
-        end
-    end)
 end
 
 local function applySkinToTool(tool)
@@ -923,30 +790,6 @@ FarmingTab:CreateToggle({
                        task.wait(0.01)      
                 end      
             end)
-        end
-    end,
-})
-
-FarmingTab:CreateToggle({
-    Name = "Fling Murder (When Bag Full)",
-    CurrentValue = false,
-    Flag = "AutoFlingMurderWhenFullToggle",
-    Callback = function(Value)
-        autoFlingMurderWhenFull = Value
-        if autoFlingMurderWhenFull then
-            executeAutoFlingMurderWhenFull()
-        end
-    end,
-})
-
-FarmingTab:CreateToggle({
-    Name = "Kill All (When Bag Full)",
-    CurrentValue = false,
-    Flag = "AutoKillFullToggle",
-    Callback = function(Value)
-        autoKillWhenFull = Value
-        if autoKillWhenFull then
-            executeAutoKillWhenFull()
         end
     end,
 })
@@ -1160,8 +1003,7 @@ VisualsTab:CreateSlider({
     end,
 })
 
--- Принудительное переключение на первую вкладку (Farming) при запуске
+-- Принудительный фокус на вкладку Farming при запуске
 pcall(function()
-    Window:SelectTab(1)
+    Window:SelectTab(FarmingTab)
 end)
- 
