@@ -20,6 +20,7 @@ local antiFlingEnabled = false
 local autoGrabGunEnabled = false
 local autoFlingMurderWhenFull = false
 local autoKillWhenFull = false
+local killAllActive = false
 local notJumpEnabled = false
 local playerControlEnabled = false
 
@@ -121,6 +122,45 @@ local function showCustomNotification(title, message, isSuccess)
             end
         end)
     end)
+end
+
+-- Точная проверка пребывания в лобби с радиусом 450 студов
+local function isInLobby()
+    local player = game:GetService("Players").LocalPlayer
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return true end
+
+    local root = char.HumanoidRootPart
+    local Workspace = game:GetService("Workspace")
+    
+    local lobbyFolder = Workspace:FindFirstChild("Lobby")
+    local mainLobbyObj = lobbyFolder and lobbyFolder:FindFirstChild("Lobby")
+    
+    if mainLobbyObj then
+        local targetPart = nil
+        if mainLobbyObj:IsA("BasePart") then
+            targetPart = mainLobbyObj
+        elseif mainLobbyObj:IsA("Model") then
+            targetPart = mainLobbyObj.PrimaryPart or mainLobbyObj:FindFirstChildOfClass("BasePart")
+        end
+
+        if targetPart then
+            local dist = (root.Position - targetPart.Position).Magnitude
+            if dist < 450 then
+                return true
+            end
+        end
+    end
+
+    local playerGui = player:FindFirstChild("PlayerGui")
+    local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
+    local gameFrame = mainGui and mainGui:FindFirstChild("Game")
+
+    if gameFrame and not gameFrame.Visible then
+        return true
+    end
+
+    return false
 end
 
 local gunWasDropped = false
@@ -265,14 +305,15 @@ local function updatePlayerControl()
                 pcall(function()
                     if selectedTrollPlayerName and selectedTrollPlayerName ~= "" and selectedTrollPlayerName ~= "No Players" then
                         local targetP = Players:FindFirstChild(selectedTrollPlayerName)
-                        if targetP and targetP.Character and targetP.Character:FindFirstChild("HumanoidRootPart") then
+                        if targetP and targetP.Character and targetP.Character:FindFirstChild("HumanoidRootPart") and targetP.Character:FindFirstChildOfClass("Humanoid") then
                             local tRoot = targetP.Character.HumanoidRootPart
                             local char = player.Character
                             if char and char:FindFirstChild("HumanoidRootPart") then
                                 local root = char.HumanoidRootPart
                                 
-                                tRoot.CFrame = root.CFrame * CFrame.new(0, 0, -3)
-                                tRoot.AssemblyLinearVelocity = Vector3.zero
+                                local targetPos = root.CFrame * CFrame.new(0, 0, -3)
+                                tRoot.CFrame = targetPos
+                                tRoot.AssemblyLinearVelocity = Vector3.new(0, tRoot.AssemblyLinearVelocity.Y, 0)
                                 tRoot.AssemblyAngularVelocity = Vector3.zero
                             end
                         end
@@ -342,7 +383,6 @@ local function createAutoShootGui()
     if autoShootGui then return end
     local Players = game:GetService("Players")
     local UserInputService = game:GetService("UserInputService")
-    local RunService = game:GetService("RunService")
     local player = Players.LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
 
@@ -413,7 +453,6 @@ local function createAutoShootGui()
                     pcall(function()
                         local char = player.Character
                         if not char or not char:FindFirstChild("HumanoidRootPart") then
-                            showCustomNotification("Error", "Character not found!", false)
                             return
                         end
                         local root = char.HumanoidRootPart
@@ -423,19 +462,14 @@ local function createAutoShootGui()
                         local gun = char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun"))      
                               
                         if not gun then     
-                           showCustomNotification("Shoot Murder", "Gun not in inventory!", false)    
                            return     
                         end      
                               
                         if gun.Parent == backpack and hum then      
                            hum:EquipTool(gun)    
-                           task.wait(0.02)    
+                           task.wait(0.05) 
                         end      
 
-                        if gun:FindFirstChild("CantShoot") then    
-                           pcall(function() gun.CantShoot.Value = false end)    
-                        end    
-                              
                         local targetRoot = nil      
                         local playersList = Players:GetPlayers()    
                         for _, p in ipairs(playersList) do      
@@ -455,44 +489,34 @@ local function createAutoShootGui()
                         end      
                               
                         if not targetRoot then     
-                           showCustomNotification("Shoot Murder", "Murderer not found!", false)    
                            return     
                         end    
 
-                        local originalCFrame = root.CFrame    
-                        local camera = workspace.CurrentCamera  
-                        local originalCameraType = camera.CameraType  
-                        local originalCameraCFrame = camera.CFrame  
+                        local origCFrame = root.CFrame
 
-                        camera.CameraType = Enum.CameraType.Scriptable  
-                        camera.CFrame = originalCameraCFrame  
-
-                        root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 1)    
-                        RunService.Heartbeat:Wait()    
-
-                        if gun.Parent == char then    
-                           gun:Activate()    
-                        end    
+                        root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 3)
+                        
+                        game:GetService("RunService").Heartbeat:Wait()
 
                         local targetPos = targetRoot.Position + Vector3.new(0, 0.5, 0)    
-                        local rayAttach = root:FindFirstChild("GunRaycastAttachment")    
+                        local rayAttach = root:FindFirstChild("GunRaycastAttachment") or char:FindFirstChild("RightHand")
                         local attachmentCFrame = rayAttach and rayAttach.WorldCFrame or root.CFrame    
                         local calculatedCFrame = CFrame.new(attachmentCFrame.Position, targetPos)    
 
-                        local remote = gun:FindFirstChild("Shoot", true)     
-                                       or gun:FindFirstChild("Shootts", true)    
-                                       or gun:FindFirstChildOfClass("RemoteEvent")    
+                        local remote = gun:FindFirstChild("Shoot", true)
 
                         if remote and remote:IsA("RemoteEvent") then      
                            remote:FireServer(calculatedCFrame, targetPos)    
+                           showCustomNotification("Shoot Murder", "One-frame teleport shot!", true)    
+                        else      
+                           pcall(function()
+                              gun:Activate()
+                           end)
                         end      
 
-                        root.CFrame = originalCFrame    
-
-                        camera.CFrame = originalCameraCFrame  
-                        camera.CameraType = originalCameraType  
-
-                        showCustomNotification("Shoot Murder", "Shot fired!", true)    
+                        if root and root.Parent then
+                           root.CFrame = origCFrame
+                        end
                     end)      
                 end      
                       
@@ -702,7 +726,7 @@ local function checkBagFull(player)
     local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
     local gameFrame = mainGui and mainGui:FindFirstChild("Game")
 
-    if not gameFrame or not gameFrame.Visible then return true end
+    if not gameFrame or not gameFrame.Visible then return false end
 
     local coinBags = gameFrame:FindFirstChild("CoinBags")
     if coinBags and coinBags.Visible then
@@ -712,7 +736,7 @@ local function checkBagFull(player)
         end
         return false
     end
-    return true
+    return false
 end
 
 local function executeAutoFlingMurderWhenFull()
@@ -733,6 +757,150 @@ local function executeAutoFlingMurderWhenFull()
                    task.wait(2)    
                 end    
             end)    
+            task.wait(1)
+        end
+    end)
+end
+
+local function executeKillAll()
+    task.spawn(function()
+        local Players = game:GetService("Players")
+        local player = Players.LocalPlayer
+
+        while killAllActive do
+            pcall(function()
+                local char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then
+                    task.wait(0.5)
+                    return
+                end
+
+                local root = char.HumanoidRootPart
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local backpack = player:FindFirstChild("Backpack")
+                local knife = char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife"))
+
+                if not knife then
+                    showCustomNotification("Kill All", "Knife not found in inventory!", false)
+                    killAllActive = false
+                    return
+                end
+
+                if knife.Parent == backpack and hum then
+                    hum:EquipTool(knife)
+                    task.wait(0.1)
+                end
+
+                local targets = {}
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                        local pChar = p.Character
+                        local pHum = pChar:FindFirstChildOfClass("Humanoid")
+                        if pHum and pHum.Health > 0 then
+                            local pBp = p:FindFirstChild("Backpack")
+                            local hasKnife = (pBp and pBp:FindFirstChild("Knife")) or pChar:FindFirstChild("Knife")
+                            if not hasKnife then
+                                table.insert(targets, pChar.HumanoidRootPart)
+                            end
+                        end
+                    end
+                end
+
+                if #targets == 0 then
+                    task.wait(1)
+                    return
+                end
+
+                for _, tRoot in ipairs(targets) do
+                    if not killAllActive then break end
+                    pcall(function()
+                        if tRoot and tRoot.Parent then
+                            local origCFrame = root.CFrame
+                            root.CFrame = tRoot.CFrame * CFrame.new(0, 0, 1.5)
+                            task.wait(0.05)
+                            if knife.Parent == char then
+                                knife:Activate()
+                            end
+                            task.wait(0.05)
+                            root.CFrame = origCFrame
+                        end
+                    end)
+                    task.wait(0.2)
+                end
+            end)
+            task.wait(0.5)
+        end
+    end)
+end
+
+local function executeAutoKillWhenFull()
+    task.spawn(function()
+        local Players = game:GetService("Players")
+        local player = Players.LocalPlayer
+
+        while autoKillWhenFull do
+            pcall(function()
+                if not checkBagFull(player) then
+                    task.wait(1)
+                    return
+                end
+
+                local char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then
+                    task.wait(0.5)
+                    return
+                end
+
+                local root = char.HumanoidRootPart
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local backpack = player:FindFirstChild("Backpack")
+                local knife = char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife"))
+
+                if not knife then
+                    task.wait(1)
+                    return
+                end
+
+                if knife.Parent == backpack and hum then
+                    hum:EquipTool(knife)
+                    task.wait(0.1)
+                end
+
+                while autoKillWhenFull and checkBagFull(player) do
+                    local targets = {}
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                            local pChar = p.Character
+                            local pHum = pChar:FindFirstChildOfClass("Humanoid")
+                            if pHum and pHum.Health > 0 then
+                                local pBp = p:FindFirstChild("Backpack")
+                                local hasKnife = (pBp and pBp:FindFirstChild("Knife")) or pChar:FindFirstChild("Knife")
+                                if not hasKnife then
+                                    table.insert(targets, pChar.HumanoidRootPart)
+                                end
+                            end
+                        end
+                    end
+
+                    for _, tRoot in ipairs(targets) do
+                        if not autoKillWhenFull or not checkBagFull(player) then break end
+                        pcall(function()
+                            if tRoot and tRoot.Parent then
+                                local origCFrame = root.CFrame
+                                root.CFrame = tRoot.CFrame * CFrame.new(0, 0, 1.5)
+                                task.wait(0.05)
+                                if knife.Parent == char then
+                                    knife:Activate()
+                                end
+                                task.wait(0.05)
+                                root.CFrame = origCFrame
+                            end
+                        end)
+                        task.wait(0.2)
+                    end
+                    task.wait(0.5)
+                end
+            end)
             task.wait(1)
         end
     end)
@@ -831,6 +999,11 @@ FarmingTab:CreateToggle({
 
                 while autoFarmCandy and (currentFarmSession == mySessionId) do      
                        local success, err = pcall(function()      
+                          if isInLobby() then
+                             task.wait(1)
+                             return
+                          end
+
                           if checkBagFull(player) then      
                              task.wait(1)      
                              return      
@@ -899,6 +1072,7 @@ FarmingTab:CreateToggle({
                                 local RunService = game:GetService("RunService")    
                                     
                                 while autoFarmCandy and (currentFarmSession == mySessionId) do    
+                                   if isInLobby() then break end
                                    if not nearestCoin.Instance or not nearestCoin.Instance.Parent then break end    
                                        
                                    local currentPos = root.Position    
@@ -917,8 +1091,9 @@ FarmingTab:CreateToggle({
                                    root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)    
                                    root.AssemblyAngularVelocity = Vector3.new(0, 0, 0)    
                                      
-                                   local flatTarget = Vector3.new(targetPos.X, nextPos.Y, targetPos.Z)  
-                                   root.CFrame = CFrame.new(nextPos, flatTarget)    
+                                   local safeY = math.min(currentPos.Y, targetPos.Y + 2)
+                                   local flatTarget = Vector3.new(targetPos.X, safeY, targetPos.Z)  
+                                   root.CFrame = CFrame.new(nextPos.X, safeY, nextPos.Z, flatTarget.X, flatTarget.Y, flatTarget.Z)    
                                        
                                    RunService.Heartbeat:Wait()    
                                 end    
@@ -947,6 +1122,18 @@ FarmingTab:CreateToggle({
 })
 
 FarmingTab:CreateToggle({
+    name = "Auto Kill All (When Bag Full)",
+    currentValue = false,
+    flag = "AutoKillWhenFullToggle",
+    callback = function(value)
+        autoKillWhenFull = value
+        if autoKillWhenFull then
+            executeAutoKillWhenFull()
+        end
+    end,
+})
+
+FarmingTab:CreateToggle({
     name = "Anti Fling",
     currentValue = false,
     flag = "AntiFlingToggle",
@@ -964,6 +1151,18 @@ FlingTab:CreateButton({
 FlingTab:CreateButton({
     name = "Fling Sheriff / Hero",
     callback = function() executeDrillDownFling("Sheriff", nil) end,
+})
+
+CombatTab:CreateToggle({
+    name = "Kill All (Murderer)",
+    currentValue = false,
+    flag = "KillAllToggle",
+    callback = function(value)
+        killAllActive = value
+        if killAllActive then
+            executeKillAll()
+        end
+    end,
 })
 
 local Players = game:GetService("Players")
@@ -988,6 +1187,18 @@ local trollDropdown = TrollTab:CreateDropdown({
         selectedTrollPlayerName = option
     end,
 })
+
+Players.PlayerAdded:Connect(function()
+    pcall(function()
+        trollDropdown:Set(getPlayerNamesList())
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function()
+    pcall(function()
+        trollDropdown:Set(getPlayerNamesList())
+    end)
+end)
 
 TrollTab:CreateButton({
     name = "Refresh Players List",
@@ -1212,4 +1423,3 @@ VisualsTab:CreateSlider({
         if xrayEnabled then updateXray() end
     end,
 })
- 
