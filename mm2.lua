@@ -3,7 +3,7 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/gen2'))()
 local Window = Rayfield:CreateWindow({
     name = "MM2 Hub",
     loadingTitle = "Loading MM2...",
-    loadingSubtitle = "by Stas",
+    loadingSubtitle = "by Stas_mine12",
     configurationSaving = { enabled = false },
     keySystem = false,
 })
@@ -59,6 +59,8 @@ local skinDatabase = {
 }
 
 local notifyGui = nil
+local activeNotifFrame = nil
+
 local function showCustomNotification(title, message, isSuccess)
     pcall(function()
         local player = game:GetService("Players").LocalPlayer
@@ -72,17 +74,18 @@ local function showCustomNotification(title, message, isSuccess)
             notifyGui.Parent = playerGui
         end
 
-        for _, child in ipairs(notifyGui:GetChildren()) do
-            child:Destroy()
+        if activeNotifFrame and activeNotifFrame.Parent then
+            activeNotifFrame:Destroy()
         end
 
         local notifFrame = Instance.new("Frame")
         notifFrame.Size = UDim2.new(0, 240, 0, 45)
-        notifFrame.Position = UDim2.new(1, -250, 1, -55)
+        notifFrame.Position = UDim2.new(1, -250, 1, -65)
         notifFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         notifFrame.BackgroundTransparency = 0.3
         notifFrame.BorderSizePixel = 0
         notifFrame.Parent = notifyGui
+        activeNotifFrame = notifFrame
 
         local corner = Instance.new("UICorner")
         corner.CornerRadius = UDim.new(0, 8)
@@ -94,8 +97,8 @@ local function showCustomNotification(title, message, isSuccess)
         stroke.Parent = notifFrame
 
         local titleLabel = Instance.new("TextLabel")
-        titleLabel.Size = UDim2.new(1, -40, 0, 18)
-        titleLabel.Position = UDim2.new(0, 35, 0, 4)
+        titleLabel.Size = UDim2.new(1, -20, 0, 18)
+        titleLabel.Position = UDim2.new(0, 10, 0, 4)
         titleLabel.BackgroundTransparency = 1
         titleLabel.Text = title
         titleLabel.TextColor3 = isSuccess and Color3.fromRGB(0, 255, 100) or Color3.fromRGB(255, 140, 0)
@@ -105,8 +108,8 @@ local function showCustomNotification(title, message, isSuccess)
         titleLabel.Parent = notifFrame
 
         local msgLabel = Instance.new("TextLabel")
-        msgLabel.Size = UDim2.new(1, -40, 0, 18)
-        msgLabel.Position = UDim2.new(0, 35, 0, 22)
+        msgLabel.Size = UDim2.new(1, -20, 0, 18)
+        msgLabel.Position = UDim2.new(0, 10, 0, 22)
         msgLabel.BackgroundTransparency = 1
         msgLabel.Text = message
         msgLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -116,15 +119,30 @@ local function showCustomNotification(title, message, isSuccess)
         msgLabel.Parent = notifFrame
 
         task.spawn(function()
-            task.wait(0.7)
+            task.wait(0.6)
             if notifFrame and notifFrame.Parent then
-                notifFrame:Destroy()
+                local TweenService = game:GetService("TweenService")
+                local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+                
+                local tween1 = TweenService:Create(notifFrame, tweenInfo, {BackgroundTransparency = 1})
+                local tween2 = TweenService:Create(stroke, tweenInfo, {Transparency = 1})
+                local tween3 = TweenService:Create(titleLabel, tweenInfo, {TextTransparency = 1})
+                local tween4 = TweenService:Create(msgLabel, tweenInfo, {TextTransparency = 1})
+                
+                tween1:Play()
+                tween2:Play()
+                tween3:Play()
+                tween4:Play()
+                
+                task.wait(0.3)
+                if notifFrame and notifFrame.Parent then
+                    notifFrame:Destroy()
+                end
             end
         end)
     end)
 end
 
--- Точная проверка пребывания в лобби с радиусом 450 студов
 local function isInLobby()
     local player = game:GetService("Players").LocalPlayer
     local char = player.Character
@@ -307,14 +325,18 @@ local function updatePlayerControl()
                         local targetP = Players:FindFirstChild(selectedTrollPlayerName)
                         if targetP and targetP.Character and targetP.Character:FindFirstChild("HumanoidRootPart") and targetP.Character:FindFirstChildOfClass("Humanoid") then
                             local tRoot = targetP.Character.HumanoidRootPart
+                            local tHum = targetP.Character:FindFirstChildOfClass("Humanoid")
                             local char = player.Character
+                            
                             if char and char:FindFirstChild("HumanoidRootPart") then
                                 local root = char.HumanoidRootPart
                                 
                                 local targetPos = root.CFrame * CFrame.new(0, 0, -3)
                                 tRoot.CFrame = targetPos
-                                tRoot.AssemblyLinearVelocity = Vector3.new(0, tRoot.AssemblyLinearVelocity.Y, 0)
-                                tRoot.AssemblyAngularVelocity = Vector3.zero
+                                
+                                tHum.PlatformStand = true
+                                tRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                tRoot.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                             end
                         end
                     end
@@ -326,6 +348,16 @@ local function updatePlayerControl()
             playerControlConnection:Disconnect()
             playerControlConnection = nil
         end
+        pcall(function()
+            local targetP = Players:FindFirstChild(selectedTrollPlayerName)
+            if targetP and targetP.Character then
+                local tHum = targetP.Character:FindFirstChildOfClass("Humanoid")
+                if tHum then
+                    tHum.PlatformStand = false
+                    tHum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+            end
+        end)
     end
 end
 
@@ -383,6 +415,7 @@ local function createAutoShootGui()
     if autoShootGui then return end
     local Players = game:GetService("Players")
     local UserInputService = game:GetService("UserInputService")
+    local VirtualUser = game:GetService("VirtualUser")
     local player = Players.LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
 
@@ -462,6 +495,7 @@ local function createAutoShootGui()
                         local gun = char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun"))      
                               
                         if not gun then     
+                           showCustomNotification("Shoot Murder", "Gun not found in inventory❗️", false)
                            return     
                         end      
                               
@@ -498,21 +532,28 @@ local function createAutoShootGui()
                         
                         game:GetService("RunService").Heartbeat:Wait()
 
+                        local rayAttach = gun:FindFirstChild("GunRaycastAttachment1", true) 
+                                          or gun:FindFirstChild("GunRaycastAttachment", true) 
+                                          or char:FindFirstChild("GunTipAttachment", true)
+                                          or char:FindFirstChild("RightHand")
+
                         local targetPos = targetRoot.Position + Vector3.new(0, 0.5, 0)    
-                        local rayAttach = root:FindFirstChild("GunRaycastAttachment") or char:FindFirstChild("RightHand")
-                        local attachmentCFrame = rayAttach and rayAttach.WorldCFrame or root.CFrame    
+                        local attachmentCFrame = rayAttach and rayAttach:IsA("Attachment") and rayAttach.WorldCFrame or (rayAttach:IsA("BasePart") and rayAttach.CFrame or root.CFrame)
                         local calculatedCFrame = CFrame.new(attachmentCFrame.Position, targetPos)    
 
-                        local remote = gun:FindFirstChild("Shoot", true)
+                        local remote = gun:FindFirstChild("Shoot", true) or gun:FindFirstChild("Fire", true)
 
                         if remote and remote:IsA("RemoteEvent") then      
                            remote:FireServer(calculatedCFrame, targetPos)    
-                           showCustomNotification("Shoot Murder", "One-frame teleport shot!", true)    
-                        else      
-                           pcall(function()
-                              gun:Activate()
-                           end)
                         end      
+
+                        pcall(function()
+                            VirtualUser:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.ViewportSize)
+                            task.wait(0.05)
+                            VirtualUser:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.ViewportSize)
+                        end)
+
+                        showCustomNotification("Shoot Murder", "Shoot successfully completed✅", true)
 
                         if root and root.Parent then
                            root.CFrame = origCFrame
@@ -666,7 +707,7 @@ local function executeDrillDownFling(targetType, specificPlayerName)
             humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 
             local startTime = tick()
-            local spinSpeed = 50000
+            local spinSpeed = 4000
 
             connection = RunService.Heartbeat:Connect(function()
                 local runSuccess, runErr = pcall(function()
@@ -676,7 +717,7 @@ local function executeDrillDownFling(targetType, specificPlayerName)
                     end
 
                     local targetHum = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
-                    if not targetHum or targetHum.Health <= 0 or (tick() - startTime > 2.5) then
+                    if not targetHum or targetHum.Health <= 0 or (tick() - startTime > 3.0) then
                         cleanup()
                         return
                     end
@@ -684,12 +725,20 @@ local function executeDrillDownFling(targetType, specificPlayerName)
                     local elapsed = tick() - startTime
                     local spinAngle = elapsed * spinSpeed
 
-                    root.CFrame = targetRoot.CFrame * CFrame.new(0, 0.2, 0) * CFrame.Angles(spinAngle, spinAngle, spinAngle)
+                    local cycle = (elapsed % 1.5) / 1.5
+                    local currentYOffset = 3.5 - (cycle * 4.5)
 
-                    local drillForce = Vector3.new(math.random(-20000, 20000), -99999, math.random(-20000, 20000))
-                    root.AssemblyLinearVelocity = drillForce
+                    root.CFrame = targetRoot.CFrame * CFrame.new(0, currentYOffset, 0) * CFrame.Angles(spinAngle, spinAngle, spinAngle)
+
+                    local impactForce = Vector3.new(
+                        math.random(-80000, 80000), 
+                        -120000 + math.random(-30000, 30000), 
+                        math.random(-80000, 80000)
+                    )
+                    
+                    root.AssemblyLinearVelocity = impactForce
                     root.AssemblyAngularVelocity = Vector3.new(spinSpeed, spinSpeed, spinSpeed)
-                    root.Velocity = drillForce
+                    root.Velocity = impactForce
                 end)
 
                 if not runSuccess then cleanup() end
@@ -1058,7 +1107,7 @@ FarmingTab:CreateToggle({
                                     
                                 root.CFrame = CFrame.new(nearestCoin.Position)      
                                 task.wait(0.03)    
-                                showCustomNotification("Auto Farm", "+1 Candy", true)    
+                                showCustomNotification("Auto Farm", "+1 Candy🍬", true)    
 
                                 task.wait(0.01)    
                                 if root and root.Parent then    
@@ -1081,7 +1130,7 @@ FarmingTab:CreateToggle({
                                    if distance < 1 then    
                                       root.CFrame = CFrame.new(targetPos)    
                                       task.wait(0.03)    
-                                      showCustomNotification("Auto Farm", "+1 Candy", true)    
+                                      showCustomNotification("Auto Farm", "+1 Candy🍬", true)    
                                       break    
                                    end    
                                        
@@ -1188,25 +1237,43 @@ local trollDropdown = TrollTab:CreateDropdown({
     end,
 })
 
-Players.PlayerAdded:Connect(function()
+local function refreshTrollDropdown()
     pcall(function()
-        trollDropdown:Set(getPlayerNamesList())
+        local currentOptions = getPlayerNamesList()
+        local stillExists = false
+        for _, name in ipairs(currentOptions) do
+            if name == selectedTrollPlayerName then
+                stillExists = true
+                break
+            end
+        end
+        
+        if not stillExists and selectedTrollPlayerName ~= "" then
+            selectedTrollPlayerName = "No Players"
+        end
+        
+        trollDropdown:Set(currentOptions)
+        if stillExists then
+            trollDropdown:Set(selectedTrollPlayerName)
+        else
+            trollDropdown:Set("No Players")
+        end
     end)
+end
+
+Players.PlayerAdded:Connect(function()
+    refreshTrollDropdown()
 end)
 
 Players.PlayerRemoving:Connect(function()
-    pcall(function()
-        trollDropdown:Set(getPlayerNamesList())
-    end)
+    refreshTrollDropdown()
 end)
 
 TrollTab:CreateButton({
     name = "Refresh Players List",
     callback = function()
-        pcall(function()
-            trollDropdown:Set(getPlayerNamesList())
-            showCustomNotification("Troll", "Player list refreshed!", true)
-        end)
+        refreshTrollDropdown()
+        showCustomNotification("Troll", "Player list refreshed!", true)
     end,
 })
 
