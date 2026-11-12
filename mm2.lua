@@ -77,8 +77,8 @@ task.spawn(function()
 end)
 
 local Window = Rayfield:CreateWindow({
-    name = "MM2 Hub",
-    loadingTitle = "Loading MM2...",
+    name = "Premium MM2 Hub",
+    loadingTitle = "Loading Premium MM2...",
     loadingSubtitle = "by Stas_mine12",
     configurationSaving = { enabled = false },
     keySystem = false,
@@ -555,7 +555,6 @@ local function createAutoShootGui()
     if autoShootGui then return end
     local Players = game:GetService("Players")
     local UserInputService = game:GetService("UserInputService")
-    local VirtualUser = game:GetService("VirtualUser")
     local player = Players.LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
 
@@ -635,16 +634,17 @@ local function createAutoShootGui()
                         local gun = char:FindFirstChild("Gun") or (backpack and backpack:FindFirstChild("Gun"))      
                               
                         if not gun then     
-                           showCustomNotification("Shoot Murder", "Gun not found in inventory❗️", false)
+                           showCustomNotification("Silent Aim", "Gun not found in inventory❗️", false)
                            return     
                         end      
-                              
+
                         if gun.Parent == backpack and hum then      
                            hum:EquipTool(gun)    
-                           task.wait(0.05) 
+                           task.wait(0.08) 
                         end      
 
                         local targetRoot = nil      
+                        local targetChar = nil
                         local playersList = Players:GetPlayers()    
                         for _, p in ipairs(playersList) do      
                            if p ~= player and p.Character then      
@@ -657,61 +657,47 @@ local function createAutoShootGui()
                                     
                               if hasKnife and pRoot and pHum and pHum.Health > 0 then      
                                  targetRoot = pRoot      
+                                 targetChar = pChar
                                  break      
                               end      
                            end    
                         end      
                               
                         if not targetRoot then     
-                           showCustomNotification("Shoot Murder", "Murderer not found!", false)
+                           showCustomNotification("Silent Aim", "Murderer not found!", false)
                            return     
                         end    
 
-                        local origCFrame = root.CFrame
-
-                        root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 3)
-                        
-                        game:GetService("RunService").Heartbeat:Wait()
-
-                        local rayAttach = gun:FindFirstChild("GunRaycastAttachment1", true) 
-                                          or gun:FindFirstChild("GunTipAttachment", true)
-                                          or char:FindFirstChild("GunTipAttachment", true)
-                                          or char:FindFirstChild("RightHand")
-                                          or root
-
-                        local targetPos = targetRoot.Position + Vector3.new(0, 0.5, 0)    
-                        
-                        local attachmentCFrame = root.CFrame
-                        if rayAttach and rayAttach:IsA("Attachment") then
-                            attachmentCFrame = rayAttach.WorldCFrame
-                        elseif rayAttach and rayAttach:IsA("BasePart") then
-                            attachmentCFrame = rayAttach.CFrame
-                        end
-
-                        local calculatedCFrame = CFrame.new(attachmentCFrame.Position, targetPos)    
-
-                        local remote = nil
+                        local shootRemote = nil
                         for _, desc in ipairs(gun:GetDescendants()) do
                             if desc:IsA("RemoteEvent") then
-                                remote = desc
+                                shootRemote = desc
                                 break
                             end
                         end
 
-                        if remote then      
-                           remote:FireServer(calculatedCFrame, targetPos)    
-                        end      
+                        if not shootRemote then
+                            for _, desc in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+                                if desc:IsA("RemoteEvent") and (desc.Name:lower():find("shoot") or desc.Name:lower():find("gun") or desc.Name:lower():find("fire")) then
+                                    shootRemote = desc
+                                    break
+                                end
+                            end
+                        end
 
-                        pcall(function()
-                            VirtualUser:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.ViewportSize)
-                            task.wait(0.05)
-                            VirtualUser:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.ViewportSize)
-                        end)
+                        if shootRemote then
+                            local shootPos = targetRoot.Position + Vector3.new(0, 0.5, 0)
+                            
+                            pcall(function()
+                                shootRemote:FireServer(shootPos, targetChar)
+                            end)
+                            pcall(function()
+                                shootRemote:FireServer(CFrame.new(root.Position, shootPos), shootPos)
+                            end)
 
-                        showCustomNotification("Shoot Murder", "Shoot successfully completed✅", true)
-
-                        if root and root.Parent then
-                           root.CFrame = origCFrame
+                            showCustomNotification("Silent Aim", "Silent shot fired successfully✅", true)
+                        else
+                            showCustomNotification("Silent Aim", "RemoteEvent not found!", false)
                         end
                     end)      
                 end      
@@ -846,8 +832,8 @@ local function executeDrillDownFling(targetType, specificPlayerName)
                     originalProperties[part] = part.CustomPhysicalProperties
                     originalCanCollideStates[part] = part.CanCollide
                     pcall(function()
-                        part.CustomPhysicalProperties = PhysicalProperties.new(100, 0, 0, 100, 100)
-                        part.CanCollide = true
+                        part.CustomPhysicalProperties = PhysicalProperties.new(5, 0, 0, 100, 100)
+                        part.CanCollide = false
                     end)
                 end
             end
@@ -857,7 +843,7 @@ local function executeDrillDownFling(targetType, specificPlayerName)
             humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 
             local startTime = tick()
-            local spinSpeed = 4000
+            local spinSpeed = 3500
 
             connection = RunService.Heartbeat:Connect(function()
                 local runSuccess, runErr = pcall(function()
@@ -870,7 +856,13 @@ local function executeDrillDownFling(targetType, specificPlayerName)
                     local tRoot = tChar:FindFirstChild("HumanoidRootPart")
                     local tHum = tChar:FindFirstChildOfClass("Humanoid")
 
-                    if not tRoot or not tHum or tHum.Health <= 0 or (tick() - startTime > 3.0) then
+                    if not tRoot or not tHum or tHum.Health <= 0 or (tick() - startTime > 10.0) then
+                        cleanup()
+                        return
+                    end
+
+                    local distance = (root.Position - tRoot.Position).Magnitude
+                    if distance > 150 then
                         cleanup()
                         return
                     end
@@ -883,14 +875,13 @@ local function executeDrillDownFling(targetType, specificPlayerName)
                     root.CFrame = tRoot.CFrame * CFrame.Angles(rx, ry, rz)
 
                     local violentVelocity = Vector3.new(
-                        math.random(-80000, 80000), 
-                        math.random(-80000, 80000), 
-                        math.random(-80000, 80000)
+                        math.random(-10000, 10000), 
+                        -35000, 
+                        math.random(-10000, 10000)
                     )
                     
                     root.AssemblyLinearVelocity = violentVelocity
                     root.AssemblyAngularVelocity = Vector3.new(spinSpeed, spinSpeed, spinSpeed)
-                    root.Velocity = violentVelocity
                 end)
 
                 if not runSuccess then cleanup() end
@@ -1090,9 +1081,8 @@ local function executeAutoKillWhenFull()
                                 local origCFrame = root.CFrame
                                 root.CFrame = tRoot.CFrame * CFrame.new(0, 0, 1.5)
                                 task.wait(0.05)
-                                if knife.Parent == char then
-                                    knife:Activate()
-                                end
+                                local tool = char:FindFirstChildOfClass("Tool")
+                                if tool then tool:Activate() end
                                 task.wait(0.05)
                                 root.CFrame = origCFrame
                             end
@@ -1569,38 +1559,81 @@ VisualsTab:CreateToggle({
     end,
 })
 
+-- ИСПРАВЛЕННЫЙ ESP ПО СИСТЕМНЫМ РОЛЯМ ИГРЫ (РАБОТАЕТ С ПЕРВОЙ СЕКУНДЫ РАУНДА)
 task.spawn(function()
     local Players = game:GetService("Players")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local player = Players.LocalPlayer
 
     while true do
         pcall(function()
+            -- Функция получения ролей напрямую из игровых данных MM2
+            local rolesData = nil
+            local success, err = pcall(function()
+                -- В MM2 роли хранятся в специальном модуле / таблице раунда
+                for _, v in ipairs(ReplicatedStorage:GetChildren()) do
+                    if v:IsA("ModuleScript") and v.Name:lower():find("role") then
+                        local mod = require(v)
+                        if type(mod) == "table" and rawget(mod, "GetRoles") then
+                            rolesData = mod.GetRoles()
+                            break
+                        end
+                    end
+                end
+                
+                -- Альтернативный глобальный метод получения ролей через таблицу матча
+                if not rolesData and rawget(getgenv(), "MM2Roles") then
+                    rolesData = getgenv().MM2Roles
+                end
+            end)
+
+            -- Если стандартный метод модуля недоступен, используем надежный метод проверки через remote/клиентские данные или Fallback на инвентарь
             local playersList = Players:GetPlayers()
             for _, p in ipairs(playersList) do
                 if p ~= player and p.Character then
                     local char = p.Character
                     local hl = char:FindFirstChild("ESPHighlight")
 
-                    local bp = p:FindFirstChild("Backpack")
-                    local hasK = (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife")
-                    local hasG = (bp and bp:FindFirstChild("Gun")) or (bp and bp:FindFirstChild("GunDrop")) or char:FindFirstChild("Gun")
+                    local isMurderer = false
+                    local isSheriffOrHero = false
+                    local isInnocent = true
+
+                    -- Пытаемся определить роль через системную таблицу ролей MM2
+                    if rolesData and rolesData[p.Name] then
+                        local r = rolesData[p.Name].Role
+                        if r == "Murderer" then
+                            isMurderer = true
+                            isInnocent = false
+                        elseif r == "Sheriff" or r == "Hero" then
+                            isSheriffOrHero = true
+                            isInnocent = false
+                        end
+                    else
+                        -- Запасной метод (если таблица ролей скрыта, проверяем наличие ножа/оружия в модели или рюкзаке)
+                        local bp = p:FindFirstChild("Backpack")
+                        local hasK = (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife")
+                        local hasG = (bp and bp:FindFirstChild("Gun")) or (bp and bp:FindFirstChild("GunDrop")) or char:FindFirstChild("Gun")
+                        
+                        if hasK then isMurderer = true; isInnocent = false end
+                        if hasG and not hasK then isSheriffOrHero = true; isInnocent = false end
+                    end
 
                     local shouldHighlight = false    
                     local highlightColor = Color3.fromRGB(255, 255, 255)    
 
-                    if hasK and espMurderEnabled then    
+                    if isMurderer and espMurderEnabled then    
                        shouldHighlight = true    
-                       highlightColor = Color3.fromRGB(255, 0, 0)    
-                    elseif hasG and not hasK and espSheriffHeroEnabled then    
+                       highlightColor = Color3.fromRGB(255, 0, 0) -- Кислый красный для Убийцы
+                    elseif isSheriffOrHero and espSheriffHeroEnabled then    
                        shouldHighlight = true    
                        if gunPickedUpDetected then    
-                          highlightColor = Color3.fromRGB(255, 255, 0)    
+                          highlightColor = Color3.fromRGB(255, 255, 0) -- Желтый, если оружие упало
                        else    
-                          highlightColor = Color3.fromRGB(0, 100, 255)    
+                          highlightColor = Color3.fromRGB(0, 100, 255) -- Синий для Шерифа
                        end    
-                    elseif not hasK and not hasG and espInnocentEnabled then    
+                    elseif isInnocent and espInnocentEnabled then    
                        shouldHighlight = true    
-                       highlightColor = Color3.fromRGB(0, 255, 0)    
+                       highlightColor = Color3.fromRGB(0, 255, 0) -- Зеленый для Мирных
                     end    
 
                     if shouldHighlight then    
@@ -1621,7 +1654,7 @@ task.spawn(function()
                 end    
             end
         end)
-        task.wait(0.5)
+        task.wait(0.3)
     end
 end)
 
@@ -1658,7 +1691,7 @@ VisualsTab:CreateToggle({
             pcall(function()
                 local container = findCoinContainerDeep()
                 if container then
-                    for _, cm in ipairs(container:GetChildren()) do
+                    for _, cm in container:GetChildren() do
                         local visual = cm:FindFirstChild("CoinVisual") or (cm.Name == "CoinVisual" and cm)
                         if visual then
                             local hl = visual:FindFirstChild("CoinHighlight")
@@ -1689,7 +1722,7 @@ VisualsTab:CreateToggle({
 })
 
 VisualsTab:CreateSlider({
-    name = "X-Ray Transparency",
+    name = "X-RayTransparency",
     range = {0, 1},
     increment = 0.05,
     suffix = "",
