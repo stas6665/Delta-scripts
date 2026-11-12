@@ -85,6 +85,7 @@ local Window = Rayfield:CreateWindow({
 })
 
 local FarmingTab = Window:CreateTab({ name = "Farming", icon = "bookmark" })
+local PlayerTab = Window:CreateTab({ name = "Player", icon = "user" })
 local FlingTab = Window:CreateTab({ name = "Fling", icon = "user" })
 local TrollTab = Window:CreateTab({ name = "Troll", icon = "smile" })
 local CombatTab = Window:CreateTab({ name = "Combat", icon = "shield" })
@@ -99,13 +100,22 @@ local autoKillWhenFull = false
 local killAllActive = false
 local notJumpEnabled = false
 local playerControlEnabled = false
+local flyEnabled = false
+local noclipEnabled = false
+local walkSpeedEnabled = false
+local infJumpEnabled = false
+local jumpPowerEnabled = false
 
-local farmSpeed = 25
+local farmSpeed = 16
+local flySpeed = 25
+local targetWalkSpeed = 16
+local targetJumpPower = 50
 local farmMethod = "Teleport"
 
 local espMurderEnabled = false
 local espSheriffHeroEnabled = false
 local espInnocentEnabled = false
+local espUserEnabled = false
 
 local espCoinsEnabled = false
 local xrayEnabled = false
@@ -120,7 +130,7 @@ local autoShootButtonEnabled = false
 local selectedWeaponType = "Gun"
 local activeSkinName = "Default"
 
-local selectedTrollPlayerName = ""
+local selectedTrollPlayerName = "No Players"
 
 local skinDatabase = {
     ["Default"] = {MeshId = "", TextureId = ""},
@@ -311,6 +321,212 @@ local function isInLobby()
     end
 
     return false
+end
+
+-- Логика полета (Fly)
+local flyConnection = nil
+local function updateFly()
+    local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
+    local player = Players.LocalPlayer
+    local camera = Workspace.CurrentCamera
+
+    if flyEnabled then
+        if not flyConnection then
+            flyConnection = RunService.RenderStepped:Connect(function()
+                if not flyEnabled then return end
+                pcall(function()
+                    local char = player.Character
+                    if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChildOfClass("Humanoid") then
+                        local root = char.HumanoidRootPart
+                        local humanoid = char:FindFirstChildOfClass("Humanoid")
+                        
+                        humanoid.PlatformStand = true
+                        
+                        local moveDir = humanoid.MoveDirection
+                        local currentFlySpeed = flySpeed
+                        
+                        local vel = Vector3.new(0, 0, 0)
+                        if moveDir.Magnitude > 0 then
+                            vel = camera.CFrame:VectorToWorldSpace(Vector3.new(moveDir.X, 0, moveDir.Z)) * currentFlySpeed
+                        end
+
+                        root.AssemblyLinearVelocity = Vector3.new(vel.X, 1, vel.Z)
+                        root.AssemblyAngularVelocity = Vector3.zero
+                    end
+                end)
+            end)
+        end
+    else
+        if flyConnection then
+            flyConnection:Disconnect()
+            flyConnection = nil
+        end
+        pcall(function()
+            local char = player.Character
+            if char and char:FindFirstChildOfClass("Humanoid") then
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                humanoid.PlatformStand = false
+                humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+        end)
+    end
+end
+
+-- Логика Ноуклипа (Noclip) с сохранением коллизии пола
+local noclipConnection = nil
+local function updateNoclip()
+    local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
+    local player = Players.LocalPlayer
+
+    if noclipEnabled then
+        if not noclipConnection then
+            noclipConnection = RunService.Stepped:Connect(function()
+                if not noclipEnabled then return end
+                pcall(function()
+                    local char = player.Character
+                    if char then
+                        local root = char:FindFirstChild("HumanoidRootPart")
+                        for _, part in ipairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                if root and part.Position.Y < root.Position.Y - 1.5 then
+                                    part.CanCollide = true
+                                else
+                                    part.CanCollide = false
+                                end
+                            end
+                        end
+                    end
+                end)
+            end)
+        end
+    else
+        if noclipConnection then
+            noclipConnection:Disconnect()
+            noclipConnection = nil
+        end
+        pcall(function()
+            local char = player.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = true
+                    end
+                end
+            end
+        end)
+    end
+end
+
+-- Логика изменения скорости ходьбы (WalkSpeed)
+local walkSpeedConnection = nil
+local function updateWalkSpeed()
+    local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
+    local player = Players.LocalPlayer
+
+    if walkSpeedEnabled then
+        if not walkSpeedConnection then
+            walkSpeedConnection = RunService.Heartbeat:Connect(function()
+                if not walkSpeedEnabled then return end
+                pcall(function()
+                    local char = player.Character
+                    if char then
+                        local humanoid = char:FindFirstChildOfClass("Humanoid")
+                        if humanoid then
+                            humanoid.WalkSpeed = targetWalkSpeed
+                        end
+                    end
+                end)
+            end)
+        end
+    else
+        if walkSpeedConnection then
+            walkSpeedConnection:Disconnect()
+            walkSpeedConnection = nil
+        end
+        pcall(function()
+            local char = player.Character
+            if char then
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.WalkSpeed = 16
+                end
+            end
+        end)
+    end
+end
+
+-- Логика высоты прыжка (JumpPower)
+local jumpPowerConnection = nil
+local function updateJumpPower()
+    local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
+    local player = Players.LocalPlayer
+
+    if jumpPowerEnabled then
+        if not jumpPowerConnection then
+            jumpPowerConnection = RunService.Heartbeat:Connect(function()
+                if not jumpPowerEnabled then return end
+                pcall(function()
+                    local char = player.Character
+                    if char then
+                        local humanoid = char:FindFirstChildOfClass("Humanoid")
+                        if humanoid then
+                            humanoid.UseJumpPower = true
+                            humanoid.JumpPower = targetJumpPower
+                        end
+                    end
+                end)
+            end)
+        end
+    else
+        if jumpPowerConnection then
+            jumpPowerConnection:Disconnect()
+            jumpPowerConnection = nil
+        end
+        pcall(function()
+            local char = player.Character
+            if char then
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    humanoid.UseJumpPower = true
+                    humanoid.JumpPower = 50
+                end
+            end
+        end)
+    end
+end
+
+-- Логика Infinite Jump (бесконечный прыжок)
+local infJumpConnection = nil
+local function updateInfJump()
+    local UserInputService = game:GetService("UserInputService")
+    local Players = game:GetService("Players")
+    local player = Players.LocalPlayer
+
+    if infJumpEnabled then
+        if not infJumpConnection then
+            infJumpConnection = UserInputService.JumpRequest:Connect(function()
+                if not infJumpEnabled then return end
+                pcall(function()
+                    local char = player.Character
+                    if char then
+                        local humanoid = char:FindFirstChildOfClass("Humanoid")
+                        if humanoid then
+                            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end
+                    end
+                end)
+            end)
+        end
+    else
+        if infJumpConnection then
+            infJumpConnection:Disconnect()
+            infJumpConnection = nil
+        end
+    end
 end
 
 local gunWasDropped = false
@@ -668,36 +884,22 @@ local function createAutoShootGui()
                            return     
                         end    
 
-                        local shootRemote = nil
-                        for _, desc in ipairs(gun:GetDescendants()) do
-                            if desc:IsA("RemoteEvent") then
-                                shootRemote = desc
-                                break
-                            end
-                        end
+                        local shootRemote = gun:FindFirstChild("Shoot")
 
-                        if not shootRemote then
-                            for _, desc in ipairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-                                if desc:IsA("RemoteEvent") and (desc.Name:lower():find("shoot") or desc.Name:lower():find("gun") or desc.Name:lower():find("fire")) then
-                                    shootRemote = desc
-                                    break
-                                end
-                            end
-                        end
-
-                        if shootRemote then
+                        if shootRemote and shootRemote:IsA("RemoteEvent") then
+                            local rightHand = char:FindFirstChild("RightHand")
+                            local gunTip = rightHand and rightHand:FindFirstChild("GunTipAttachment")
                             local shootPos = targetRoot.Position + Vector3.new(0, 0.5, 0)
                             
+                            local originPos = gunTip and gunTip.WorldPosition or root.Position
+
                             pcall(function()
-                                shootRemote:FireServer(shootPos, targetChar)
-                            end)
-                            pcall(function()
-                                shootRemote:FireServer(CFrame.new(root.Position, shootPos), shootPos)
+                                shootRemote:FireServer(CFrame.new(originPos, shootPos), shootPos)
                             end)
 
                             showCustomNotification("Silent Aim", "Silent shot fired successfully✅", true)
                         else
-                            showCustomNotification("Silent Aim", "RemoteEvent not found!", false)
+                            showCustomNotification("Silent Aim", "Shoot RemoteEvent not found in Gun!", false)
                         end
                     end)      
                 end      
@@ -804,7 +1006,7 @@ local function executeDrillDownFling(targetType, specificPlayerName)
             end
 
             local targetPlayer = nil
-            if specificPlayerName and specificPlayerName ~= "" then
+            if specificPlayerName and specificPlayerName ~= "" and specificPlayerName ~= "No Players" then
                 targetPlayer = Players:FindFirstChild(specificPlayerName)
                 if not targetPlayer then
                     error("Selected player not found")
@@ -1156,6 +1358,93 @@ workspace.DescendantAdded:Connect(function(obj)
     end
 end)
 
+-- Элементы вкладки Player (Fly, Fly Speed, Noclip, WalkSpeed, WalkSpeed Slider, JumpPower, JumpPower Slider (1-800), Infinite Jump)
+PlayerTab:CreateToggle({
+    name = "Fly",
+    currentValue = false,
+    flag = "PlayerFlyToggle",
+    callback = function(value)
+        flyEnabled = value
+        updateFly()
+    end,
+})
+
+PlayerTab:CreateSlider({
+    name = "Fly Speed",
+    range = {1, 100},
+    increment = 1,
+    suffix = " studs/s",
+    currentValue = 25,
+    flag = "PlayerFlySpeedSlider",
+    callback = function(value)
+        flySpeed = value
+    end,
+})
+
+PlayerTab:CreateToggle({
+    name = "Noclip",
+    currentValue = false,
+    flag = "PlayerNoclipToggle",
+    callback = function(value)
+        noclipEnabled = value
+        updateNoclip()
+    end,
+})
+
+PlayerTab:CreateToggle({
+    name = "WalkSpeed",
+    currentValue = false,
+    flag = "PlayerWalkSpeedToggle",
+    callback = function(value)
+        walkSpeedEnabled = value
+        updateWalkSpeed()
+    end,
+})
+
+PlayerTab:CreateSlider({
+    name = "Walk Speed Value",
+    range = {1, 200},
+    increment = 1,
+    suffix = " studs/s",
+    currentValue = 16,
+    flag = "PlayerWalkSpeedSlider",
+    callback = function(value)
+        targetWalkSpeed = value
+    end,
+})
+
+PlayerTab:CreateToggle({
+    name = "JumpPower",
+    currentValue = false,
+    flag = "PlayerJumpPowerToggle",
+    callback = function(value)
+        jumpPowerEnabled = value
+        updateJumpPower()
+    end,
+})
+
+PlayerTab:CreateSlider({
+    name = "Jump Power Value",
+    range = {1, 800},
+    increment = 1,
+    suffix = "",
+    currentValue = 50,
+    flag = "PlayerJumpPowerSlider",
+    callback = function(value)
+        targetJumpPower = value
+    end,
+})
+
+PlayerTab:CreateToggle({
+    name = "Infinite Jump",
+    currentValue = false,
+    flag = "PlayerInfJumpToggle",
+    callback = function(value)
+        infJumpEnabled = value
+        updateInfJump()
+    end,
+})
+
 FarmingTab:CreateDropdown({
     name = "Farm Method",
     options = {"Teleport", "Fly"},
@@ -1165,13 +1454,15 @@ FarmingTab:CreateDropdown({
 })
 
 FarmingTab:CreateSlider({
-    name = "Farm Speed (Fly Only)",
-    range = {1, 33},
+    name = "Farm Speed",
+    range = {1, 30},
     increment = 1,
-    suffix = "s/s",
-    currentValue = 25,
+    suffix = " studs/s",
+    currentValue = 16,
     flag = "FarmSpeedSlider",
-    callback = function(value) farmSpeed = value end,
+    callback = function(value) 
+        farmSpeed = value 
+    end,
 })
 
 FarmingTab:CreateToggle({
@@ -1254,7 +1545,7 @@ FarmingTab:CreateToggle({
                                 root.Velocity = Vector3.zero    
                                     
                                 root.CFrame = CFrame.new(nearestCoin.Position)      
-                                task.wait(0.08)    
+                                task.wait(2.0)    
                                 
                                 if not nearestCoin.Instance.Parent then
                                     showCandyNotification()
@@ -1295,9 +1586,9 @@ FarmingTab:CreateToggle({
                                             break    
                                         end    
                                             
-                                        local moveSpeed = math.clamp(farmSpeed * 1.5, 15, 60)
+                                        local actualSpeed = farmSpeed
                                         local direction = (targetPos - currentPos).Unit
-                                        local step = direction * math.min(moveSpeed * RunService.Heartbeat:Wait(), distance)
+                                        local step = direction * math.min(actualSpeed * RunService.Heartbeat:Wait(), distance)
                                         
                                         root.AssemblyLinearVelocity = Vector3.zero
                                         root.AssemblyAngularVelocity = Vector3.zero
@@ -1411,26 +1702,9 @@ local trollDropdown = TrollTab:CreateDropdown({
 local function refreshTrollDropdown()
     pcall(function()
         local currentOptions = getPlayerNamesList()
-        trollDropdown:Set(currentOptions)
-        
-        local stillExists = false
-        for _, name in ipairs(currentOptions) do
-            if name == selectedTrollPlayerName then
-                stillExists = true
-                break
-            end
-        end
-        
-        if stillExists and selectedTrollPlayerName ~= "" and selectedTrollPlayerName ~= "No Players" then
-            trollDropdown:Set(selectedTrollPlayerName)
-        else
-            if not stillExists then
-                selectedTrollPlayerName = "No Players"
-                trollDropdown:Set("No Players")
-            end
-        end
-    end)
-end
+        trollDropdown:Refresh(currentOptions)
+    end,
+})
 
 Players.PlayerAdded:Connect(function()
     refreshTrollDropdown()
@@ -1559,99 +1833,133 @@ VisualsTab:CreateToggle({
     end,
 })
 
--- ИСПРАВЛЕННЫЙ ESP ПО СИСТЕМНЫМ РОЛЯМ ИГРЫ (РАБОТАЕТ С ПЕРВОЙ СЕКУНДЫ РАУНДА)
+VisualsTab:CreateToggle({
+    name = "ESP User",
+    currentValue = false,
+    flag = "ESPUserToggle",
+    callback = function(value)
+        espUserEnabled = value
+    end,
+})
+
 task.spawn(function()
     local Players = game:GetService("Players")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local player = Players.LocalPlayer
+    local exactRoles = {}
+
+    pcall(function()
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local remote = ReplicatedStorage:WaitForChild("Remotes", 5) and ReplicatedStorage.Remotes:WaitForChild("Gameplay", 5) and ReplicatedStorage.Remotes.Gameplay:WaitForChild("RoleSelect", 5)
+        if remote and remote:IsA("RemoteEvent") then
+            remote.OnClientEvent:Connect(function(roleName, weapon1, weapon2, codeName, userObj, mode)
+                pcall(function()
+                    if roleName and player then
+                        exactRoles[player.Name] = roleName
+                    end
+                end)
+            end)
+        end
+    end)
 
     while true do
         pcall(function()
-            -- Функция получения ролей напрямую из игровых данных MM2
-            local rolesData = nil
-            local success, err = pcall(function()
-                -- В MM2 роли хранятся в специальном модуле / таблице раунда
-                for _, v in ipairs(ReplicatedStorage:GetChildren()) do
-                    if v:IsA("ModuleScript") and v.Name:lower():find("role") then
-                        local mod = require(v)
-                        if type(mod) == "table" and rawget(mod, "GetRoles") then
-                            rolesData = mod.GetRoles()
-                            break
-                        end
-                    end
-                end
-                
-                -- Альтернативный глобальный метод получения ролей через таблицу матча
-                if not rolesData and rawget(getgenv(), "MM2Roles") then
-                    rolesData = getgenv().MM2Roles
-                end
-            end)
-
-            -- Если стандартный метод модуля недоступен, используем надежный метод проверки через remote/клиентские данные или Fallback на инвентарь
             local playersList = Players:GetPlayers()
             for _, p in ipairs(playersList) do
                 if p ~= player and p.Character then
                     local char = p.Character
-                    local hl = char:FindFirstChild("ESPHighlight")
+                    local bp = p:FindFirstChild("Backpack")
+                    local head = char:FindFirstChild("Head")
+                    
+                    local role = exactRoles[p.Name] or "Innocent"
 
-                    local isMurderer = false
-                    local isSheriffOrHero = false
-                    local isInnocent = true
+                    local hasKnife = (char and char:FindFirstChild("Knife")) or (bp and bp:FindFirstChild("Knife"))
+                    local hasGun = (char and char:FindFirstChild("Gun")) or (bp and bp:FindFirstChild("Gun")) or (bp and bp:FindFirstChild("GunDrop"))
 
-                    -- Пытаемся определить роль через системную таблицу ролей MM2
-                    if rolesData and rolesData[p.Name] then
-                        local r = rolesData[p.Name].Role
-                        if r == "Murderer" then
-                            isMurderer = true
-                            isInnocent = false
-                        elseif r == "Sheriff" or r == "Hero" then
-                            isSheriffOrHero = true
-                            isInnocent = false
-                        end
-                    else
-                        -- Запасной метод (если таблица ролей скрыта, проверяем наличие ножа/оружия в модели или рюкзаке)
-                        local bp = p:FindFirstChild("Backpack")
-                        local hasK = (bp and bp:FindFirstChild("Knife")) or char:FindFirstChild("Knife")
-                        local hasG = (bp and bp:FindFirstChild("Gun")) or (bp and bp:FindFirstChild("GunDrop")) or char:FindFirstChild("Gun")
-                        
-                        if hasK then isMurderer = true; isInnocent = false end
-                        if hasG and not hasK then isSheriffOrHero = true; isInnocent = false end
+                    if hasKnife then
+                        role = "Murderer"
+                        exactRoles[p.Name] = "Murderer"
+                    elseif hasGun then
+                        role = "Sheriff"
+                        exactRoles[p.Name] = "Sheriff"
                     end
 
-                    local shouldHighlight = false    
-                    local highlightColor = Color3.fromRGB(255, 255, 255)    
+                    local hl = char:FindFirstChild("ESPHighlight")
+                    local shouldHighlight = false
+                    local highlightColor = Color3.fromRGB(255, 255, 255)
 
-                    if isMurderer and espMurderEnabled then    
-                       shouldHighlight = true    
-                       highlightColor = Color3.fromRGB(255, 0, 0) -- Кислый красный для Убийцы
-                    elseif isSheriffOrHero and espSheriffHeroEnabled then    
-                       shouldHighlight = true    
-                       if gunPickedUpDetected then    
-                          highlightColor = Color3.fromRGB(255, 255, 0) -- Желтый, если оружие упало
-                       else    
-                          highlightColor = Color3.fromRGB(0, 100, 255) -- Синий для Шерифа
-                       end    
-                    elseif isInnocent and espInnocentEnabled then    
-                       shouldHighlight = true    
-                       highlightColor = Color3.fromRGB(0, 255, 0) -- Зеленый для Мирных
-                    end    
+                    if role == "Murderer" and espMurderEnabled then
+                        shouldHighlight = true
+                        highlightColor = Color3.fromRGB(255, 0, 0)
+                    elseif role == "Sheriff" and espSheriffHeroEnabled then
+                        shouldHighlight = true
+                        if gunPickedUpDetected then
+                            highlightColor = Color3.fromRGB(255, 255, 0)
+                        else
+                            highlightColor = Color3.fromRGB(0, 100, 255)
+                        end
+                    elseif role == "Innocent" and espInnocentEnabled then
+                        shouldHighlight = true
+                        highlightColor = Color3.fromRGB(0, 255, 0)
+                    end
 
-                    if shouldHighlight then    
-                       if not hl then    
-                          hl = Instance.new("Highlight")    
-                          hl.Name = "ESPHighlight"    
-                          hl.FillTransparency = 0.5    
-                          hl.OutlineTransparency = 0    
-                          hl.OutlineColor = Color3.fromRGB(255, 255, 255)    
-                          hl.Parent = char    
-                       end    
-                       hl.FillColor = highlightColor    
-                    else    
-                       if hl then    
-                          hl:Destroy()    
-                       end    
-                    end    
-                end    
+                    if shouldHighlight then
+                        if not hl then
+                            hl = Instance.new("Highlight")
+                            hl.Name = "ESPHighlight"
+                            hl.FillTransparency = 0.5
+                            hl.OutlineTransparency = 0
+                            hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                            hl.Parent = char
+                        end
+                        if hl.FillColor ~= highlightColor then
+                            hl.FillColor = highlightColor
+                        end
+                    else
+                        if hl then
+                            hl:Destroy()
+                        end
+                    end
+
+                    local nameTag = head and head:FindFirstChild("ESPNameTag")
+                    local showNameTag = false
+                    if role == "Murderer" and espMurderEnabled and espUserEnabled then
+                        showNameTag = true
+                    elseif role == "Sheriff" and espSheriffHeroEnabled and espUserEnabled then
+                        showNameTag = true
+                    elseif role == "Innocent" and espInnocentEnabled and espUserEnabled then
+                        showNameTag = true
+                    end
+
+                    if showNameTag and head then
+                        if not nameTag then
+                            local billboard = Instance.new("BillboardGui")
+                            billboard.Name = "ESPNameTag"
+                            billboard.Size = UDim2.new(0, 200, 0, 50)
+                            billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+                            billboard.AlwaysOnTop = true
+                            billboard.Parent = head
+
+                            local textLabel = Instance.new("TextLabel")
+                            textLabel.Name = "Text"
+                            textLabel.Size = UDim2.new(1, 0, 1, 0)
+                            textLabel.BackgroundTransparency = 1
+                            textLabel.TextSize = 14
+                            textLabel.Font = Enum.Font.GothamBold
+                            textLabel.TextStrokeTransparency = 0
+                            textLabel.Parent = billboard
+                        end
+                        
+                        nameTag = head:FindFirstChild("ESPNameTag")
+                        if nameTag and nameTag:FindFirstChild("Text") then
+                            nameTag.Text.Text = p.Name
+                            nameTag.Text.TextColor3 = highlightColor
+                        end
+                    else
+                        if nameTag then
+                            nameTag:Destroy()
+                        end
+                    end
+                end
             end
         end)
         task.wait(0.3)
@@ -1691,7 +1999,7 @@ VisualsTab:CreateToggle({
             pcall(function()
                 local container = findCoinContainerDeep()
                 if container then
-                    for _, cm in container:GetChildren() do
+                    for _, cm in ipairs(container:GetChildren()) do
                         local visual = cm:FindFirstChild("CoinVisual") or (cm.Name == "CoinVisual" and cm)
                         if visual then
                             local hl = visual:FindFirstChild("CoinHighlight")
@@ -1722,7 +2030,7 @@ VisualsTab:CreateToggle({
 })
 
 VisualsTab:CreateSlider({
-    name = "X-RayTransparency",
+    name = "X-Ray Transparency",
     range = {0, 1},
     increment = 0.05,
     suffix = "",
