@@ -31,9 +31,9 @@ task.spawn(function()
         textLabel.Size = UDim2.new(1, 0, 0, 35)  
         textLabel.Position = UDim2.new(0, 0, 0, 10)  
         textLabel.BackgroundTransparency = 1  
-        textLabel.Text = "Loading script..."  
+        textLabel.Text = "Loading updated script..."  
         textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)  
-        textLabel.TextSize = 16  
+        textLabel.TextSize = 15  
         textLabel.Font = Enum.Font.GothamBold  
         textLabel.Parent = mainFrame  
 
@@ -58,12 +58,12 @@ task.spawn(function()
         barFillCorner.CornerRadius = UDim.new(1, 0)  
         barFillCorner.Parent = barFill  
 
-        local tweenInfo = TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)  
+        local tweenInfo = TweenInfo.new(1.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)  
         local fillTween = tweenService:Create(barFill, tweenInfo, {Size = UDim2.new(1, 0, 1, 0)})  
         fillTween:Play()  
         fillTween.Completed:Wait()  
 
-        local fadeInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)  
+        local fadeInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)  
         local t1 = tweenService:Create(mainFrame, fadeInfo, {BackgroundTransparency = 1})  
         local t2 = tweenService:Create(stroke, fadeInfo, {Transparency = 1})  
         local t3 = tweenService:Create(textLabel, fadeInfo, {TextTransparency = 1})  
@@ -77,7 +77,7 @@ task.spawn(function()
 end)
 
 local Window = Rayfield:CreateWindow({
-    name = "MM2 Hub",
+    name = "MM2 Hub [Updated & Fixed]",
     loadingTitle = "Loading MM2...",
     loadingSubtitle = "by Stas_mine12",
     configurationSaving = { enabled = false },
@@ -116,7 +116,6 @@ local farmMethod = "Teleport"
 local espMurderEnabled = false
 local espSheriffHeroEnabled = false
 local espInnocentEnabled = false
-local espUserEnabled = false
 
 local espCoinsEnabled = false
 local xrayEnabled = false
@@ -151,10 +150,10 @@ local roundRoles = {}
 local gunWasDropped = false
 local gunPickedUpDetected = false
 
+-- Поток ролей с очисткой
 task.spawn(function()
     local Players = game:GetService("Players")
     local localPlayer = Players.LocalPlayer
-    local lastRoundState = false
     
     while true do
         pcall(function()
@@ -166,14 +165,11 @@ task.spawn(function()
             local isPlaying = (gameFrame and gameFrame.Visible) or (roleRevealFrame and roleRevealFrame.Visible)
             
             if not isPlaying then
-                if lastRoundState then
+                if next(roundRoles) ~= nil then
                     table.clear(roundRoles)
                     gunPickedUpDetected = false
-                    lastRoundState = false
                 end
             else
-                lastRoundState = true
-                
                 if playerGui then
                     for _, gui in ipairs(playerGui:GetDescendants()) do
                         if gui:IsA("TextLabel") or gui:IsA("TextBox") then
@@ -196,32 +192,9 @@ task.spawn(function()
                         end
                     end
                 end
-                
-                for _, obj in ipairs(getgc(true)) do
-                    if type(obj) == "table" then
-                        local pName, pRole = nil, nil
-                        for k, v in pairs(obj) do
-                            if type(v) == "userdata" and v:IsA("Player") then
-                                pName = v.Name
-                            elseif type(k) == "string" and Players:FindFirstChild(k) then
-                                pName = k
-                            end
-                            
-                            if type(v) == "string" and (v == "Murderer" or v == "Sheriff" or v == "Innocent") then
-                                pRole = v
-                            elseif type(k) == "string" and (k == "Role" or k == "SelectedRole") and type(v) == "string" then
-                                pRole = v
-                            end
-                        end
-                        
-                        if pName and pRole then
-                            roundRoles[pName] = pRole
-                        end
-                    end
-                end
             end
         end)
-        task.wait(0.3)
+        task.wait(1)
     end
 end)
 
@@ -247,7 +220,7 @@ local function updateFly()
                         
                         for _, part in ipairs(char:GetDescendants()) do
                             if part:IsA("BasePart") then
-                                if part.Position.Y < root.Position.Y - 1.2 then
+                                if part.Name == "LeftFoot" or part.Name == "RightFoot" or part.Name == "LeftLowerLeg" or part.Name == "RightLowerLeg" then
                                     part.CanCollide = true
                                 else
                                     part.CanCollide = false
@@ -311,10 +284,9 @@ local function updateNoclip()
                 pcall(function()
                     local char = player.Character
                     if char then
-                        local root = char:FindFirstChild("HumanoidRootPart")
                         for _, part in ipairs(char:GetDescendants()) do
                             if part:IsA("BasePart") then
-                                if root and part.Position.Y < root.Position.Y - 1.2 then
+                                if part.Name == "LeftFoot" or part.Name == "RightFoot" or part.Name == "LeftLowerLeg" or part.Name == "RightLowerLeg" then
                                     part.CanCollide = true
                                 else
                                     part.CanCollide = false
@@ -707,7 +679,7 @@ task.spawn(function()
                 end      
             end  
         end)  
-        task.wait(0.5)  
+        task.wait(1)
     end
 end)
 
@@ -905,7 +877,7 @@ task.spawn(function()
                 end      
             end  
         end)  
-        task.wait(0.2)  
+        task.wait(0.5)  
     end
 end)
 
@@ -1027,9 +999,14 @@ local function createAutoShootGui()
 
                         local origCFrame = root.CFrame  
 
-                        root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 3)  
+                        root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 20)  
                           
-                        game:GetService("RunService").Heartbeat:Wait()  
+                        local startTime = tick()
+                        while tick() - startTime < 0.3 do
+                            root.AssemblyLinearVelocity = Vector3.zero
+                            root.AssemblyAngularVelocity = Vector3.zero
+                            game:GetService("RunService").Heartbeat:Wait()
+                        end
 
                         local rayAttach = gun:FindFirstChild("GunRaycastAttachment1", true)   
                                           or gun:FindFirstChild("GunTipAttachment", true)  
@@ -1545,6 +1522,7 @@ FarmingTab:CreateSlider({
     callback = function(value) farmSpeed = value end,
 })
 
+-- Автофарм с разворотом лицом к конфетам и селективной коллизией
 FarmingTab:CreateToggle({
     name = "Auto Farm Candy",
     currentValue = false,
@@ -1620,7 +1598,7 @@ FarmingTab:CreateToggle({
                                 root.AssemblyAngularVelocity = Vector3.zero      
                                 root.Velocity = Vector3.zero      
                                       
-                                root.CFrame = CFrame.new(nearestCoin.Position)        
+                                root.CFrame = CFrame.new(nearestCoin.Position + Vector3.new(0, 1.2, 0), Vector3.new(nearestCoin.Position.X, root.Position.Y, nearestCoin.Position.Z))        
                                 task.wait(0.08)      
                                   
                                 if not nearestCoin.Instance.Parent then  
@@ -1637,7 +1615,7 @@ FarmingTab:CreateToggle({
                                 end      
                                 task.wait(0.05)        
                             else        
-                                local targetPos = nearestCoin.Position      
+                                local targetPos = nearestCoin.Position + Vector3.new(0, 1.0, 0)      
                                   
                                 local flySuccess, flyErr = pcall(function()  
                                     if humanoid and humanoid.Parent then  
@@ -1650,8 +1628,18 @@ FarmingTab:CreateToggle({
                                         local currentPos = root.Position      
                                         local distance = (currentPos - targetPos).Magnitude      
                                               
+                                        for _, part in ipairs(character:GetDescendants()) do
+                                            if part:IsA("BasePart") then
+                                                if part.Name == "LeftFoot" or part.Name == "RightFoot" or part.Name == "LeftLowerLeg" or part.Name == "RightLowerLeg" then
+                                                    part.CanCollide = true
+                                                else
+                                                    part.CanCollide = false
+                                                end
+                                            end
+                                        end
+
                                         if distance < 1.5 then      
-                                            root.CFrame = CFrame.new(targetPos)      
+                                            root.CFrame = CFrame.new(targetPos, Vector3.new(targetPos.X, root.Position.Y, targetPos.Z))      
                                             task.wait(0.05)      
                                               
                                             if not nearestCoin.Instance.Parent and (root.Position - targetPos).Magnitude < 3 then  
@@ -1666,7 +1654,7 @@ FarmingTab:CreateToggle({
                                           
                                         root.AssemblyLinearVelocity = Vector3.zero  
                                         root.AssemblyAngularVelocity = Vector3.zero  
-                                        root.CFrame = CFrame.new(currentPos + step, targetPos)  
+                                        root.CFrame = CFrame.new(currentPos + step, Vector3.new(targetPos.X, currentPos.Y, targetPos.Z))  
                                     end      
                                 end)  
 
@@ -1674,6 +1662,12 @@ FarmingTab:CreateToggle({
                                     if humanoid and humanoid.Parent then  
                                         humanoid.PlatformStand = false  
                                         humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)  
+                                        
+                                        for _, part in ipairs(character:GetDescendants()) do
+                                            if part:IsA("BasePart") then
+                                                part.CanCollide = true
+                                            end
+                                        end
                                     end  
                                 end)  
 
@@ -1983,7 +1977,7 @@ task.spawn(function()
                 end      
             end  
         end)  
-        task.wait(0.5)  
+        task.wait(0.8)  
     end
 end)
 
@@ -2013,7 +2007,7 @@ VisualsTab:CreateToggle({
                             end
                         end
                     end)
-                    task.wait(1)
+                    task.wait(1.5)
                 end
             end)
         else
