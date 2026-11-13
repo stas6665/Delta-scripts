@@ -150,7 +150,6 @@ local roundRoles = {}
 local gunWasDropped = false
 local gunPickedUpDetected = false
 
--- Поток ролей с очисткой
 task.spawn(function()
     local Players = game:GetService("Players")
     local localPlayer = Players.LocalPlayer
@@ -220,11 +219,7 @@ local function updateFly()
                         
                         for _, part in ipairs(char:GetDescendants()) do
                             if part:IsA("BasePart") then
-                                if part.Name == "LeftFoot" or part.Name == "RightFoot" or part.Name == "LeftLowerLeg" or part.Name == "RightLowerLeg" then
-                                    part.CanCollide = true
-                                else
-                                    part.CanCollide = false
-                                end
+                                part.CanCollide = false
                             end
                         end
 
@@ -271,6 +266,7 @@ local function updateFly()
     end
 end
 
+-- Обновленный ноуклип для вкладки Player: полное прохождение сквозь стены с удержанием высоты
 local noclipConnection = nil
 local function updateNoclip()
     local RunService = game:GetService("RunService")
@@ -283,15 +279,18 @@ local function updateNoclip()
                 if not noclipEnabled then return end
                 pcall(function()
                     local char = player.Character
-                    if char then
+                    if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChildOfClass("Humanoid") then
+                        local root = char.HumanoidRootPart
+                        local humanoid = char:FindFirstChildOfClass("Humanoid")
+                        
                         for _, part in ipairs(char:GetDescendants()) do
                             if part:IsA("BasePart") then
-                                if part.Name == "LeftFoot" or part.Name == "RightFoot" or part.Name == "LeftLowerLeg" or part.Name == "RightLowerLeg" then
-                                    part.CanCollide = true
-                                else
-                                    part.CanCollide = false
-                                end
+                                part.CanCollide = false
                             end
+                        end
+
+                        if humanoid.MoveDirection.Magnitude > 0 then
+                            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
                         end
                     end
                 end)
@@ -997,17 +996,6 @@ local function createAutoShootGui()
                            return       
                         end      
 
-                        local origCFrame = root.CFrame  
-
-                        root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 20)  
-                          
-                        local startTime = tick()
-                        while tick() - startTime < 0.3 do
-                            root.AssemblyLinearVelocity = Vector3.zero
-                            root.AssemblyAngularVelocity = Vector3.zero
-                            game:GetService("RunService").Heartbeat:Wait()
-                        end
-
                         local rayAttach = gun:FindFirstChild("GunRaycastAttachment1", true)   
                                           or gun:FindFirstChild("GunTipAttachment", true)  
                                           or char:FindFirstChild("GunTipAttachment", true)  
@@ -1044,10 +1032,6 @@ local function createAutoShootGui()
                         end)  
 
                         showCustomNotification("Shoot Murder", "Shoot successfully completed✅", true)  
-
-                        if root and root.Parent then  
-                           root.CFrame = origCFrame  
-                        end  
                     end)        
                 end        
                         
@@ -1522,7 +1506,6 @@ FarmingTab:CreateSlider({
     callback = function(value) farmSpeed = value end,
 })
 
--- Автофарм с разворотом лицом к конфетам и селективной коллизией
 FarmingTab:CreateToggle({
     name = "Auto Farm Candy",
     currentValue = false,
@@ -1598,22 +1581,21 @@ FarmingTab:CreateToggle({
                                 root.AssemblyAngularVelocity = Vector3.zero      
                                 root.Velocity = Vector3.zero      
                                       
-                                root.CFrame = CFrame.new(nearestCoin.Position + Vector3.new(0, 1.2, 0), Vector3.new(nearestCoin.Position.X, root.Position.Y, nearestCoin.Position.Z))        
-                                task.wait(0.08)      
+                                local targetPos = nearestCoin.Position + Vector3.new(0, 1.2, 0)
+                                root.CFrame = CFrame.new(targetPos, Vector3.new(nearestCoin.Position.X, root.Position.Y, nearestCoin.Position.Z))      
                                   
+                                local teleportTimer = tick()
+                                while tick() - teleportTimer < 1.0 do
+                                    if not autoFarmCandy or (currentFarmSession ~= mySessionId) then break end
+                                    root.AssemblyLinearVelocity = Vector3.zero
+                                    root.AssemblyAngularVelocity = Vector3.zero
+                                    RunService.Heartbeat:Wait()
+                                end
+
                                 if not nearestCoin.Instance.Parent then  
-                                    showCandyNotification()  
-                                elseif (root.Position - nearestCoin.Position).Magnitude < 3 and not nearestCoin.Instance.Parent then  
                                     showCandyNotification()  
                                 end  
 
-                                task.wait(0.01)      
-                                if root and root.Parent then      
-                                    root.AssemblyLinearVelocity = Vector3.zero      
-                                    root.AssemblyAngularVelocity = Vector3.zero      
-                                    root.Velocity = Vector3.zero      
-                                end      
-                                task.wait(0.05)        
                             else        
                                 local targetPos = nearestCoin.Position + Vector3.new(0, 1.0, 0)      
                                   
@@ -1630,11 +1612,7 @@ FarmingTab:CreateToggle({
                                               
                                         for _, part in ipairs(character:GetDescendants()) do
                                             if part:IsA("BasePart") then
-                                                if part.Name == "LeftFoot" or part.Name == "RightFoot" or part.Name == "LeftLowerLeg" or part.Name == "RightLowerLeg" then
-                                                    part.CanCollide = true
-                                                else
-                                                    part.CanCollide = false
-                                                end
+                                                part.CanCollide = false
                                             end
                                         end
 
@@ -1642,7 +1620,7 @@ FarmingTab:CreateToggle({
                                             root.CFrame = CFrame.new(targetPos, Vector3.new(targetPos.X, root.Position.Y, targetPos.Z))      
                                             task.wait(0.05)      
                                               
-                                            if not nearestCoin.Instance.Parent and (root.Position - targetPos).Magnitude < 3 then  
+                                            if not nearestCoin.Instance.Parent then  
                                                 showCandyNotification()      
                                             end  
                                             break      
@@ -1654,7 +1632,9 @@ FarmingTab:CreateToggle({
                                           
                                         root.AssemblyLinearVelocity = Vector3.zero  
                                         root.AssemblyAngularVelocity = Vector3.zero  
-                                        root.CFrame = CFrame.new(currentPos + step, Vector3.new(targetPos.X, currentPos.Y, targetPos.Z))  
+                                        
+                                        local nextPos = currentPos + step
+                                        root.CFrame = CFrame.new(nextPos, Vector3.new(nearestCoin.Position.X, nextPos.Y, nearestCoin.Position.Z))  
                                     end      
                                 end)  
 
@@ -1674,9 +1654,8 @@ FarmingTab:CreateToggle({
                                 if not flySuccess then  
                                     warn("Fly Farm Error:", flyErr)  
                                 end  
-
-                                task.wait(0.01)      
                             end        
+
                             collectedCoins[nearestCoin.Instance] = true  
                         end        
                     end)        
