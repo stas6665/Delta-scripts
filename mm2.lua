@@ -1,4 +1,4 @@
-Local Rayfield = loadstring(game:HttpGet('https://sirius.menu/gen2'))()
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/gen2'))()
 
 task.spawn(function()
     pcall(function()
