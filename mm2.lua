@@ -1,4 +1,4 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/gen2'))()
+Local Rayfield = loadstring(game:HttpGet('https://sirius.menu/gen2'))()
 
 task.spawn(function()
     pcall(function()
@@ -31,7 +31,7 @@ task.spawn(function()
         textLabel.Size = UDim2.new(1, 0, 0, 35)  
         textLabel.Position = UDim2.new(0, 0, 0, 10)  
         textLabel.BackgroundTransparency = 1  
-        textLabel.Text = "Loading updated script..."  
+        textLabel.Text = "Loading optimized script..."  
         textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)  
         textLabel.TextSize = 15  
         textLabel.Font = Enum.Font.GothamBold  
@@ -77,7 +77,7 @@ task.spawn(function()
 end)
 
 local Window = Rayfield:CreateWindow({
-    name = "MM2 Hub [Updated & Fixed]",
+    name = "MM2 Hub [Fly Optimized]",
     loadingTitle = "Loading MM2...",
     loadingSubtitle = "by Stas_mine12",
     configurationSaving = { enabled = false },
@@ -110,8 +110,8 @@ local killAllActive = false
 local notJumpEnabled = false
 local playerControlEnabled = false
 
-local farmSpeed = 25
-local farmMethod = "Teleport"
+local farmSpeed = 16
+local farmMethod = "Fly"
 
 local espMurderEnabled = false
 local espSheriffHeroEnabled = false
@@ -1236,27 +1236,49 @@ local function findCoinContainerDeep()
     return nil
 end
 
-local function getCoinPosition(cm)
+local function getCoinVisualPart(cm)
     if not cm then return nil end
     local visual = cm:FindFirstChild("CoinVisual") or (cm.Name == "CoinVisual" and cm) or cm:FindFirstChild("CoinVisual", true)
-    if visual and visual:IsA("BasePart") then return visual.Position end
+    if visual and visual:IsA("BasePart") then return visual end
     return nil
 end
 
+-- Оновлена функція перевірки повного мішка (тепер перевіряє обидві папки: Coin та Candy у контейнері)
 local function checkBagFull(player)
     local playerGui = player:FindFirstChild("PlayerGui")
     local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
     local gameFrame = mainGui and mainGui:FindFirstChild("Game")
 
-    if not gameFrame or not gameFrame.Visible then return false end  
+    if not gameFrame then return false end  
 
     local coinBags = gameFrame:FindFirstChild("CoinBags")  
-    if coinBags and coinBags.Visible then  
-        local descendants = coinBags:GetDescendants()  
-        for _, obj in ipairs(descendants) do  
+    if coinBags then  
+        -- 1. Перевірка звичайного мішка (CoinBags -> Coin)
+        local coinFolder = coinBags:FindFirstChild("Coin")
+        if coinFolder then
+            local fullIcon = coinFolder:FindFirstChild("FullBagIcon")
+            local fullNotif = coinFolder:FindFirstChild("FullBagNotification")
+            if (fullIcon and fullIcon:IsA("GuiObject") and fullIcon.Visible) or (fullNotif and fullNotif:IsA("GuiObject") and fullNotif.Visible) then
+                return true
+            end
+        end
+
+        -- 2. Перевірка івентового мішка (CoinBags -> Container -> Candy)
+        local container = coinBags:FindFirstChild("Container")
+        local candyFolder = container and container:FindFirstChild("Candy")
+        if candyFolder then
+            local fullIcon = candyFolder:FindFirstChild("FullBagIcon")
+            local fullNotif = candyFolder:FindFirstChild("FullBagNotification")
+            if (fullIcon and fullIcon:IsA("GuiObject") and fullIcon.Visible) or (fullNotif and fullNotif:IsA("GuiObject") and fullNotif.Visible) then
+                return true
+            end
+        end
+
+        -- Додатковий прохід по всіх дочірніх FullBagIcon на випадок зміни структури
+        for _, obj in ipairs(coinBags:GetDescendants()) do  
             if obj.Name == "FullBagIcon" and obj:IsA("GuiObject") and obj.Visible then return true end  
+            if obj.Name == "FullBagNotification" and obj:IsA("GuiObject") and obj.Visible then return true end
         end  
-        return false  
     end  
     return false
 end
@@ -1491,18 +1513,18 @@ end)
 
 FarmingTab:CreateDropdown({
     name = "Farm Method",
-    options = {"Teleport", "Fly"},
-    currentOption = "Teleport",
+    options = {"Fly"},
+    currentOption = "Fly",
     flag = "FarmMethodDropdown",
     callback = function(option) farmMethod = option end,
 })
 
 FarmingTab:CreateSlider({
-    name = "Farm Speed (Fly Only)",
-    range = {1, 33},
+    name = "Farm Speed",
+    range = {16, 120},
     increment = 1,
-    suffix = "s/s",
-    currentValue = 25,
+    suffix = " studs/s",
+    currentValue = 16,
     flag = "FarmSpeedSlider",
     callback = function(value) farmSpeed = value end,
 })
@@ -1545,125 +1567,122 @@ FarmingTab:CreateToggle({
                             return        
                         end        
 
+                        -- Пошук монет у радіусі 170 студів
                         local availableCoins = {}        
                         local containerChildren = container:GetChildren()      
                         for _, cm in ipairs(containerChildren) do        
                             if not collectedCoins[cm] then  
-                                local pos = getCoinPosition(cm)        
-                                if pos then       
-                                    local dist = (root.Position - pos).Magnitude      
-                                    if dist <= 120 then      
-                                        table.insert(availableCoins, {Instance = cm, Position = pos})       
+                                local visualPart = getCoinVisualPart(cm)        
+                                if visualPart then       
+                                    local dist = (root.Position - visualPart.Position).Magnitude      
+                                    if dist <= 170 then      
+                                        table.insert(availableCoins, {Instance = cm, Part = visualPart, Position = visualPart.Position, Distance = dist})       
                                     end      
                                 end        
                             end  
                         end        
 
+                        -- Якщо в радіусі 170 нічого немає — очищаємо кеш зібраних
                         if #availableCoins == 0 then      
                             collectedCoins = {}  
                             for _, cm in ipairs(containerChildren) do        
-                                local pos = getCoinPosition(cm)        
-                                if pos then table.insert(availableCoins, {Instance = cm, Position = pos}) end        
+                                local visualPart = getCoinVisualPart(cm)        
+                                if visualPart then 
+                                    local dist = (root.Position - visualPart.Position).Magnitude
+                                    table.insert(availableCoins, {Instance = cm, Part = visualPart, Position = visualPart.Position, Distance = dist}) 
+                                end        
                             end      
                         end      
 
                         if #availableCoins == 0 then task.wait(0.5); return end      
 
-                        local nearestCoin = nil        
-                        local nearestDist = math.huge        
-                        for _, coinData in ipairs(availableCoins) do        
-                            local dist = (root.Position - coinData.Position).Magnitude        
-                            if dist < nearestDist then nearestDist = dist; nearestCoin = coinData end        
-                        end      
+                        -- Сортування: спочатку найближчі до персонажа
+                        table.sort(availableCoins, function(a, b)
+                            return a.Distance < b.Distance
+                        end)
+
+                        local nearestCoin = availableCoins[1]      
 
                         if nearestCoin and nearestCoin.Instance and nearestCoin.Instance.Parent then        
-                            if farmMethod == "Teleport" then        
-                                root.AssemblyLinearVelocity = Vector3.zero      
-                                root.AssemblyAngularVelocity = Vector3.zero      
-                                root.Velocity = Vector3.zero      
-                                root.RotVelocity = Vector3.zero
-                                      
-                                local targetPos = nearestCoin.Position + Vector3.new(0, 1.2, 0)
-                                root.CFrame = CFrame.new(targetPos, Vector3.new(nearestCoin.Position.X, targetPos.Y, nearestCoin.Position.Z))      
-                                  
-                                local teleportTimer = tick()
-                                while tick() - teleportTimer < 1.0 do
-                                    if not autoFarmCandy or (currentFarmSession ~= mySessionId) then break end
-                                    root.AssemblyLinearVelocity = Vector3.zero
-                                    root.AssemblyAngularVelocity = Vector3.zero
-                                    root.Velocity = Vector3.zero
-                                    root.RotVelocity = Vector3.zero
-                                    RunService.Heartbeat:Wait()
-                                end
-
-                                if not nearestCoin.Instance.Parent then  
-                                    showCandyNotification()  
+                            local targetPos = nearestCoin.Position      
+                              
+                            local flySuccess, flyErr = pcall(function()  
+                                if humanoid and humanoid.Parent then  
+                                    humanoid.PlatformStand = true  
                                 end  
 
-                            else        
-                                local targetPos = nearestCoin.Position + Vector3.new(0, 1.0, 0)      
-                                  
-                                local flySuccess, flyErr = pcall(function()  
-                                    if humanoid and humanoid.Parent then  
-                                        humanoid.PlatformStand = true  
-                                    end  
+                                root.AssemblyLinearVelocity = Vector3.zero
+                                root.AssemblyAngularVelocity = Vector3.zero
+                                root.Velocity = Vector3.zero
+                                root.RotVelocity = Vector3.zero
 
+                                for _, part in ipairs(character:GetDescendants()) do
+                                    if part:IsA("BasePart") then
+                                        part.CanCollide = false
+                                    end
+                                end
+
+                                while autoFarmCandy and (currentFarmSession == mySessionId) do      
+                                    if not nearestCoin.Instance or not nearestCoin.Instance.Parent then break end      
+                                    
+                                    -- Перевірка заповнення мішка прямо під час польоту
+                                    if checkBagFull(player) then
+                                        break
+                                    end
+
+                                    if nearestCoin.Part and nearestCoin.Part.Parent then
+                                        targetPos = nearestCoin.Part.Position
+                                    end
+                                          
+                                    local currentPos = root.Position      
+                                    local distance = (currentPos - targetPos).Magnitude      
+                                          
                                     for _, part in ipairs(character:GetDescendants()) do
                                         if part:IsA("BasePart") then
                                             part.CanCollide = false
                                         end
                                     end
 
-                                    while autoFarmCandy and (currentFarmSession == mySessionId) do      
-                                        if not nearestCoin.Instance or not nearestCoin.Instance.Parent then break end      
-                                              
-                                        local currentPos = root.Position      
-                                        local distance = (currentPos - targetPos).Magnitude      
-                                              
-                                        for _, part in ipairs(character:GetDescendants()) do
-                                            if part:IsA("BasePart") then
-                                                part.CanCollide = false
-                                            end
-                                        end
-
-                                        if distance < 1.0 then      
-                                            root.CFrame = CFrame.new(targetPos, targetPos + Vector3.new(0, 0, -1))      
-                                            task.wait(0.05)      
-                                              
-                                            if not nearestCoin.Instance.Parent then  
-                                                showCandyNotification()      
-                                            end  
-                                            break      
-                                        end      
-                                              
-                                        local moveSpeed = math.clamp(farmSpeed * 1.5, 15, 60)  
-                                        local direction = (targetPos - currentPos).Unit  
-                                        local step = direction * math.min(moveSpeed * RunService.Heartbeat:Wait(), distance)  
+                                    -- Долетіли до монети (зсув 0,0,0 — чітко під ноги)
+                                    if distance < 1.0 then      
+                                        root.CFrame = CFrame.new(targetPos, targetPos + Vector3.new(0, 0, -1))      
+                                        task.wait(0.05)      
                                           
-                                        root.AssemblyLinearVelocity = Vector3.zero  
-                                        root.AssemblyAngularVelocity = Vector3.zero  
-                                        
-                                        local nextPos = currentPos + step
-                                        root.CFrame = CFrame.new(nextPos, Vector3.new(nearestCoin.Position.X, nextPos.Y, nearestCoin.Position.Z))  
+                                        if not nearestCoin.Instance.Parent then  
+                                            showCandyNotification()      
+                                        end  
+                                        break      
                                     end      
-                                end)  
+                                          
+                                    local currentSpeed = math.clamp(farmSpeed, 1, 200)
+                                    local stepSize = currentSpeed * RunService.Heartbeat:Wait()
+                                    local direction = (targetPos - currentPos).Unit  
+                                    local step = direction * math.min(stepSize, distance)  
+                                      
+                                    root.AssemblyLinearVelocity = Vector3.zero  
+                                    root.AssemblyAngularVelocity = Vector3.zero  
+                                    
+                                    local nextPos = currentPos + step
+                                    -- Оновлення позиції із розворотом обличчям суворо до цукерки
+                                    root.CFrame = CFrame.new(nextPos, Vector3.new(targetPos.X, nextPos.Y, targetPos.Z))  
+                                end      
+                            end)  
 
-                                pcall(function()  
-                                    if humanoid and humanoid.Parent then  
-                                        humanoid.PlatformStand = false  
-                                        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)  
-                                        
-                                        for _, part in ipairs(character:GetDescendants()) do
-                                            if part:IsA("BasePart") then
-                                                part.CanCollide = true
-                                            end
+                            pcall(function()  
+                                if humanoid and humanoid.Parent then  
+                                    humanoid.PlatformStand = false  
+                                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)  
+                                    
+                                    for _, part in ipairs(character:GetDescendants()) do
+                                        if part:IsA("BasePart") then
+                                            part.CanCollide = true
                                         end
-                                    end  
-                                end)  
-
-                                if not flySuccess then  
-                                    warn("Fly Farm Error:", flyErr)  
+                                    end
                                 end  
+                            end)  
+
+                            if not flySuccess then  
+                                warn("Fly Farm Error:", flyErr)  
                             end        
 
                             collectedCoins[nearestCoin.Instance] = true  
@@ -1984,8 +2003,8 @@ VisualsTab:CreateToggle({
                         if container then
                             local containerChildren = container:GetChildren()
                             for _, cm in ipairs(containerChildren) do
-                                local visual = cm:FindFirstChild("CoinVisual") or (cm.Name == "CoinVisual" and cm)
-                                if visual and visual:IsA("BasePart") and not visual:FindFirstChild("CoinHighlight") then
+                                local visual = getCoinVisualPart(cm)
+                                if visual and not visual:FindFirstChild("CoinHighlight") then
                                     local hl = Instance.new("Highlight")
                                     hl.Name = "CoinHighlight"
                                     hl.FillColor = Color3.fromRGB(255, 140, 0)
@@ -2004,7 +2023,7 @@ VisualsTab:CreateToggle({
                 local container = findCoinContainerDeep()
                 if container then
                     for _, cm in ipairs(container:GetChildren()) do
-                        local visual = cm:FindFirstChild("CoinVisual") or (cm.Name == "CoinVisual" and cm)
+                        local visual = getCoinVisualPart(cm)
                         if visual then
                             local hl = visual:FindFirstChild("CoinHighlight")
                             if hl then
