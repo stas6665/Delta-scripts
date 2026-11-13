@@ -1243,17 +1243,18 @@ local function getCoinVisualPart(cm)
     return nil
 end
 
--- Оновлена функція перевірки повного мішка (тепер перевіряє обидві папки: Coin та Candy у контейнері)
+-- Повністю безпечна перевірка заповнення мішка (Coin та Candy)
 local function checkBagFull(player)
-    local playerGui = player:FindFirstChild("PlayerGui")
-    local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
-    local gameFrame = mainGui and mainGui:FindFirstChild("Game")
+    local success, isFull = pcall(function()
+        local playerGui = player:FindFirstChild("PlayerGui")
+        local mainGui = playerGui and playerGui:FindFirstChild("MainGUI")
+        local gameFrame = mainGui and mainGui:FindFirstChild("Game")
+        if not gameFrame then return false end  
 
-    if not gameFrame then return false end  
+        local coinBags = gameFrame:FindFirstChild("CoinBags")  
+        if not coinBags then return false end
 
-    local coinBags = gameFrame:FindFirstChild("CoinBags")  
-    if coinBags then  
-        -- 1. Перевірка звичайного мішка (CoinBags -> Coin)
+        -- 1. Перевірка звичайного мішка
         local coinFolder = coinBags:FindFirstChild("Coin")
         if coinFolder then
             local fullIcon = coinFolder:FindFirstChild("FullBagIcon")
@@ -1263,7 +1264,7 @@ local function checkBagFull(player)
             end
         end
 
-        -- 2. Перевірка івентового мішка (CoinBags -> Container -> Candy)
+        -- 2. Перевірка івентового мішка
         local container = coinBags:FindFirstChild("Container")
         local candyFolder = container and container:FindFirstChild("Candy")
         if candyFolder then
@@ -1274,13 +1275,17 @@ local function checkBagFull(player)
             end
         end
 
-        -- Додатковий прохід по всіх дочірніх FullBagIcon на випадок зміни структури
+        -- Загальний пошук по іконках на всякий випадок
         for _, obj in ipairs(coinBags:GetDescendants()) do  
-            if obj.Name == "FullBagIcon" and obj:IsA("GuiObject") and obj.Visible then return true end  
-            if obj.Name == "FullBagNotification" and obj:IsA("GuiObject") and obj.Visible then return true end
+            if (obj.Name == "FullBagIcon" or obj.Name == "FullBagNotification") and obj:IsA("GuiObject") and obj.Visible then 
+                return true 
+            end  
         end  
-    end  
-    return false
+
+        return false
+    end)
+
+    return success and isFull
 end
 
 local function executeAutoFlingMurderWhenFull()
@@ -1567,7 +1572,6 @@ FarmingTab:CreateToggle({
                             return        
                         end        
 
-                        -- Пошук монет у радіусі 170 студів
                         local availableCoins = {}        
                         local containerChildren = container:GetChildren()      
                         for _, cm in ipairs(containerChildren) do        
@@ -1582,7 +1586,6 @@ FarmingTab:CreateToggle({
                             end  
                         end        
 
-                        -- Якщо в радіусі 170 нічого немає — очищаємо кеш зібраних
                         if #availableCoins == 0 then      
                             collectedCoins = {}  
                             for _, cm in ipairs(containerChildren) do        
@@ -1596,7 +1599,6 @@ FarmingTab:CreateToggle({
 
                         if #availableCoins == 0 then task.wait(0.5); return end      
 
-                        -- Сортування: спочатку найближчі до персонажа
                         table.sort(availableCoins, function(a, b)
                             return a.Distance < b.Distance
                         end)
@@ -1625,7 +1627,6 @@ FarmingTab:CreateToggle({
                                 while autoFarmCandy and (currentFarmSession == mySessionId) do      
                                     if not nearestCoin.Instance or not nearestCoin.Instance.Parent then break end      
                                     
-                                    -- Перевірка заповнення мішка прямо під час польоту
                                     if checkBagFull(player) then
                                         break
                                     end
@@ -1643,7 +1644,6 @@ FarmingTab:CreateToggle({
                                         end
                                     end
 
-                                    -- Долетіли до монети (зсув 0,0,0 — чітко під ноги)
                                     if distance < 1.0 then      
                                         root.CFrame = CFrame.new(targetPos, targetPos + Vector3.new(0, 0, -1))      
                                         task.wait(0.05)      
@@ -1663,7 +1663,6 @@ FarmingTab:CreateToggle({
                                     root.AssemblyAngularVelocity = Vector3.zero  
                                     
                                     local nextPos = currentPos + step
-                                    -- Оновлення позиції із розворотом обличчям суворо до цукерки
                                     root.CFrame = CFrame.new(nextPos, Vector3.new(targetPos.X, nextPos.Y, targetPos.Z))  
                                 end      
                             end)  
