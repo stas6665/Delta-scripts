@@ -266,7 +266,6 @@ local function updateFly()
     end
 end
 
--- Обновленный ноуклип для вкладки Player: полное прохождение сквозь стены с удержанием высоты
 local noclipConnection = nil
 local function updateNoclip()
     local RunService = game:GetService("RunService")
@@ -1013,15 +1012,17 @@ local function createAutoShootGui()
 
                         local calculatedCFrame = CFrame.new(attachmentCFrame.Position, targetPos)      
 
-                        local remote = nil  
-                        for _, desc in ipairs(gun:GetDescendants()) do  
-                            if desc:IsA("RemoteEvent") then  
-                                remote = desc  
-                                break  
+                        local remote = gun:FindFirstChild("Shoot")  
+                        if not remote then  
+                            for _, desc in ipairs(gun:GetDescendants()) do  
+                                if desc:IsA("RemoteEvent") then  
+                                    remote = desc  
+                                    break  
+                                end  
                             end  
                         end  
 
-                        if remote then        
+                        if remote and remote:IsA("RemoteEvent") then        
                            remote:FireServer(calculatedCFrame, targetPos)      
                         end        
 
@@ -1580,15 +1581,18 @@ FarmingTab:CreateToggle({
                                 root.AssemblyLinearVelocity = Vector3.zero      
                                 root.AssemblyAngularVelocity = Vector3.zero      
                                 root.Velocity = Vector3.zero      
+                                root.RotVelocity = Vector3.zero
                                       
                                 local targetPos = nearestCoin.Position + Vector3.new(0, 1.2, 0)
-                                root.CFrame = CFrame.new(targetPos, Vector3.new(nearestCoin.Position.X, root.Position.Y, nearestCoin.Position.Z))      
+                                root.CFrame = CFrame.new(targetPos, Vector3.new(nearestCoin.Position.X, targetPos.Y, nearestCoin.Position.Z))      
                                   
                                 local teleportTimer = tick()
                                 while tick() - teleportTimer < 1.0 do
                                     if not autoFarmCandy or (currentFarmSession ~= mySessionId) then break end
                                     root.AssemblyLinearVelocity = Vector3.zero
                                     root.AssemblyAngularVelocity = Vector3.zero
+                                    root.Velocity = Vector3.zero
+                                    root.RotVelocity = Vector3.zero
                                     RunService.Heartbeat:Wait()
                                 end
 
@@ -1604,6 +1608,12 @@ FarmingTab:CreateToggle({
                                         humanoid.PlatformStand = true  
                                     end  
 
+                                    for _, part in ipairs(character:GetDescendants()) do
+                                        if part:IsA("BasePart") then
+                                            part.CanCollide = false
+                                        end
+                                    end
+
                                     while autoFarmCandy and (currentFarmSession == mySessionId) do      
                                         if not nearestCoin.Instance or not nearestCoin.Instance.Parent then break end      
                                               
@@ -1616,8 +1626,8 @@ FarmingTab:CreateToggle({
                                             end
                                         end
 
-                                        if distance < 1.5 then      
-                                            root.CFrame = CFrame.new(targetPos, Vector3.new(targetPos.X, root.Position.Y, targetPos.Z))      
+                                        if distance < 1.0 then      
+                                            root.CFrame = CFrame.new(targetPos, targetPos + Vector3.new(0, 0, -1))      
                                             task.wait(0.05)      
                                               
                                             if not nearestCoin.Instance.Parent then  
