@@ -4,9 +4,14 @@ local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+
+local Success, CurrentRoundClient = pcall(function()
+    return require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CurrentRoundClient"))
+end)
 
 local enabled = false
 local farmSpeed = 16
@@ -53,80 +58,6 @@ gui.ResetOnSpawn = false
 gui.Parent = playerGui
 
 local connections = {}
-
-local VisualInventory = {
-    Knives = {
-        {
-            Name = "Gingerscythe",
-            MeshId = "rbxassetid://1234567890",
-            TextureId = "rbxassetid://0987654321"
-        },
-        {
-            Name = "Batwing",
-            MeshId = "rbxassetid://1111222233",
-            TextureId = "rbxassetid://3332221111"
-        }
-    },
-    Guns = {
-        {
-            Name = "Harvester",
-            MeshId = "rbxassetid://4444555566",
-            TextureId = "rbxassetid://6655443322"
-        },
-        {
-            Name = "Luger",
-            MeshId = "rbxassetid://7777888899",
-            TextureId = "rbxassetid://9988776655"
-        }
-    }
-}
-
-local EquippedItems = {
-    Knife = nil,
-    Gun = nil
-}
-
-local characterConnection = nil
-local function setupCharacterListener(char)
-    if characterConnection then characterConnection:Disconnect() end
-    characterConnection = char.ChildAdded:Connect(function(child)
-        if child:IsA("Tool") then
-            task.wait(0.1)
-            local handle = child:FindFirstChild("Handle")
-            if not handle then return end
-            local mesh = handle:FindFirstChildOfClass("SpecialMesh") or handle:FindFirstChildOfClass("MeshPart")
-            if not mesh then return end
-
-            local toolLower = child.Name:lower()
-            local targetData = nil
-
-            if toolLower:find("knife") or child.Name == "DefaultKnife" then
-                targetData = EquippedItems.Knife
-            elseif toolLower:find("gun") or child.Name == "Revolver" or child.Name == "Sheriff" then
-                targetData = EquippedItems.Gun
-            end
-
-            if targetData then
-                if mesh:IsA("SpecialMesh") then
-                    mesh.MeshId = targetData.MeshId
-                    mesh.TextureId = targetData.TextureId
-                elseif mesh:IsA("MeshPart") then
-                    pcall(function()
-                        mesh.MeshId = targetData.MeshId
-                        mesh.TextureID = targetData.TextureId
-                    end)
-                end
-            end
-        end
-    end)
-end
-
-if player.Character then
-    setupCharacterListener(player.Character)
-end
-table.insert(connections, player.CharacterAdded:Connect(function(newChar)
-    setupCharacterListener(newChar)
-end))
 
 local redDot = Instance.new("Frame")
 redDot.Size = UDim2.fromOffset(6, 6)
@@ -262,81 +193,70 @@ tabHolder.BackgroundTransparency = 1
 tabHolder.Parent = contentHolder
 
 local tabFarming = Instance.new("TextButton")
-tabFarming.Size = UDim2.fromOffset(90, 26)
+tabFarming.Size = UDim2.fromOffset(90, 30)
 tabFarming.Position = UDim2.fromOffset(0, 0)
 tabFarming.BackgroundColor3 = Color3.fromRGB(145, 30, 45)
 tabFarming.TextColor3 = Color3.new(1, 1, 1)
-tabFarming.TextSize = 10
+tabFarming.TextSize = 11
 tabFarming.Font = Enum.Font.GothamBold
 tabFarming.Text = "Farming"
 tabFarming.Parent = tabHolder
 Instance.new("UICorner", tabFarming).CornerRadius = UDim.new(0, 6)
 
 local tabFling = Instance.new("TextButton")
-tabFling.Size = UDim2.fromOffset(90, 26)
-tabFling.Position = UDim2.fromOffset(0, 30)
+tabFling.Size = UDim2.fromOffset(90, 30)
+tabFling.Position = UDim2.fromOffset(0, 35)
 tabFling.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
 tabFling.TextColor3 = Color3.fromRGB(170, 170, 170)
-tabFling.TextSize = 10
+tabFling.TextSize = 11
 tabFling.Font = Enum.Font.GothamBold
 tabFling.Text = "Fling"
 tabFling.Parent = tabHolder
 Instance.new("UICorner", tabFling).CornerRadius = UDim.new(0, 6)
 
 local tabSheriff = Instance.new("TextButton")
-tabSheriff.Size = UDim2.fromOffset(90, 26)
-tabSheriff.Position = UDim2.fromOffset(0, 60)
+tabSheriff.Size = UDim2.fromOffset(90, 30)
+tabSheriff.Position = UDim2.fromOffset(0, 70)
 tabSheriff.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
 tabSheriff.TextColor3 = Color3.fromRGB(170, 170, 170)
-tabSheriff.TextSize = 10
+tabSheriff.TextSize = 11
 tabSheriff.Font = Enum.Font.GothamBold
 tabSheriff.Text = "Sheriff"
 tabSheriff.Parent = tabHolder
 Instance.new("UICorner", tabSheriff).CornerRadius = UDim.new(0, 6)
 
 local tabMurder = Instance.new("TextButton")
-tabMurder.Size = UDim2.fromOffset(90, 26)
-tabMurder.Position = UDim2.fromOffset(0, 90)
+tabMurder.Size = UDim2.fromOffset(90, 30)
+tabMurder.Position = UDim2.fromOffset(0, 105)
 tabMurder.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
 tabMurder.TextColor3 = Color3.fromRGB(170, 170, 170)
-tabMurder.TextSize = 10
+tabMurder.TextSize = 11
 tabMurder.Font = Enum.Font.GothamBold
 tabMurder.Text = "Murderer"
 tabMurder.Parent = tabHolder
 Instance.new("UICorner", tabMurder).CornerRadius = UDim.new(0, 6)
 
 local tabPlayer = Instance.new("TextButton")
-tabPlayer.Size = UDim2.fromOffset(90, 26)
-tabPlayer.Position = UDim2.fromOffset(0, 120)
+tabPlayer.Size = UDim2.fromOffset(90, 30)
+tabPlayer.Position = UDim2.fromOffset(0, 140)
 tabPlayer.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
 tabPlayer.TextColor3 = Color3.fromRGB(170, 170, 170)
-tabPlayer.TextSize = 10
+tabPlayer.TextSize = 11
 tabPlayer.Font = Enum.Font.GothamBold
 tabPlayer.Text = "Player"
 tabPlayer.Parent = tabHolder
 Instance.new("UICorner", tabPlayer).CornerRadius = UDim.new(0, 6)
 
 local tabESP = Instance.new("TextButton")
-tabESP.Size = UDim2.fromOffset(90, 26)
-tabESP.Position = UDim2.fromOffset(0, 150)
+tabESP.Size = UDim2.fromOffset(90, 30)
+tabESP.Position = UDim2.fromOffset(0, 175)
 tabESP.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
 tabESP.TextColor3 = Color3.fromRGB(170, 170, 170)
-tabESP.TextSize = 10
+tabESP.TextSize = 11
 tabESP.Font = Enum.Font.GothamBold
 tabESP.Text = "ESP"
 tabESP.Parent = tabHolder
 Instance.new("UICorner", tabESP).CornerRadius = UDim.new(0, 6)
-
-local tabGodly = Instance.new("TextButton")
-tabGodly.Size = UDim2.fromOffset(90, 26)
-tabGodly.Position = UDim2.fromOffset(0, 180)
-tabGodly.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-tabGodly.TextColor3 = Color3.fromRGB(170, 170, 170)
-tabGodly.TextSize = 9
-tabGodly.Font = Enum.Font.GothamBold
-tabGodly.Text = "Godly Spawner"
-tabGodly.Parent = tabHolder
-Instance.new("UICorner", tabGodly).CornerRadius = UDim.new(0, 6)
 
 local line = Instance.new("Frame")
 line.Size = UDim2.new(0, 1, 1, -20)
@@ -423,19 +343,6 @@ espLayout.SortOrder = Enum.SortOrder.LayoutOrder
 espLayout.Padding = UDim.new(0, 10)
 espLayout.Parent = espContainer
 
-local godlyContainer = Instance.new("ScrollingFrame")
-godlyContainer.Size = UDim2.new(1, 0, 1, 0)
-godlyContainer.BackgroundTransparency = 1
-godlyContainer.Visible = false
-godlyContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
-godlyContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
-godlyContainer.ScrollBarThickness = 4
-godlyContainer.Parent = panelHolder
-local godlyLayout = Instance.new("UIListLayout")
-godlyLayout.SortOrder = Enum.SortOrder.LayoutOrder
-godlyLayout.Padding = UDim.new(0, 10)
-godlyLayout.Parent = godlyContainer
-
 local settingsContainer = Instance.new("ScrollingFrame")
 settingsContainer.Size = UDim2.new(1, 0, 1, 0)
 settingsContainer.BackgroundTransparency = 1
@@ -493,16 +400,13 @@ local function updateActiveTabVisuals(tabName)
     tabPlayer.TextColor3 = Color3.fromRGB(170, 170, 170)
     tabESP.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
     tabESP.TextColor3 = Color3.fromRGB(170, 170, 170)
-    tabGodly.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-    tabGodly.TextColor3 = Color3.fromRGB(170, 170, 170)
 
     local activeBtn = (tabName == "Farming" and tabFarming)  
         or (tabName == "Fling" and tabFling)  
         or (tabName == "Sheriff" and tabSheriff)  
         or (tabName == "Murderer" and tabMurder)  
         or (tabName == "Player" and tabPlayer)  
-        or (tabName == "ESP" and tabESP)  
-        or tabGodly
+        or tabESP
 
     activeBtn.BackgroundColor3 = rainbowActive and Color3.fromHSV(tick() % 5 / 5, 1, 1) or currentThemeColor  
     activeBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -516,7 +420,6 @@ table.insert(connections, settingsBtn.MouseButton1Click:Connect(function()
     murderContainer.Visible = false
     playerContainer.Visible = false
     espContainer.Visible = false
-    godlyContainer.Visible = false
     settingsContainer.Visible = isSettingsOpen
 
     if isSettingsOpen then  
@@ -526,8 +429,7 @@ table.insert(connections, settingsBtn.MouseButton1Click:Connect(function()
         tabSheriff.BackgroundColor3 = Color3.fromRGB(45, 45, 50)  
         tabMurder.BackgroundColor3 = Color3.fromRGB(45, 45, 50)  
         tabPlayer.BackgroundColor3 = Color3.fromRGB(45, 45, 50)  
-        tabESP.BackgroundColor3 = Color3.fromRGB(45, 45, 50)  
-        tabGodly.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+        tabESP.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
     else  
         settingsBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 50)  
         farmContainer.Visible = (lastActiveTab == "Farming")  
@@ -536,7 +438,6 @@ table.insert(connections, settingsBtn.MouseButton1Click:Connect(function()
         murderContainer.Visible = (lastActiveTab == "Murderer")  
         playerContainer.Visible = (lastActiveTab == "Player")  
         espContainer.Visible = (lastActiveTab == "ESP")  
-        godlyContainer.Visible = (lastActiveTab == "Godly")
         updateActiveTabVisuals(lastActiveTab)  
     end
 end))
@@ -653,6 +554,12 @@ table.insert(connections, toggle.MouseButton1Click:Connect(function()
     if not enabled then
         local char = player.Character
         if char then
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.PlatformStand = false
+                local animateScript = char:FindFirstChild("Animate")
+                if animateScript then animateScript.Enabled = true end
+            end
             for _, part in ipairs(char:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.CanCollide = true
@@ -717,7 +624,7 @@ local function flingTargetPlayer(targetPlayer)
         end
 
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then part.CanCollide = false end
+            if part:IsA("BasePart") then part.CanCollide = true end
         end
 
         root.CFrame = targetRoot.CFrame * CFrame.new(math.sin(tick() * 50) * 2, 0, math.cos(tick() * 50) * 2)
@@ -726,13 +633,23 @@ local function flingTargetPlayer(targetPlayer)
     end)
 end
 
+local function getPlayerRole(targetPlayer)
+    if not CurrentRoundClient or not CurrentRoundClient.PlayerData then return "Innocent" end
+    for _, data in pairs(CurrentRoundClient.PlayerData) do
+        if data.Player == targetPlayer or data.Name == targetPlayer.Name then
+            if data.Role then
+                return data.Role
+            end
+        end
+    end
+    return "Innocent"
+end
+
 local function findSheriff()
     local targetPlayer = nil
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player then
-            local bp = p:FindFirstChild("Backpack")
-            local char = p.Character
-            if (bp and (bp:FindFirstChild("Gun") or bp:FindFirstChild("Revolver"))) or (char and (char:FindFirstChild("Gun") or char:FindFirstChild("Revolver"))) then
+            if getPlayerRole(p) == "Sheriff" then
                 targetPlayer = p
                 break
             end
@@ -745,9 +662,7 @@ local function findMurderer()
     local targetPlayer = nil
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player then
-            local bp = p:FindFirstChild("Backpack")
-            local char = p.Character
-            if (bp and bp:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife")) then
+            if getPlayerRole(p) == "Murderer" then
                 targetPlayer = p
                 break
             end
@@ -811,78 +726,6 @@ local function createToggle(parent, text, callback)
         TweenService:Create(tgl, TweenInfo.new(0.2), { BackgroundColor3 = state and currentThemeColor or Color3.fromRGB(55, 55, 60) }):Play()  
         TweenService:Create(knob, TweenInfo.new(0.2), { Position = state and UDim2.fromOffset(26, 3) or UDim2.fromOffset(3, 3) }):Play()  
         callback(state)  
-    end))
-end
-
-local godlyHeader = Instance.new("TextLabel")
-godlyHeader.Size = UDim2.new(1, 0, 0, 20)
-godlyHeader.BackgroundTransparency = 1
-godlyHeader.Text = "--- KNIVES ---"
-godlyHeader.TextColor3 = Color3.fromRGB(255, 200, 0)
-godlyHeader.TextSize = 12
-godlyHeader.Font = Enum.Font.GothamBold
-godlyHeader.TextXAlignment = Enum.TextXAlignment.Left
-godlyHeader.LayoutOrder = 1
-godlyHeader.Parent = godlyContainer
-
-for _, item in ipairs(VisualInventory.Knives) do
-    local Btn = Instance.new("TextButton")
-    Btn.Size = UDim2.new(1, 0, 0, 32)
-    Btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Btn.Text = item.Name .. " [UNEQUIPPED]"
-    Btn.Font = Enum.Font.GothamSemibold
-    Btn.TextSize = 11
-    Btn.LayoutOrder = godlyContainer:FindFirstChildOfClass("UIListLayout") and #godlyContainer:GetChildren() or 2
-    Btn.Parent = godlyContainer
-    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
-
-    table.insert(connections, Btn.MouseButton1Click:Connect(function()
-        if EquippedItems.Knife == item then
-            EquippedItems.Knife = nil
-            Btn.Text = item.Name .. " [UNEQUIPPED]"
-            Btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-        else
-            EquippedItems.Knife = item
-            Btn.Text = item.Name .. " [EQUIPPED]"
-            Btn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-        end
-    end))
-end
-
-local gunHeader = Instance.new("TextLabel")
-gunHeader.Size = UDim2.new(1, 0, 0, 25)
-gunHeader.BackgroundTransparency = 1
-gunHeader.Text = "--- GUNS ---"
-gunHeader.TextColor3 = Color3.fromRGB(0, 170, 255)
-gunHeader.TextSize = 12
-gunHeader.Font = Enum.Font.GothamBold
-gunHeader.TextXAlignment = Enum.TextXAlignment.Left
-gunHeader.LayoutOrder = godlyContainer:FindFirstChildOfClass("UIListLayout") and #godlyContainer:GetChildren() or 10
-gunHeader.Parent = godlyContainer
-
-for _, item in ipairs(VisualInventory.Guns) do
-    local TheBtn = Instance.new("TextButton")
-    TheBtn.Size = UDim2.new(1, 0, 0, 32)
-    TheBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    TheBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    TheBtn.Text = item.Name .. " [UNEQUIPPED]"
-    TheBtn.Font = Enum.Font.GothamSemibold
-    TheBtn.TextSize = 11
-    TheBtn.LayoutOrder = godlyContainer:FindFirstChildOfClass("UIListLayout") and #godlyContainer:GetChildren() or 11
-    TheBtn.Parent = godlyContainer
-    Instance.new("UICorner", TheBtn).CornerRadius = UDim.new(0, 6)
-
-    table.insert(connections, TheBtn.MouseButton1Click:Connect(function()
-        if EquippedItems.Gun == item then
-            EquippedItems.Gun = nil
-            TheBtn.Text = item.Name .. " [UNEQUIPPED]"
-            TheBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-        else
-            EquippedItems.Gun = item
-            TheBtn.Text = item.Name .. " [EQUIPPED]"
-            TheBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
-        end
     end))
 end
 
@@ -1158,31 +1001,15 @@ createToggle(espContainer, "ESP User", function(state)
     end
 end)
 
-local function clearAllHighlights()
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.Character then
-            for _, name in ipairs({"MM2MurdererHL", "MM2SheriffHL", "MM2InnocentHL"}) do
-                local hl = p.Character:FindFirstChild(name)
-                if hl then hl:Destroy() end
-            end
-            local head = p.Character:FindFirstChild("Head")
-            if head then
-                local tag = head:FindFirstChild("MM2UserTag")
-                if tag then tag:Destroy() end
-            end
-        end
-    end
-end
-
 local function updateRoleESP()
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player and p.Character then
-            local bp = p:FindFirstChild("Backpack")
             local char = p.Character
             local head = char:FindFirstChild("Head")
 
-            local isMurderer = (bp and bp:FindFirstChild("Knife")) or (char and char:FindFirstChild("Knife"))  
-            local isSheriff = (bp and (bp:FindFirstChild("Gun") or bp:FindFirstChild("Revolver"))) or (char and (char:FindFirstChild("Gun") or char:FindFirstChild("Revolver")))  
+            local role = getPlayerRole(p)
+            local isMurderer = (role == "Murderer")
+            local isSheriff = (role == "Sheriff")
               
             local roleColor = Color3.fromRGB(30, 200, 70)  
             if isMurderer then  
@@ -1265,6 +1092,17 @@ local function updateRoleESP()
     end
 end
 
+local gameplayRemotes = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Gameplay")
+if gameplayRemotes then
+    local playerDataChanged = gameplayRemotes:FindFirstChild("PlayerDataChanged")
+    if playerDataChanged then
+        playerDataChanged.OnClientEvent:Connect(function()
+            task.wait(0.2)
+            updateRoleESP()
+        end)
+    end
+end
+
 local function getKnife()
     local char = player.Character
     local backpack = player:FindFirstChild("Backpack")
@@ -1289,12 +1127,12 @@ local function getGun()
     local backpack = player:FindFirstChild("Backpack")
 
     if char then  
-        local equippedGun = char:FindFirstChild("Gun") or char:FindFirstChild("Revolver")  
+        local equippedGun = char:FindFirstChild("Gun")  
         if equippedGun then return equippedGun end  
     end  
       
     if backpack then  
-        local storedGun = backpack:FindFirstChild("Gun") or backpack:FindFirstChild("Revolver")  
+        local storedGun = backpack:FindFirstChild("Gun")  
         if storedGun and char then  
             storedGun.Parent = char  
             return storedGun  
@@ -1335,13 +1173,13 @@ table.insert(connections, shootFloatingBtn.MouseButton1Click:Connect(function()
 
     if not char then return end  
 
-    local gun = char:FindFirstChild("Gun") or char:FindFirstChild("Revolver")  
+    local gun = char:FindFirstChild("Gun")  
     if not gun and backpack then  
-        local storedGun = backpack:FindFirstChild("Gun") or backpack:FindFirstChild("Revolver")  
+        local storedGun = backpack:FindFirstChild("Gun")  
         if storedGun then  
             storedGun.Parent = char  
             task.wait(0.05)  
-            gun = char:FindFirstChild("Gun") or char:FindFirstChild("Revolver")  
+            gun = char:FindFirstChild("Gun")  
         end  
     end  
 
@@ -1411,14 +1249,34 @@ local function isBagFull()
     local coinBags = gameFolder:FindFirstChild("CoinBags")
     if not coinBags then return false end
 
-    for _, container in ipairs(coinBags:GetChildren()) do
-        if container:IsA("GuiObject") or container:IsA("Folder") or container:IsA("Model") then
-            local fullIcon = container:FindFirstChild("FullBagIcon")
-            if fullIcon and (fullIcon:IsA("GuiObject") or fullIcon:IsA("ImageLabel")) and fullIcon.Visible then
+    for _, child in ipairs(coinBags:GetChildren()) do
+        local fullBagIcon = child:FindFirstChild("FullBagIcon")
+        if fullBagIcon and (fullBagIcon:IsA("GuiObject") or fullBagIcon:IsA("ImageLabel")) and fullBagIcon.Visible then
+            return true
+        end
+    end
+    return false
+end
+
+local function isRoundActive()
+    local mainGui = playerGui:FindFirstChild("MainGUI")
+    if not mainGui then return false end
+    local gameFolder = mainGui:FindFirstChild("Game")
+    if not gameFolder then return false end
+    local coinBags = gameFolder:FindFirstChild("CoinBags")
+    
+    if coinBags and coinBags.Visible then
+        return true
+    end
+    
+    if coinBags then
+        for _, child in ipairs(coinBags:GetChildren()) do
+            if child:IsA("GuiObject") and child.Visible then
                 return true
             end
         end
     end
+    
     return false
 end
 
@@ -1429,14 +1287,25 @@ table.insert(connections, RunService.RenderStepped:Connect(function(dt)
     local root = char and char:FindFirstChild("HumanoidRootPart")
     local humanoid = char and char:FindFirstChildOfClass("Humanoid")
 
-    if enabled and root then  
+    if enabled and root and humanoid and isRoundActive() then  
         if isBagFull() then
+            humanoid.PlatformStand = false
+            local animateScript = char:FindFirstChild("Animate")
+            if animateScript then animateScript.Enabled = true end
+
             for _, part in ipairs(char:GetDescendants()) do  
                 if part:IsA("BasePart") then  
                     part.CanCollide = true  
                 end  
             end
         else
+            humanoid.PlatformStand = true
+            local animateScript = char:FindFirstChild("Animate")
+            if animateScript then animateScript.Enabled = false end
+            for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do  
+                track:Stop(0)  
+            end  
+
             for _, part in ipairs(char:GetDescendants()) do  
                 if part:IsA("BasePart") then  
                     part.CanCollide = false  
@@ -1467,15 +1336,26 @@ table.insert(connections, RunService.RenderStepped:Connect(function(dt)
 
                 local nearestCoin = allCoins[1].part  
                 local targetPos = nearestCoin.Position  
-                local distance = allCoins[1].distance  
+                local lookAtPos = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)  
+
+                root.CFrame = CFrame.new(root.Position, lookAtPos)
+                local distance = (root.Position - targetPos).Magnitude
 
                 if distance > 1 then  
-                    local lookAtPos = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)  
-                    local targetCFrame = CFrame.new(root.Position, lookAtPos)  
-                    root.CFrame = root.CFrame:Lerp(targetCFrame, math.clamp((farmSpeed * dt) / distance, 0, 1))  
                     root.CFrame = root.CFrame + (targetPos - root.Position).Unit * math.min(farmSpeed * dt, distance)  
                 end  
             end  
+        end
+    else
+        if enabled and humanoid and humanoid.PlatformStand then
+            humanoid.PlatformStand = false
+            local animateScript = char and char:FindFirstChild("Animate")
+            if animateScript then animateScript.Enabled = true end
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then part.CanCollide = true end
+                end
+            end
         end
     end  
 
@@ -1508,30 +1388,33 @@ table.insert(connections, RunService.RenderStepped:Connect(function(dt)
         if userInput.Shift then moveDirection = moveDirection - Vector3.new(0, 1, 0) end  
 
         if moveDirection.Magnitude > 0 then  
-            root.Velocity = moveDirection.Unit * flySpeed  
+            root.AssemblyLinearVelocity = moveDirection.Unit * flySpeed  
             root.CFrame = CFrame.new(root.Position, root.Position + cam.CFrame.LookVector)  
         else  
-            root.Velocity = Vector3.new(0, 0.1, 0)  
+            root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         end  
     else  
-        if humanoid and humanoid.PlatformStand then  
+        if not enabled and humanoid and humanoid.PlatformStand then  
             humanoid.PlatformStand = false  
-            local animateScript = char and char:FindFirstChild("Animate")  
+            local animateScript = char and char:FindFirstChild("Animate")
             if animateScript then animateScript.Enabled = true end  
         end  
     end  
 
     if autoGrabGunActive and root then  
-        local gunDrop = workspace:FindFirstChild("GunDrop")  
-        if gunDrop then  
-            local oldCFrame = root.CFrame  
-            root.CFrame = gunDrop.CFrame  
-            task.defer(function()  
-                if root and root.Parent then  
-                    root.CFrame = oldCFrame  
-                end  
-            end)  
-        end  
+        local gunDrop = workspace:FindFirstChild("GunDrop")
+        if gunDrop then
+            local targetPart = gunDrop:IsA("Model") and gunDrop.PrimaryPart or gunDrop:FindFirstChildWhichIsA("BasePart")
+            if targetPart then
+                local oldCFrame = root.CFrame
+                root.CFrame = targetPart.CFrame
+                task.defer(function()
+                    if root and root.Parent then
+                        root.CFrame = oldCFrame
+                    end
+                end)
+            end
+        end
     end  
 
     if espMurdererActive or espSheriffActive or espInnocentsActive or espUserActive then  
@@ -1649,7 +1532,6 @@ table.insert(connections, tabFarming.MouseButton1Click:Connect(function()
     murderContainer.Visible = false
     playerContainer.Visible = false
     espContainer.Visible = false
-    godlyContainer.Visible = false
     updateActiveTabVisuals("Farming")
 end))
 
@@ -1662,7 +1544,6 @@ table.insert(connections, tabFling.MouseButton1Click:Connect(function()
     murderContainer.Visible = false
     playerContainer.Visible = false
     espContainer.Visible = false
-    godlyContainer.Visible = false
     updateActiveTabVisuals("Fling")
 end))
 
@@ -1675,7 +1556,6 @@ table.insert(connections, tabSheriff.MouseButton1Click:Connect(function()
     murderContainer.Visible = false
     playerContainer.Visible = false
     espContainer.Visible = false
-    godlyContainer.Visible = false
     updateActiveTabVisuals("Sheriff")
 end))
 
@@ -1688,7 +1568,6 @@ table.insert(connections, tabMurder.MouseButton1Click:Connect(function()
     murderContainer.Visible = true
     playerContainer.Visible = false
     espContainer.Visible = false
-    godlyContainer.Visible = false
     updateActiveTabVisuals("Murderer")
 end))
 
@@ -1701,7 +1580,6 @@ table.insert(connections, tabPlayer.MouseButton1Click:Connect(function()
     murderContainer.Visible = false
     playerContainer.Visible = true
     espContainer.Visible = false
-    godlyContainer.Visible = false
     updateActiveTabVisuals("Player")
 end))
 
@@ -1714,21 +1592,7 @@ table.insert(connections, tabESP.MouseButton1Click:Connect(function()
     murderContainer.Visible = false
     playerContainer.Visible = false
     espContainer.Visible = true
-    godlyContainer.Visible = false
     updateActiveTabVisuals("ESP")
-end))
-
-table.insert(connections, tabGodly.MouseButton1Click:Connect(function()
-    if isSettingsOpen then return end
-    lastActiveTab = "Godly"
-    farmContainer.Visible = false
-    flingContainer.Visible = false
-    sheriffContainer.Visible = false
-    murderContainer.Visible = false
-    playerContainer.Visible = false
-    espContainer.Visible = false
-    godlyContainer.Visible = true
-    updateActiveTabVisuals("Godly")
 end))
 
 local stY = 0
@@ -1897,94 +1761,33 @@ Instance.new("UICorner", outlineKnob).CornerRadius = UDim.new(1, 0)
 
 table.insert(connections, outlineToggle.MouseButton1Click:Connect(function()
     outlineActive = not outlineActive
-    TweenService:Create(outlineToggle, TweenInfo.new(0.2), { BackgroundColor3 = outlineActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(55, 55, 60) }):Play()
+    TweenService:Create(outlineToggle, TweenInfo.new(0.2), { BackgroundColor3 = outlineActive and currentThemeColor or Color3.fromRGB(55, 55, 60) }):Play()
     TweenService:Create(outlineKnob, TweenInfo.new(0.2), { Position = outlineActive and UDim2.fromOffset(26, 3) or UDim2.fromOffset(3, 3) }):Play()
-    if outlineActive then
-        outline.Color = Color3.fromRGB(255, 255, 255)
-    else
-        outline.Color = rainbowActive and Color3.fromHSV(tick() % 5 / 5, 1, 1) or currentThemeColor
-    end
+    outline.Color = outlineActive and Color3.new(1, 1, 1) or currentThemeColor
 end))
 
-table.insert(connections, killAllFloatingBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingKillAll = true
-        activeInputObject = input
-        dragStart = input.Position
-        startPos = killAllFloatingBtn.Position
-    end
-end))
+local function makeDraggable(obj, setDraggingTrue)
+    table.insert(connections, obj.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            setDraggingTrue(true)
+            dragStart = input.Position
+            startPos = main.Position
+            if obj == shootFloatingBtn then startPos = shootFloatingBtn.Position end
+            if obj == killAllFloatingBtn then startPos = killAllFloatingBtn.Position end
+            activeInputObject = input
+        end
+    end))
+end
 
-table.insert(connections, title.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingMain = true
-        activeInputObject = input
-        dragStart = input.Position
-        startPos = main.Position
-    end
-end))
-
-table.insert(connections, shootFloatingBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        draggingShoot = true
-        activeInputObject = input
-        dragStart = input.Position
-        startPos = shootFloatingBtn.Position
-    end
-end))
+makeDraggable(title, function(v) draggingMain = v end)
+makeDraggable(shootFloatingBtn, function(v) draggingShoot = v end)
+makeDraggable(killAllFloatingBtn, function(v) draggingKillAll = v end)
 
 table.insert(connections, closeBtn.MouseButton1Click:Connect(function()
-    gui:Destroy()
-end))
-
-table.insert(connections, player.CharacterAdded:Connect(function(newChar)
-    local humanoid = newChar:WaitForChild("Humanoid", 5)
-    if humanoid then
-        if jumpPowerActive then humanoid.JumpPower = customJumpPower end
-        if walkSpeedActive then humanoid.WalkSpeed = customWalkSpeed end
-    end
-end))
-
-table.insert(connections, gui.Destroying:Connect(function()
     for _, conn in ipairs(connections) do
-        if conn and conn.Connected then
+        if typeof(conn) == "RBXScriptConnection" then
             conn:Disconnect()
         end
     end
-    connections = {}
-
-    enabled = false  
-    espMurdererActive = false  
-    espSheriffActive = false  
-    espInnocentsActive = false  
-    espUserActive = false  
-    autoGrabGunActive = false  
-    killAllButtonActive = false  
-    flyActive = false  
-    jumpPowerActive = false  
-    walkSpeedActive = false  
-    infiniteJumpActive = false  
-      
-    local char = player.Character  
-    local humanoid = char and char:FindFirstChildOfClass("Humanoid")  
-    if humanoid then  
-        humanoid.PlatformStand = false  
-        humanoid.JumpPower = 50  
-        humanoid.WalkSpeed = 16  
-        local animateScript = char:FindFirstChild("Animate")  
-        if animateScript then animateScript.Enabled = true end  
-    end  
-
-    if char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
-        end
-    end
-
-    clearAllHighlights()  
-    redDot.Visible = false  
-    shootFloatingBtn.Visible = false  
-    killAllFloatingBtn.Visible = false
+    gui:Destroy()
 end))
