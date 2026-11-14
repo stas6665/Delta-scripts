@@ -636,7 +636,7 @@ end
 local function getPlayerRole(targetPlayer)
     if not CurrentRoundClient or not CurrentRoundClient.PlayerData then return "Innocent" end
     for _, data in pairs(CurrentRoundClient.PlayerData) do
-        if data.Player == targetPlayer or data.Name == targetPlayer.Name then
+        if data.Player == targetPlayer or data.Name == targetPlayer.Name or data.UserId == targetPlayer.UserId then
             if data.Role then
                 return data.Role
             end
@@ -1092,15 +1092,11 @@ local function updateRoleESP()
     end
 end
 
-local gameplayRemotes = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Gameplay")
-if gameplayRemotes then
-    local playerDataChanged = gameplayRemotes:FindFirstChild("PlayerDataChanged")
-    if playerDataChanged then
-        playerDataChanged.OnClientEvent:Connect(function()
-            task.wait(0.2)
-            updateRoleESP()
-        end)
-    end
+if CurrentRoundClient and CurrentRoundClient.PlayerDataChanged then
+    CurrentRoundClient.PlayerDataChanged:Connect(function()
+        task.wait(0.1)
+        updateRoleESP()
+    end)
 end
 
 local function getKnife()
@@ -1280,7 +1276,9 @@ local function isRoundActive()
     return false
 end
 
+local lastTargetCoin = nil
 local espTimer = 0
+
 table.insert(connections, RunService.RenderStepped:Connect(function(dt)
     local cam = workspace.CurrentCamera
     local char = player.Character
@@ -1307,8 +1305,8 @@ table.insert(connections, RunService.RenderStepped:Connect(function(dt)
             end  
 
             for _, part in ipairs(char:GetDescendants()) do  
-                if part:IsA("BasePart") then  
-                    part.CanCollide = false  
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
                 end    
             end  
 
@@ -1336,17 +1334,26 @@ table.insert(connections, RunService.RenderStepped:Connect(function(dt)
 
                 local nearestCoin = allCoins[1].part  
                 local targetPos = nearestCoin.Position  
-                local lookAtPos = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)  
 
-                root.CFrame = CFrame.new(root.Position, lookAtPos)
+                if lastTargetCoin ~= nearestCoin then
+                    lastTargetCoin = nearestCoin
+                    local lookAtPos = Vector3.new(targetPos.X, root.Position.Y, targetPos.Z)
+                    root.CFrame = CFrame.new(root.Position, lookAtPos)
+                end
+
                 local distance = (root.Position - targetPos).Magnitude
 
                 if distance > 1 then  
-                    root.CFrame = root.CFrame + (targetPos - root.Position).Unit * math.min(farmSpeed * dt, distance)  
+                    local direction = (targetPos - root.Position).Unit
+                    local step = math.min(farmSpeed * dt, distance)
+                    root.CFrame = root.CFrame + direction * step
                 end  
+            else
+                lastTargetCoin = nil
             end  
         end
     else
+        lastTargetCoin = nil
         if enabled and humanoid and humanoid.PlatformStand then
             humanoid.PlatformStand = false
             local animateScript = char and char:FindFirstChild("Animate")
