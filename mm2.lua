@@ -12,8 +12,6 @@ if ParentGui:FindFirstChild("MM2LuaHub") then
     ParentGui.MM2LuaHub:Destroy()
 end
 
-local CurrentRoundClient = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CurrentRoundClient"))
-
 local State = {
     AutoFarm = false,
     FlingMurder = false,
@@ -261,7 +259,6 @@ PopupPadding.PaddingRight = UDim.new(0, 8)
 PopupPadding.PaddingBottom = UDim.new(0, 8)
 PopupPadding.Parent = SettingsPopup
 
--- Ранняя декларация функций и переменных состояния
 local originalCollisions = {}
 local activeDanceTrack = nil
 local activeDanceButton = nil
@@ -512,7 +509,7 @@ CreateToggle(EspPage, "ESP Innocent", function(value)
     State.EspInnocent = value
 end)
 
--- Вкладка Dance (гармошка с танцами)
+-- Вкладка Dance (все танцы)
 local function CreateDanceAccordion(parent)
     local AccordionHolder = Instance.new("Frame")
     AccordionHolder.Size = UDim2.new(1, 0, 0, 42)
@@ -551,7 +548,11 @@ local function CreateDanceAccordion(parent)
     ListLayout.Parent = DanceListFrame
 
     local dancesList = {
-        {Name = "Vibey Back", Id = "14548619594"}
+        {Name = "Vibey Back", Id = "14548619594"},
+        {Name = "I Want Money", Id = "15951590426"},
+        {Name = "Electro Shuffle", Id = "3344673811"},
+        {Name = "Boombox Dance", Id = "282763536"},
+        {Name = "Russian Dance", Id = "282761884"}
     }
 
     local isOpen = false
@@ -826,23 +827,35 @@ local function IsBagFull()
     return false
 end
 
-local function GetPlayerRolesMap()
-    local success, playerData = pcall(function()
-        return CurrentRoundClient.GetLatestPlayerData()
+-- Точная проверка ролей через ShowRoleSelectNew без оружия
+local cachedRoles = {}
+task.spawn(function()
+    pcall(function()
+        local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("ShowRoleSelectNew")
+        remote.OnClientEvent:Connect(function(rolesData)
+            table.clear(cachedRoles)
+            if type(rolesData) == "table" then
+                for plr, role in pairs(rolesData) do
+                    if typeof(plr) == "Instance" and plr:IsA("Player") then
+                        cachedRoles[plr] = role
+                    end
+                end
+            end
+        end)
     end)
-    if not success or not playerData then return {} end
+end)
 
-    local map = {}
-    for _, data in pairs(playerData) do
-        if data.Player then
-            map[data.Player] = data.Role or "Innocent"
-        end
+local function GetPlayerRolesMap()
+    if next(cachedRoles) == nil then
+        return nil
     end
-    return map
+    return cachedRoles
 end
 
 local function GetMurderer()
     local rolesMap = GetPlayerRolesMap()
+    if not rolesMap then return nil end
+    
     for plr, role in pairs(rolesMap) do
         if role == "Murderer" and plr ~= LocalPlayer then
             return plr
@@ -899,6 +912,7 @@ local function FlingTarget(targetPlayer)
     SetFlyingState(false)
 end
 
+-- Цикл ESP подсветки
 local espRenderConn = RunService.RenderStepped:Connect(function()
     if not State.Running then return end
     local rolesMap = GetPlayerRolesMap()
@@ -907,8 +921,13 @@ local espRenderConn = RunService.RenderStepped:Connect(function()
         if plr ~= LocalPlayer and plr.Character then
             local char = plr.Character
             local hl = char:FindFirstChild("MM2_ESP_Highlight")
-            local role = rolesMap[plr] or "Innocent"
+            
+            if not rolesMap then
+                if hl then hl.Enabled = false end
+                continue
+            end
 
+            local role = rolesMap[plr] or "Innocent"
             local shouldShow = false
             local espColor = Color3.fromRGB(255, 255, 255)
 
@@ -968,7 +987,15 @@ CloseBtn.MouseButton1Click:Connect(function()
 end)
 
 local function GetCoinContainer()
-    return workspace:FindFirstChild("CoinContainer", true)
+    for _, child in ipairs(workspace:GetChildren()) do
+        if child:IsA("Model") or child:IsA("Folder") then
+            local coinContainer = child:FindFirstChild("CoinContainer")
+            if coinContainer then
+                return coinContainer
+            end
+        end
+    end
+    return workspace:FindFirstChild("CoinContainer")
 end
 
 local function GetAllSortedCoinVisuals(hrp)
