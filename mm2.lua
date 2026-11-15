@@ -509,7 +509,7 @@ CreateToggle(EspPage, "ESP Innocent", function(value)
     State.EspInnocent = value
 end)
 
--- Вкладка Dance (все танцы)
+-- Вкладка Dance
 local function CreateDanceAccordion(parent)
     local AccordionHolder = Instance.new("Frame")
     AccordionHolder.Size = UDim2.new(1, 0, 0, 42)
@@ -606,13 +606,15 @@ local function CreateDanceAccordion(parent)
             anim:Destroy()
 
             if ok and track then
-                track.Priority = Enum.AnimationPriority.Action
-                track.Looped = true
-                track:Play(0.15)
-                activeDanceTrack = track
-                activeDanceButton = DanceBtn
-                DanceBtn.BackgroundColor3 = Theme.ToggleOn
-                DanceBtn.TextColor3 = Theme.Background
+                pcall(function()
+                    track.Priority = Enum.AnimationPriority.Action
+                    track.Looped = true
+                    track:Play(0.15)
+                    activeDanceTrack = track
+                    activeDanceButton = DanceBtn
+                    DanceBtn.BackgroundColor3 = Theme.ToggleOn
+                    DanceBtn.TextColor3 = Theme.Background
+                end)
             end
         end)
     end
@@ -808,12 +810,18 @@ local function IsBagFull()
     if not playerGui then return false end
     
     local mainGui = playerGui:FindFirstChild("MainGUI")
-    if not mainGui or not mainGui.Visible then return false end
+    if not mainGui then return false end
+    
+    if mainGui:IsA("GuiObject") and not mainGui.Visible then 
+        return false 
+    end
     
     local gameFolder = mainGui:FindFirstChild("Game")
-    if not gameFolder or not gameFolder.Visible then return false end
+    if gameFolder and gameFolder:IsA("GuiObject") and not gameFolder.Visible then 
+        return false 
+    end
     
-    local coinBags = gameFolder:FindFirstChild("CoinBags")
+    local coinBags = mainGui:FindFirstChild("CoinBags", true)
     if not coinBags then return false end
     
     for _, descendant in ipairs(coinBags:GetDescendants()) do
@@ -827,7 +835,7 @@ local function IsBagFull()
     return false
 end
 
--- Точная проверка ролей через ShowRoleSelectNew без оружия
+-- Гибридная система ролей (события + надежная проверка оружия для ESP)
 local cachedRoles = {}
 task.spawn(function()
     pcall(function()
@@ -846,10 +854,39 @@ task.spawn(function()
 end)
 
 local function GetPlayerRolesMap()
-    if next(cachedRoles) == nil then
-        return nil
+    local rolesMap = {}
+    
+    for plr, role in pairs(cachedRoles) do
+        rolesMap[plr] = role
     end
-    return cachedRoles
+    
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and not rolesMap[plr] then
+            local role = "Innocent"
+            local char = plr.Character
+            local backpack = plr.Backpack
+            
+            local function hasTool(container)
+                if not container then return false end
+                for _, tool in ipairs(container:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        local name = tool.Name:lower()
+                        if name:find("knife") or name:find("murder") then
+                            return "Murderer"
+                        elseif name:find("gun") or name:find("sheriff") or name:find("revolver") then
+                            return "Sheriff"
+                        end
+                    end
+                end
+                return nil
+            end
+            
+            role = hasTool(char) or hasTool(backpack) or "Innocent"
+            rolesMap[plr] = role
+        end
+    end
+    
+    return rolesMap
 end
 
 local function GetMurderer()
@@ -922,11 +959,6 @@ local espRenderConn = RunService.RenderStepped:Connect(function()
             local char = plr.Character
             local hl = char:FindFirstChild("MM2_ESP_Highlight")
             
-            if not rolesMap then
-                if hl then hl.Enabled = false end
-                continue
-            end
-
             local role = rolesMap[plr] or "Innocent"
             local shouldShow = false
             local espColor = Color3.fromRGB(255, 255, 255)
@@ -1010,7 +1042,7 @@ local function GetAllSortedCoinVisuals(hrp)
             
             if visual and visual:IsA("BasePart") then
                 local dist = (hrp.Position - visual.Position).Magnitude
-                if dist < 450 then
+                if dist < 99999 then
                     table.insert(visualsList, {
                         Visual = visual,
                         Distance = dist
