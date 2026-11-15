@@ -288,12 +288,28 @@ local function SetFlyingState(isFlying)
         return 
     end
 
+    local animateScript = char:FindFirstChild("Animate")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+
     if isFlying then
         originalCollisions = {}
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 originalCollisions[part] = part.CanCollide
                 part.CanCollide = false
+            end
+        end
+
+        if animateScript and animateScript:IsA("LocalScript") then
+            animateScript.Disabled = true
+        end
+
+        if hum then
+            local animator = hum:FindFirstChildOfClass("Animator")
+            if animator then
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                    track:Stop(0)
+                end
             end
         end
     else
@@ -303,6 +319,10 @@ local function SetFlyingState(isFlying)
             end
         end
         originalCollisions = {}
+
+        if animateScript and animateScript:IsA("LocalScript") then
+            animateScript.Disabled = false
+        end
     end
 end
 
@@ -835,58 +855,45 @@ local function IsBagFull()
     return false
 end
 
--- Гибридная система ролей (события + надежная проверка оружия для ESP)
+-- Перехватчик ролей и сигналов начала раунда (RoundStart, RoleSelect и др.)
 local cachedRoles = {}
 task.spawn(function()
     pcall(function()
-        local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay"):WaitForChild("ShowRoleSelectNew")
-        remote.OnClientEvent:Connect(function(rolesData)
-            table.clear(cachedRoles)
-            if type(rolesData) == "table" then
-                for plr, role in pairs(rolesData) do
-                    if typeof(plr) == "Instance" and plr:IsA("Player") then
-                        cachedRoles[plr] = role
+        local gameplay = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Gameplay")
+        
+        -- Слушаем события ролей
+        local roleEvents = {"RoleSelect", "ShowRoleSelect", "ShowRoleSelectNew"}
+        for _, eventName in ipairs(roleEvents) do
+            local remote = gameplay:FindFirstChild(eventName)
+            if remote and remote:IsA("RemoteEvent") then
+                remote.OnClientEvent:Connect(function(rolesData)
+                    if type(rolesData) == "table" then
+                        table.clear(cachedRoles)
+                        for plr, role in pairs(rolesData) do
+                            if typeof(plr) == "Instance" and plr:IsA("Player") then
+                                cachedRoles[plr] = role
+                            end
+                        end
                     end
-                end
+                end)
             end
-        end)
+        end
+
+        -- Перехватываем сигнал начала раунда RoundStart для синхронизации
+        local roundStartEvent = gameplay:FindFirstChild("RoundStart")
+        if roundStartEvent and roundStartEvent:IsA("RemoteEvent") then
+            roundStartEvent.OnClientEvent:Connect(function()
+                table.clear(cachedRoles)
+            end)
+        end
     end)
 end)
 
 local function GetPlayerRolesMap()
-    local rolesMap = {}
-    
-    for plr, role in pairs(cachedRoles) do
-        rolesMap[plr] = role
+    if next(cachedRoles) == nil then
+        return nil
     end
-    
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and not rolesMap[plr] then
-            local role = "Innocent"
-            local char = plr.Character
-            local backpack = plr.Backpack
-            
-            local function hasTool(container)
-                if not container then return false end
-                for _, tool in ipairs(container:GetChildren()) do
-                    if tool:IsA("Tool") then
-                        local name = tool.Name:lower()
-                        if name:find("knife") or name:find("murder") then
-                            return "Murderer"
-                        elseif name:find("gun") or name:find("sheriff") or name:find("revolver") then
-                            return "Sheriff"
-                        end
-                    end
-                end
-                return nil
-            end
-            
-            role = hasTool(char) or hasTool(backpack) or "Innocent"
-            rolesMap[plr] = role
-        end
-    end
-    
-    return rolesMap
+    return cachedRoles
 end
 
 local function GetMurderer()
@@ -959,6 +966,11 @@ local espRenderConn = RunService.RenderStepped:Connect(function()
             local char = plr.Character
             local hl = char:FindFirstChild("MM2_ESP_Highlight")
             
+            if not rolesMap then
+                if hl then hl.Enabled = false end
+                continue
+            end
+
             local role = rolesMap[plr] or "Innocent"
             local shouldShow = false
             local espColor = Color3.fromRGB(255, 255, 255)
@@ -1086,7 +1098,6 @@ task.spawn(function()
             local char = LocalPlayer.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local animator = hum and hum:FindFirstChildOfClass("Animator")
 
             if hrp and hum and hum.Health > 0 then
                 local sortedCoins = GetAllSortedCoinVisuals(hrp)
@@ -1119,15 +1130,11 @@ task.spawn(function()
 
                         local targetPos = targetVisual.Position
                         local distance = (hrp.Position - targetPos).Magnitude
-                        local travelTime = math.max(distance / State.FlySpeed, 0.03)
+                        
+                        local currentSpeed = math.max(State.FlySpeed, 1)
+                        local travelTime = math.max(distance / currentSpeed, 0.03)
 
-                        hrp.CFrame = CFrame.new(hrp.Position, targetPos)
-
-                        if animator then
-                            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                                track:Stop(0)
-                            end
-                        end
+                        hrp.CFrame = CFrame.new(hrp.Position, Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z))
 
                         activeTween = TweenService:Create(
                             hrp,
