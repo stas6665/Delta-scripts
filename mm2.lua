@@ -21,28 +21,28 @@ Background.BorderSizePixel = 0
 Background.Parent = LoadingGui
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Size = UDim2.new(1, 0, 0, 50)
 Title.Position = UDim2.new(0, 0, 0.42, 0)
 Title.BackgroundTransparency = 1
 Title.Text = "MM2 HUB"
 Title.TextColor3 = Color3.fromRGB(220, 220, 220)
-Title.TextSize = 25
+Title.TextSize = 30
 Title.Font = Enum.Font.GothamBold
 Title.Parent = Background
 
 local Percent = Instance.new("TextLabel")
-Percent.Size = UDim2.new(1, 0, 0, 25)
+Percent.Size = UDim2.new(1, 0, 0, 30)
 Percent.Position = UDim2.new(0, 0, 0.52, 0)
 Percent.BackgroundTransparency = 1
 Percent.Text = "1%"
 Percent.TextColor3 = Color3.fromRGB(255, 255, 255)
-Percent.TextSize = 14
+Percent.TextSize = 18
 Percent.Font = Enum.Font.GothamMedium
 Percent.Parent = Background
 
 local Track = Instance.new("Frame")
-Track.Size = UDim2.new(0, 240, 0, 6)
-Track.Position = UDim2.new(0.5, -120, 0.58, 0)
+Track.Size = UDim2.new(0, 300, 0, 8)
+Track.Position = UDim2.new(0.5, -150, 0.58, 0)
 Track.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
 Track.BorderSizePixel = 0
 Track.Parent = Background
@@ -199,41 +199,41 @@ end
 
 local Main = New("Frame", {
     Name = "MainWindow",
-    Size = UDim2.fromOffset(390, 285),
-    Position = UDim2.new(0.5, -195, 0.5, -142),
+    Size = UDim2.fromOffset(480, 350),
+    Position = UDim2.new(0.5, -240, 0.5, -175),
     BackgroundColor3 = Color3.fromRGB(24, 24, 28),
     BackgroundTransparency = 0,
     BorderSizePixel = 0
 }, GUI)
 
-Corner(Main, 12)
-local MainStroke = Stroke(Main, OutlineColor, 2)
+Corner(Main, 14)
+local MainStroke = Stroke(Main, OutlineColor, 2.5)
 
 local Header = New("Frame", {
-    Size = UDim2.new(1, 0, 0, 43),
+    Size = UDim2.new(1, 0, 0, 54),
     BackgroundColor3 = Color3.fromRGB(17, 17, 20),
     BackgroundTransparency = 0,
     BorderSizePixel = 0,
     ZIndex = 5
 }, Main)
 
-Corner(Header, 12)
+Corner(Header, 14)
 
 local HeaderCover = New("Frame", {
-    Size = UDim2.new(1, 0, 0, 12),
-    Position = UDim2.new(0, 0, 1, -12),
+    Size = UDim2.new(1, 0, 0, 14),
+    Position = UDim2.new(0, 0, 1, -14),
     BackgroundColor3 = Header.BackgroundColor3,
     BorderSizePixel = 0,
     ZIndex = 5
 }, Header)
 
 local TitleLabel = New("TextLabel", {
-    Size = UDim2.new(1, -120, 1, 0),
-    Position = UDim2.fromOffset(13, 0),
+    Size = UDim2.new(1, -150, 1, 0),
+    Position = UDim2.fromOffset(16, 0),
     BackgroundTransparency = 1,
     Text = "MM2 Ultimate Hub",
     TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 16,
+    TextSize = 19,
     Font = Enum.Font.GothamBold,
     TextXAlignment = Enum.TextXAlignment.Left,
     ZIndex = 6
@@ -241,72 +241,82 @@ local TitleLabel = New("TextLabel", {
 
 local function HeaderButton(text, x, color)
     local button = New("TextButton", {
-        Size = UDim2.fromOffset(30, 29),
-        Position = UDim2.new(1, x, 0, 7),
+        Size = UDim2.fromOffset(36, 36),
+        Position = UDim2.new(1, x, 0, 9),
         BackgroundColor3 = Color3.fromRGB(38, 38, 43),
         BackgroundTransparency = 0,
         Text = text,
         TextColor3 = color or Color3.new(1, 1, 1),
-        TextSize = 17,
+        TextSize = 20,
         Font = Enum.Font.GothamBold,
         BorderSizePixel = 0,
         ZIndex = 7
     }, Header)
-    Corner(button, 7)  
+    Corner(button, 9)  
+    
+    -- Анимация наведения на кнопки шапки
+    Connect(button.MouseEnter, function()
+        TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(55, 55, 62)}):Play()
+    end)
+    Connect(button.MouseLeave, function()
+        TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(38, 38, 43)}):Play()
+    end)
+
     return button
 end
 
-local MinimizeButton = HeaderButton("−", -105)
-local SettingsButton = HeaderButton("⚙", -68)
-local CloseButton = HeaderButton("×", -34, Color3.fromRGB(255, 90, 90))
+local MinimizeButton = HeaderButton("−", -126)
+local SettingsButton = HeaderButton("⚙", -84)
+local CloseButton = HeaderButton("×", -42, Color3.fromRGB(255, 90, 90))
 
 local Body = New("Frame", {
     Name = "Body",
-    Position = UDim2.fromOffset(0, 43),
-    Size = UDim2.new(1, 0, 1, -43),
+    Position = UDim2.fromOffset(0, 54),
+    Size = UDim2.new(1, 0, 1, -54),
     BackgroundColor3 = Main.BackgroundColor3,
     BackgroundTransparency = 0,
     BorderSizePixel = 0
 }, Main)
 
 local Sidebar = New("Frame", {
-    Size = UDim2.new(0, 105, 1, 0),
+    Size = UDim2.new(0, 130, 1, 0),
     BackgroundColor3 = Color3.fromRGB(19, 19, 23),
     BackgroundTransparency = 0,
     BorderSizePixel = 0
 }, Body)
 
 local EspTab = New("TextButton", {
-    Size = UDim2.new(1, -12, 0, 38),
-    Position = UDim2.fromOffset(6, 12),
+    Size = UDim2.new(1, -16, 0, 46),
+    Position = UDim2.fromOffset(8, 16),
     BackgroundColor3 = Accent,
     BackgroundTransparency = 0,
     Text = "◉  ESP",
     TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 14,
+    TextSize = 16,
     Font = Enum.Font.GothamBold,
     BorderSizePixel = 0
 }, Sidebar)
 
-Corner(EspTab, 7)
+Corner(EspTab, 9)
 
 local Content = New("Frame", {
-    Position = UDim2.fromOffset(105, 0),
-    Size = UDim2.new(1, -105, 1, 0),
+    Position = UDim2.fromOffset(130, 0),
+    Size = UDim2.new(1, -130, 1, 0),
     BackgroundTransparency = 1
 }, Body)
 
 local function Page(name)
     return New("ScrollingFrame", {
         Name = name,
-        Size = UDim2.new(1, -12, 1, -12),
-        Position = UDim2.fromOffset(6, 6),
+        Size = UDim2.new(1, -16, 1, -16),
+        Position = UDim2.fromOffset(8, 8),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        ScrollBarThickness = 3,
+        ScrollBarThickness = 4,
         ScrollBarImageColor3 = Accent,
         CanvasSize = UDim2.new(0, 0, 0, 0),
-        Visible = false
+        Visible = false,
+        CanvasPosition = Vector2.new(0, 0)
     }, Content)
 end
 
@@ -316,12 +326,12 @@ EspPage.Visible = true
 
 local function AddLayout(page)
     local layout = New("UIListLayout", {
-        Padding = UDim.new(0, 9),
+        Padding = UDim.new(0, 12),
         SortOrder = Enum.SortOrder.LayoutOrder
     }, page)
 
     Connect(layout:GetPropertyChangedSignal("AbsoluteContentSize"), function()  
-        page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 12)  
+        page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 16)  
     end)  
     return layout
 end
@@ -331,11 +341,11 @@ local SettingsLayout = AddLayout(SettingsPage)
 
 local function Label(parent, text)
     return New("TextLabel", {
-        Size = UDim2.new(1, -5, 0, 28),
+        Size = UDim2.new(1, -6, 0, 34),
         BackgroundTransparency = 1,
         Text = text,
         TextColor3 = Color3.fromRGB(235, 235, 235),
-        TextSize = 15,
+        TextSize = 17,
         Font = Enum.Font.GothamBold,
         TextXAlignment = Enum.TextXAlignment.Left
     }, parent)
@@ -353,21 +363,21 @@ end
 
 local function Toggle(parent, name, callback)
     local row = New("Frame", {
-        Size = UDim2.new(1, -5, 0, 43),
+        Size = UDim2.new(1, -6, 0, 52),
         BackgroundColor3 = Color3.fromRGB(34, 34, 39),
         BackgroundTransparency = 0,
         BorderSizePixel = 0
     }, parent)
 
-    Corner(row, 8)  
+    Corner(row, 10)  
 
     New("TextLabel", {  
-        Size = UDim2.new(1, -70, 1, 0),  
-        Position = UDim2.fromOffset(11, 0),  
+        Size = UDim2.new(1, -85, 1, 0),  
+        Position = UDim2.fromOffset(14, 0),  
         BackgroundTransparency = 1,  
         Text = name,  
         TextColor3 = Color3.new(1, 1, 1),  
-        TextSize = 13,  
+        TextSize = 15,  
         Font = Enum.Font.GothamMedium,  
         TextXAlignment = Enum.TextXAlignment.Left  
     }, row)  
@@ -375,20 +385,20 @@ local function Toggle(parent, name, callback)
     local enabled = false  
 
     local button = New("TextButton", {  
-        Size = UDim2.fromOffset(43, 23),  
-        Position = UDim2.new(1, -53, 0.5, -11),  
+        Size = UDim2.fromOffset(54, 28),  
+        Position = UDim2.new(1, -64, 0.5, -14),  
         BackgroundColor3 = Color3.fromRGB(65, 65, 70),  
         BackgroundTransparency = 0,  
         Text = "",  
         BorderSizePixel = 0  
     }, row)  
 
-    Corner(button, 15)  
+    Corner(button, 14)  
 
     local toggleStroke = Stroke(button, Color3.fromRGB(0, 0, 0), 1.5)  
 
     local knob = New("Frame", {  
-        Size = UDim2.fromOffset(17, 17),  
+        Size = UDim2.fromOffset(22, 22),  
         Position = UDim2.fromOffset(3, 3),  
         BackgroundColor3 = Color3.new(1, 1, 1),  
         BorderSizePixel = 0  
@@ -410,7 +420,11 @@ local function Toggle(parent, name, callback)
         enabled = not enabled  
         record.Enabled = enabled  
 
-        knob.Position = enabled and UDim2.new(1, -20, 0, 3) or UDim2.fromOffset(3, 3)  
+        -- Мягкая пружинная анимация для тумблера
+        TweenService:Create(knob, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = enabled and UDim2.new(1, -25, 0, 3) or UDim2.fromOffset(3, 3)
+        }):Play()
+
         UpdateToggleAppearance(record)  
         
         if callback then  
@@ -440,14 +454,14 @@ Label(SettingsPage, "GENERAL SETTINGS")
 local TransparencyLabel = Label(SettingsPage, "Window Transparency: 0%")
 
 local Slider = New("Frame", {
-    Size = UDim2.new(1, -8, 0, 8),
+    Size = UDim2.new(1, -10, 0, 10),
     BackgroundColor3 = Color3.fromRGB(55, 55, 60),
     BackgroundTransparency = 0,
     BorderSizePixel = 0,
     ClipsDescendants = false
 }, SettingsPage)
 
-Corner(Slider, 8)
+Corner(Slider, 10)
 
 local SliderFill = New("Frame", {
     Size = UDim2.new(0, 0, 1, 0),
@@ -457,10 +471,10 @@ local SliderFill = New("Frame", {
     ZIndex = 2
 }, Slider)
 
-Corner(SliderFill, 8)
+Corner(SliderFill, 10)
 
 local SliderKnob = New("Frame", {
-    Size = UDim2.fromOffset(16, 16),
+    Size = UDim2.fromOffset(20, 20),
     AnchorPoint = Vector2.new(0.5, 0.5),
     Position = UDim2.new(0, 0, 0.5, 0),
     BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -472,8 +486,8 @@ local SliderKnob = New("Frame", {
 Corner(SliderKnob, 50)
 
 local SliderButton = New("TextButton", {
-    Size = UDim2.new(1, 0, 0, 28),
-    Position = UDim2.new(0, 0, 0.5, -14),
+    Size = UDim2.new(1, 0, 0, 34),
+    Position = UDim2.new(0, 0, 0.5, -17),
     BackgroundTransparency = 1,
     Text = "",
     Active = true,
@@ -501,8 +515,11 @@ local function UpdateTransparency(x)
     if width <= 0 then return end
     local percent = math.clamp((x - Slider.AbsolutePosition.X) / width, 0, 1)  
     transparencyValue = math.floor(percent * 80)  
-    SliderFill.Size = UDim2.new(percent, 0, 1, 0)  
-    SliderKnob.Position = UDim2.new(percent, 0, 0.5, 0)  
+    
+    -- Плавное движение ползунка
+    TweenService:Create(SliderFill, TweenInfo.new(0.08), {Size = UDim2.new(percent, 0, 1, 0)}):Play()
+    TweenService:Create(SliderKnob, TweenInfo.new(0.08), {Position = UDim2.new(percent, 0, 0.5, 0)}):Play()
+    
     TransparencyLabel.Text = "Window Transparency: " .. transparencyValue .. "%"  
     ApplyTransparency()
 end
@@ -526,35 +543,41 @@ Connect(UIS.InputEnded, function(input)
     end
 end)
 
+-- Аккордеон с плавной анимацией открытия списка цветов
 local function Accordion(parent, title, callback)
+    local baseHeight = 48
+    local itemHeight = 34
+    local spacing = 6
+    local totalItems = #ColorNames
+    local expandedHeight = baseHeight + (totalItems * itemHeight) + ((totalItems - 1) * spacing) + 16
+
     local container = New("Frame", {
-        Size = UDim2.new(1, -5, 0, 40),
+        Size = UDim2.new(1, -6, 0, baseHeight),
         BackgroundColor3 = Color3.fromRGB(34, 34, 39),
         BackgroundTransparency = 0,
         BorderSizePixel = 0,
         ClipsDescendants = true
     }, parent)
 
-    Corner(container, 8)  
+    Corner(container, 10)  
 
     local head = New("TextButton", {  
-        Size = UDim2.new(1, 0, 0, 40),  
+        Size = UDim2.new(1, 0, 0, baseHeight),  
         BackgroundTransparency = 1,  
         Text = title .. "     ▼",  
         TextColor3 = Color3.new(1, 1, 1),  
-        TextSize = 13,  
+        TextSize = 15,  
         Font = Enum.Font.GothamBold  
     }, container)  
 
     local list = New("Frame", {  
-        Position = UDim2.fromOffset(5, 43),  
-        Size = UDim2.new(1, -10, 0, 0),  
+        Position = UDim2.fromOffset(12, baseHeight),  
+        Size = UDim2.new(1, -24, 0, expandedHeight - baseHeight - 12),  
         BackgroundTransparency = 1  
     }, container)  
 
-    New("UIGridLayout", {  
-        CellSize = UDim2.new(0.5, -5, 0, 30),  
-        CellPadding = UDim2.fromOffset(7, 6),  
+    New("UIListLayout", {  
+        Padding = UDim.new(0, spacing),  
         SortOrder = Enum.SortOrder.LayoutOrder  
     }, list)  
 
@@ -563,16 +586,26 @@ local function Accordion(parent, title, callback)
 
     for _, colorName in ipairs(ColorNames) do  
         local button = New("TextButton", {  
-            BackgroundColor3 = ColorValues[colorName] or Color3.fromRGB(130, 80, 180),  
+            Size = UDim2.new(1, 0, 0, itemHeight),
+            BackgroundColor3 = Color3.fromRGB(44, 44, 50),  
             BackgroundTransparency = 0,  
             Text = colorName,  
             TextColor3 = Color3.new(1, 1, 1),  
-            TextSize = 11,  
-            Font = Enum.Font.GothamBold,  
+            TextSize = 14,  
+            Font = Enum.Font.GothamMedium,  
             BorderSizePixel = 0  
         }, list)  
 
-        Corner(button, 6)  
+        Corner(button, 8)  
+        
+        -- Плавная подсветка элементов списка цветов
+        Connect(button.MouseEnter, function()
+            TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(60, 60, 70)}):Play()
+        end)
+        Connect(button.MouseLeave, function()
+            TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(44, 44, 50)}):Play()
+        end)
+
         Connect(button.Activated, function()  
             callback(colorName)  
         end)  
@@ -580,12 +613,16 @@ local function Accordion(parent, title, callback)
 
     Connect(head.Activated, function()  
         open = not open  
-        local height = open and 190 or 40  
-        container.Size = UDim2.new(1, -5, 0, height)  
-        list.Size = UDim2.new(1, -10, 0, open and 140 or 0)  
+        local targetHeight = open and expandedHeight or baseHeight  
+
+        -- Плавный эластичный твин на открытие/закрытие гармошки
+        TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, -6, 0, targetHeight)
+        }):Play()
+
         head.Text = title .. (open and "     ▲" or "     ▼")  
         task.defer(function()  
-            SettingsPage.CanvasSize = UDim2.new(0, 0, 0, SettingsLayout.AbsoluteContentSize.Y + 12)  
+            SettingsPage.CanvasSize = UDim2.new(0, 0, 0, SettingsLayout.AbsoluteContentSize.Y + 16)  
         end)  
     end)
 end
@@ -648,13 +685,23 @@ Accordion(SettingsPage, "Window Theme", function(colorName)
     end
 end)
 
+-- Плавное переключение вкладок с затуханием
 local function ShowPage(page)
-    EspPage.Visible = page == "ESP"
-    SettingsPage.Visible = page == "Settings"
-    Sidebar.Visible = page == "ESP"  
-    Content.Position = page == "ESP" and UDim2.fromOffset(105, 0) or UDim2.fromOffset(0, 0)  
-    Content.Size = page == "ESP" and UDim2.new(1, -105, 1, 0) or UDim2.new(1, 0, 1, 0)  
-    EspTab.BackgroundColor3 = Accent
+    local targetEspVisible = (page == "ESP")
+    
+    if targetEspVisible then
+        EspPage.Visible = true
+        SettingsPage.Visible = false
+    else
+        SettingsPage.Visible = true
+        EspPage.Visible = false
+    end
+
+    Sidebar.Visible = true  
+    Content.Position = targetEspVisible and UDim2.fromOffset(130, 0) or UDim2.fromOffset(0, 0)  
+    Content.Size = targetEspVisible and UDim2.new(1, -130, 1, 0) or UDim2.new(1, 0, 1, 0)  
+    
+    TweenService:Create(EspTab, TweenInfo.new(0.2), {BackgroundColor3 = Accent}):Play()
 end
 
 Connect(EspTab.Activated, function()
@@ -671,21 +718,29 @@ Connect(SettingsButton.Activated, function()
     end
 end)
 
+-- Плавное сворачивание/разворачивание главного окна
 local minimized = false
 local function SetMinimized(state)
     minimized = state
-    Body.Visible = not state  
-    Main.Size = state and UDim2.fromOffset(240, 43) or UDim2.fromOffset(390, 285)
+    
+    if minimized then
+        Body.Visible = true
+        TweenService:Create(Main, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Size = UDim2.fromOffset(480, 54)
+        }):Play()
+        task.delay(0.25, function()
+            if minimized then Body.Visible = false end
+        end)
+    else
+        Body.Visible = true
+        TweenService:Create(Main, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Size = UDim2.fromOffset(480, 350)
+        }):Play()
+    end
 end
 
 Connect(MinimizeButton.Activated, function()
     SetMinimized(not minimized)
-end)
-
-Connect(TitleLabel.InputBegan, function(input)
-    if minimized and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-        SetMinimized(false)
-    end
 end)
 
 local dragging = false
@@ -695,10 +750,6 @@ local dragInput
 
 Connect(Header.InputBegan, function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        local target = input.Target  
-        if target == MinimizeButton or target == SettingsButton or target == CloseButton then  
-            return  
-        end  
         dragging = true  
         dragStart = input.Position  
         startPosition = Main.Position  
@@ -728,10 +779,28 @@ local CurrentRoundClient = require(ReplicatedStorage:WaitForChild("Modules"):Wai
 
 local function GetPlayerRole(p)
     local playerData = CurrentRoundClient.PlayerData
+    
     if typeof(playerData) == "table" then
         for _, data in pairs(playerData) do
-            if data.Player == p or data.Instance == p or (typeof(data.Player) == "string" and data.Player == p.Name) then
-                return data.Role or "Innocent"
+            if typeof(data) == "table" then
+                local playerField = data.Player or data.Instance or data.Name or data.User or data[1]
+                local roleField = data.Role or data.Value or data[2]
+                
+                if playerField == p or (typeof(playerField) == "string" and playerField == p.Name) then
+                    if roleField == "Sheriff" or roleField == "Murderer" or roleField == "Innocent" then
+                        return roleField
+                    end
+                end
+                
+                for _, v in pairs(data) do
+                    if v == p or (typeof(v) == "string" and v == p.Name) then
+                        for _, subV in pairs(data) do
+                            if typeof(subV) == "string" and (subV == "Sheriff" or subV == "Murderer" or subV == "Innocent") then
+                                return subV
+                            end
+                        end
+                    end
+                end
             end
         end
     end
@@ -879,4 +948,4 @@ end)
 ApplyTransparency()
 ApplyNormalTheme()
 
-print("MM2 Ultimate Hub loaded successfully with CurrentRoundClient integration")
+print("MM2 Ultimate Hub loaded successfully with smooth animations!")
