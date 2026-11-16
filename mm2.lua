@@ -2,7 +2,6 @@ local function GetPlayerRole(p)
     local playerData = CurrentRoundClient.PlayerData
     
     if typeof(playerData) == "table" then
-        -- Выводим в консоль все данные, которые прислал сервер
         print("--- DEBUG PLAYER DATA ---")
         for k, v in pairs(playerData) do
             print("Key:", k, "Value:", v)
