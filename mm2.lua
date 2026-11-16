@@ -1,27 +1,29 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
 
-print("=== REPLICATEDSTORAGE SCAN START ===")
+local function scanStrictRoleElements(folder)
+for _, child in ipairs(folder:GetChildren()) do
+local name = child.Name
 
-local function scanFolder(folder, depth)
-    local indent = string.rep("  ", depth)
-    for _, child in ipairs(folder:GetChildren()) do
-        print(indent .. "- " .. child.Name .. " (" .. child.ClassName .. ")")
-        
-        if depth < 3 and (child:IsA("Folder") or child:IsA("Model") or child:IsA("Configuration")) then
-            scanFolder(child, depth + 1)
-        elseif child:IsA("ModuleScript") then
-            local success, data = pcall(function()
-                return require(child)
-            end)
-            if success and typeof(data) == "table" then
-                print(indent .. "   [Module Contents]:")
-                for k, v in pairs(data) do
-                    print(indent .. "      Key:", k, "Type:", typeof(v))
-                end
-            end
-        end
-    end
+local isRoleElement = name == "RoleSelector" or name == "ShowRoleSelect" or name == "ShowRoleSelectNew" or name == "CurrentRoundClient" or name == "PlayerDataChanged" or name == "GetPlayerData" or name == "GetPlayerData_REMOTE" if isRoleElement then print("[EXACT TARGET] " .. name .. " (" .. child.ClassName .. ") -> Path: " .. child:GetFullName()) end local success, children = pcall(function() return child:GetChildren() end) if success and #children > 0 then scanStrictRoleElements(child) end end 
+
 end
 
-scanFolder(ReplicatedStorage, 0)
-print("=== REPLICATEDSTORAGE SCAN COMPLETED ===")
+print("=== UNLIMITED DEPTH WORKSPACE SCAN START ===")
+scanStrictRoleElements(Workspace)
+
+print("=== UNLIMITED DEPTH REPLICATEDSTORAGE SCAN START ===")
+scanStrictRoleElements(ReplicatedStorage)
+
+if LocalPlayer then
+local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+if playerGui then
+print("=== UNLIMITED DEPTH PLAYERGUI SCAN START ===")
+scanStrictRoleElements(playerGui)
+end
+end
+
+print("=== SCAN COMPLETED ===")
+
