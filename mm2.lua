@@ -1,33 +1,27 @@
-local function GetPlayerRole(p)
-    local success, CurrentRoundClient = pcall(function()
-        return require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CurrentRoundClient"))
-    end)
-    
-    if success and CurrentRoundClient then
-        -- Проверим, что находится внутри CurrentRoundClient
-        print("CurrentRoundClient loaded successfully!")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+print("=== REPLICATEDSTORAGE SCAN START ===")
+
+local function scanFolder(folder, depth)
+    local indent = string.rep("  ", depth)
+    for _, child in ipairs(folder:GetChildren()) do
+        print(indent .. "- " .. child.Name .. " (" .. child.ClassName .. ")")
         
-        -- Если у него есть PlayerData
-        if CurrentRoundClient.PlayerData then
-            for k, v in pairs(CurrentRoundClient.PlayerData) do
-                print("PlayerData Item -> Key:", k, "Type:", typeof(v))
-                if typeof(v) == "table" then
-                    for subK, subV in pairs(v) do
-                        print("    SubKey:", subK, "Value:", tostring(subV))
-                        -- Если найдем совпадение с игроком
-                        if subV == p or (typeof(subV) == "string" and subV == p.Name) then
-                            -- Ищем роль в этой же таблице
-                            for _, possibleRole in pairs(v) do
-                                if possibleRole == "Sheriff" or possibleRole == "Murderer" or possibleRole == "Innocent" then
-                                    return possibleRole
-                                end
-                            end
-                        end
-                    end
+        if depth < 3 and (child:IsA("Folder") or child:IsA("Model") or child:IsA("Configuration")) then
+            scanFolder(child, depth + 1)
+        elseif child:IsA("ModuleScript") then
+            local success, data = pcall(function()
+                return require(child)
+            end)
+            if success and typeof(data) == "table" then
+                print(indent .. "   [Module Contents]:")
+                for k, v in pairs(data) do
+                    print(indent .. "      Key:", k, "Type:", typeof(v))
                 end
             end
         end
     end
-    
-    return "Innocent"
 end
+
+scanFolder(ReplicatedStorage, 0)
+print("=== REPLICATEDSTORAGE SCAN COMPLETED ===")
