@@ -1,14 +1,14 @@
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "RoleInspectorGui"
+ScreenGui.Name = "RoleEventInspector"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = CoreGui
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
 MainFrame.Size = UDim2.new(0, 480, 0, 320)
 MainFrame.Position = UDim2.new(0.5, -240, 0.5, -160)
 MainFrame.BackgroundColor3 = Color3.fromRGB(24, 26, 31)
@@ -20,7 +20,6 @@ UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = MainFrame
 
 local TopBar = Instance.new("Frame")
-TopBar.Name = "TopBar"
 TopBar.Size = UDim2.new(1, 0, 0, 35)
 TopBar.BackgroundColor3 = Color3.fromRGB(32, 35, 42)
 TopBar.BorderSizePixel = 0
@@ -41,7 +40,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
 Title.Font = Enum.Font.GothamBold
-Title.Text = "Role Inspector (Real-Time Scan)"
+Title.Text = "RoleSelect Inspector (Private vs Public)"
 Title.TextColor3 = Color3.fromRGB(220, 225, 235)
 Title.TextSize = 13
 Title.Parent = TopBar
@@ -101,7 +100,6 @@ local function addLog(text, color)
     label.Parent = ScrollingFrame
     
     table.insert(allLogs, text)
-    ScrollingCanvasSize = ScrollingFrame.AbsoluteCanvasSize
     ScrollingFrame.CanvasPosition = Vector2.new(0, 99999)
 end
 
@@ -114,35 +112,31 @@ CopyButton.MouseButton1Click:Connect(function()
     end
 end)
 
-local function scanGame()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            local char = player.Character
-            if char then
-                local backpack = player:FindFirstChild("Backpack")
-                local hasKnife = char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife"))
-                local hasGun = char:FindFirstChild("Gun") or char:FindFirstChild("Revolver") or (backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChild("Revolver")))
-                
-                local role = "Innocent"
-                local col = Color3.fromRGB(80, 220, 100)
-                if hasKnife then
-                    role = "Murderer"
-                    col = Color3.fromRGB(255, 75, 75)
-                elseif hasGun then
-                    role = "Sheriff"
-                    col = Color3.fromRGB(75, 150, 255)
+local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+local gameplayRemotes = remotes and remotes:FindFirstChild("Gameplay")
+local roleSelectEvent = gameplayRemotes and gameplayRemotes:FindFirstChild("RoleSelect")
+
+if roleSelectEvent then
+    addLog("[Info] Успешно найден RemoteEvent: RoleSelect", Color3.fromRGB(80, 200, 255))
+    
+    roleSelectEvent.OnClientEvent:Connect(function(...)
+        local args = {...}
+        addLog("--- [Сработал RoleSelect] ---", Color3.fromRGB(255, 200, 50))
+        
+        for index, arg in ipairs(args) do
+            local argType = typeof(arg)
+            if argType == "string" then
+                addLog(string.format("Arg #%d (string): %s [Приватный сигнал для тебя]", index, tostring(arg)), Color3.fromRGB(255, 100, 100))
+            elseif argType == "table" then
+                addLog(string.format("Arg #%d (table): [Публичный массив игроков/ролей]", index), Color3.fromRGB(100, 255, 100))
+                for k, v in pairs(arg) do
+                    addLog(string.format("   -> Key: %s | Value: %s", tostring(k), tostring(v)), Color3.fromRGB(200, 200, 200))
                 end
-                
-                addLog(string.format("[Scan] Player: %s | Role: %s", player.Name, role), col)
+            else
+                addLog(string.format("Arg #%d (%s): %s", index, argType, tostring(arg)), Color3.fromRGB(220, 220, 220))
             end
         end
-    end
-    addLog("--- Сканирование завершено (0.2s) ---", Color3.fromRGB(180, 180, 180))
+    end)
+else
+    addLog("[Error] Не удалось найти RoleSelect!", Color3.fromRGB(255, 50, 50))
 end
-
-task.spawn(function()
-    while true do
-        pcall(scanGame)
-        task.wait(0.2)
-    end
-end)
