@@ -1,31 +1,41 @@
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local CollectionService = game:GetService("CollectionService")
-local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local scanEnabled = true
-local pulseEnabled = false
-local serverEventsEnabled = true
-local scanInterval = 0.2
-local pulseInterval = 1.5
+local SCAN_INTERVAL = 0.2
+local MAX_LOG_LINES = 800
 
-local lastGunSnap = ""
+local scanActive = true
+local lastSnap = ""
 local hookedAttr: { [Instance]: boolean } = {}
-local hookedGunTools: { [Tool]: boolean } = {}
-local hookedRemoteEvents: { [RemoteEvent]: boolean } = {}
-local hookedRemoteFunctions: { [RemoteFunction]: boolean } = {}
+local hookedTools: { [Tool]: boolean } = {}
+local hookedRemotes: { [Instance]: boolean } = {}
 local logLines: { string } = {}
-local maxLogLines = 500
 
-local logLabel: TextLabel? = nil
+local logLbl: TextLabel? = nil
 local scrollFrame: ScrollingFrame? = nil
-local scanBtn: TextButton? = nil
-local pulseBtn: TextButton? = nil
-local srvBtn: TextButton? = nil
-local statusLabel: TextLabel? = nil
+local statusLbl: TextLabel? = nil
+local toggleBtn: TextButton? = nil
+
+local SCREENSHOT_TARGET_NAMES = {
+	["Gun"] = true,
+	["Animations"] = true,
+	["Reload"] = true,
+	["Shoot"] = true,
+	["Sounds"] = true,
+	["GunServer"] = true,
+	["GunRaycastAttachment1"] = true,
+	["GunClient"] = true,
+	["Handle"] = true,
+	["Gunshot"] = true,
+	["GunBelt"] = true,
+	["GunTipAttachment"] = true,
+	["GunRaycastAttachment"] = true,
+	["GunShoulderAttachment"] = true,
+	["DisplayRefGun"] = true,
+}
 
 local function fullPath(inst: Instance?): string
 	if not inst then
@@ -34,438 +44,337 @@ local function fullPath(inst: Instance?): string
 	local ok, path = pcall(function()
 		return inst:GetFullName()
 	end)
-	if not ok or not path then
-		return tostring(inst)
-	end
-	return string.format("%s [%s]", path, inst.ClassName)
+	return (ok and path) and path or tostring(inst)
 end
 
 local function fmtVal(v: any): string
 	local t = typeof(v)
 	if t == "Instance" then
-		return fullPath(v)
+		return string.format("%s [%s]", fullPath(v), v.ClassName)
 	elseif t == "Vector3" then
 		return string.format("Vector3(%.2f, %.2f, %.2f)", v.X, v.Y, v.Z)
 	elseif t == "CFrame" then
 		local p = v.Position
 		return string.format("CFrame(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z)
+	elseif t == "Color3" then
+		return string.format("Color3(%d, %d, %d)",
+			math.round(v.R * 255), math.round(v.G * 255), math.round(v.B * 255))
 	elseif t == "table" then
-		local items = {}
+		local parts = {}
 		for k, val in pairs(v) do
-			table.insert(items, tostring(k) .. "=" .. fmtVal(val))
-			if #items >= 12 then
-				table.insert(items, "...")
+			table.insert(parts, tostring(k) .. "=" .. fmtVal(val))
+			if #parts >= 12 then
+				table.insert(parts, "...")
 				break
 			end
 		end
-		return "{" .. table.concat(items, ", ") .. "}"
+		return "{" .. table.concat(parts, ", ") .. "}"
 	end
 	return tostring(v)
 end
 
 local function fmtArgs(...): string
-	local count = select("#", ...)
-	if count == 0 then
+	local n = select("#", ...)
+	if n == 0 then
 		return "none"
 	end
 	local list = {}
-	for i = 1, count do
-		table.insert(list, string.format("arg%d=%s", i, fmtVal(select(i, ...))))
+	for i = 1, n do
+		local val = select(i, ...)
+		table.insert(list, string.format("arg%d=%s (%s)", i, fmtVal(val), typeof(val)))
 	end
 	return table.concat(list, ", ")
 end
 
-local function fmtAttrs(inst: Instance): string
-	local ok, attrs = pcall(function()
-		return inst:GetAttributes()
+local function getMeta(obj: Instance): string
+	local parts = {}
+
+	pcall(function()
+		if obj:IsA("Tool") then
+			table.insert(parts, string.format("Enabled=%s", tostring(obj.Enabled)))
+		elseif obj:IsA("BaseScript") then
+			table.insert(parts, string.format("Disabled=%s", tostring(obj.Disabled)))
+		elseif obj:IsA("ValueBase") then
+			table.insert(parts, string.format("Value=%s", fmtVal((obj :: any).Value)))
+		elseif obj:IsA("BasePart") then
+			table.insert(parts, string.format("Anchored=%s CanCollide=%s Trans=%.2f",
+				tostring(obj.Anchored), tostring(obj.CanCollide), obj.Transparency))
+		elseif obj:IsA("Sound") then
+			table.insert(parts, string.format("SoundId=%s", tostring(obj.SoundId)))
+		elseif obj:IsA("Animation") then
+			table.insert(parts, string.format("AnimId=%s", tostring(obj.AnimationId)))
+		end
 	end)
-	if not ok or type(attrs) ~= "table" or next(attrs) == nil then
-		return ""
+
+	local okAttr, attrs = pcall(function()
+		return obj:GetAttributes()
+	end)
+	if okAttr and type(attrs) == "table" and next(attrs) ~= nil then
+		local aList = {}
+		for k, v in pairs(attrs) do
+			table.insert(aList, string.format("%s=%s(%s)", tostring(k), fmtVal(v), typeof(v)))
+		end
+		table.insert(parts, "Attrs{" .. table.concat(aList, "; ") .. "}")
 	end
-	local list = {}
-	for k, v in pairs(attrs) do
-		table.insert(list, string.format("%s=%s(%s)", tostring(k), fmtVal(v), typeof(v)))
+
+	local okTag, tags = pcall(function()
+		return CollectionService:GetTags(obj)
+	end)
+	if okTag and type(tags) == "table" and #tags > 0 then
+		table.insert(parts, "Tags[" .. table.concat(tags, ", ") .. "]")
 	end
-	return " | Attrs{" .. table.concat(list, "; ") .. "}"
+
+	return #parts > 0 and (" | " .. table.concat(parts, " | ")) or ""
+end
+
+local function getEquippedGunPath(): string
+	local char = player.Character
+	if char then
+		for _, ch in ipairs(char:GetChildren()) do
+			if ch:IsA("Tool") and ch.Name == "Gun" then
+				return fullPath(ch)
+			end
+		end
+	end
+	return "none"
 end
 
 local function refreshUI()
-	if not logLabel or not scrollFrame then
+	if not logLbl or not scrollFrame then
 		return
 	end
-	logLabel.Text = table.concat(logLines, "\n")
-	logLabel.Size = UDim2.new(1, -8, 0, math.max(scrollFrame.AbsoluteSize.Y, logLabel.TextBounds.Y + 14))
-	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, logLabel.TextBounds.Y + 18)
+	logLbl.Text = table.concat(logLines, "\n")
+	local h = math.max(scrollFrame.AbsoluteSize.Y, logLbl.TextBounds.Y + 14)
+	logLbl.Size = UDim2.new(1, -8, 0, h)
+	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, logLbl.TextBounds.Y + 18)
 	scrollFrame.CanvasPosition = Vector2.new(0, math.max(0, scrollFrame.CanvasSize.Y.Offset - scrollFrame.AbsoluteSize.Y))
 end
 
-local function LogEvent(tag: string, msg: string)
-	local stamp = os.date("%H:%M:%S")
-	local line = string.format("[%s][%s] %s", tostring(stamp), tostring(tag), tostring(msg))
+local function pushLog(tag: string, msg: string)
+	local line = string.format("[%s | t=%.2f][%s] %s", os.date("%H:%M:%S"), tick() % 10000, tag, msg)
 	table.insert(logLines, line)
-	if #logLines > maxLogLines then
+	if #logLines > MAX_LOG_LINES then
 		table.remove(logLines, 1)
 	end
 	refreshUI()
 	print(line)
 end
 
-local function watchAttributes(inst: Instance, tag: string)
+local function watchAttr(inst: Instance, tag: string)
 	if not inst or not inst.Parent or hookedAttr[inst] then
 		return
 	end
 	hookedAttr[inst] = true
 	inst.AttributeChanged:Connect(function(attrName)
-		if not scanEnabled then
+		if not scanActive then
 			return
 		end
 		local val = inst:GetAttribute(attrName)
-		LogEvent(tag, string.format("Path=%s | Attr '%s' = %s (%s)",
+		pushLog(tag, string.format("Path=%s | Attr '%s' = %s (%s)",
 			fullPath(inst), tostring(attrName), fmtVal(val), typeof(val)))
 	end)
 end
 
--- Подписка на все входящие от сервера RemoteEvent.OnClientEvent
-local function attachServerRemoteListener(obj: Instance)
-	if obj:IsA("RemoteEvent") and not hookedRemoteEvents[obj] then
-		hookedRemoteEvents[obj] = true
-		watchAttributes(obj, "SRV_REM_ATTR")
-		obj.OnClientEvent:Connect(function(...)
-			if not scanEnabled or not serverEventsEnabled then
-				return
-			end
-			LogEvent("SRV_TO_CLI", string.format("Path=%s%s | Args: %s",
-				fullPath(obj), fmtAttrs(obj), fmtArgs(...)))
-		end)
-	elseif obj:IsA("RemoteFunction") and not hookedRemoteFunctions[obj] then
-		hookedRemoteFunctions[obj] = true
-		watchAttributes(obj, "SRV_RF_ATTR")
-		local ok = pcall(function()
-			obj.OnClientInvoke = function(...)
-				if scanEnabled and serverEventsEnabled then
-					LogEvent("SRV_INVOKE_CLI", string.format("Path=%s%s | Args: %s",
-						fullPath(obj), fmtAttrs(obj), fmtArgs(...)))
-				end
-				return nil
-			end
-		end)
-		if not ok then
-			-- Если OnClientInvoke уже занят игровым скриптом, не ломаем его работу
-			LogEvent("SRV_RF_BUSY", string.format("Path=%s (OnClientInvoke already bound)", fullPath(obj)))
+local function isScreenshotTarget(obj: Instance): boolean
+	if SCREENSHOT_TARGET_NAMES[obj.Name] then
+		return true
+	end
+	local cur: Instance? = obj.Parent
+	while cur do
+		if cur:IsA("Tool") and cur.Name == "Gun" then
+			return true
 		end
+		cur = cur.Parent
 	end
+	return false
 end
 
-local function hookAllExistingAndNewRemotes()
-	for _, d in ipairs(game:GetDescendants()) do
-		attachServerRemoteListener(d)
-	end
-	game.DescendantAdded:Connect(function(d)
-		attachServerRemoteListener(d)
-	end)
-end
-
-local function isGunTool(obj: Instance): boolean
-	if not obj:IsA("Tool") then
-		return false
-	end
-	local n = string.lower(obj.Name)
-	return string.find(n, "gun", 1, true) ~= nil
-		or string.find(n, "revolver", 1, true) ~= nil
-		or string.find(n, "pistol", 1, true) ~= nil
-		or string.find(n, "sheriff", 1, true) ~= nil
-		or obj:GetAttribute("IsGun") ~= nil
-		or obj:GetAttribute("Gun") ~= nil
-end
-
-local function getEquippedGun(): Tool?
-	local char = player.Character
-	if not char then
-		return nil
-	end
-	for _, child in ipairs(char:GetChildren()) do
-		if isGunTool(child) then
-			return child :: Tool
-		end
-	end
-	return nil
-end
-
-local function findAllGunTools(): { Tool }
-	local out: { Tool } = {}
-	local function scanIn(root: Instance?)
-		if not root then
-			return
-		end
-		for _, obj in ipairs(root:GetDescendants()) do
-			if isGunTool(obj) then
-				table.insert(out, obj :: Tool)
+local function collectScreenshotTargets(): { Instance }
+	local list: { Instance } = {}
+	local bp = player:FindFirstChild("Backpack")
+	if bp then
+		for _, d in ipairs(bp:GetDescendants()) do
+			if isScreenshotTarget(d) then
+				table.insert(list, d)
 			end
 		end
 	end
-	scanIn(player:FindFirstChild("Backpack"))
-	scanIn(player.Character)
-	return out
-end
-
-local function getRayAndAim(...): string
-	local cam = Workspace.CurrentCamera
-	local mousePos = UserInputService:GetMouseLocation()
-	local originStr = "no_cam"
-	local dirStr = "no_cam"
-	local hitStr = "none"
-
-	if cam then
-		local unitRay = cam:ViewportPointToRay(mousePos.X, mousePos.Y)
-		originStr = fmtVal(unitRay.Origin)
-		dirStr = fmtVal(unitRay.Direction)
-
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Exclude
-		params.FilterDescendantsInstances = player.Character and { player.Character } or {}
-		local hit = Workspace:Raycast(unitRay.Origin, unitRay.Direction * 500, params)
-		if hit then
-			hitStr = string.format("%s @ %s (dist=%.1f)",
-				fullPath(hit.Instance), fmtVal(hit.Position), hit.Distance)
+	if player.Character then
+		for _, d in ipairs(player.Character:GetDescendants()) do
+			if isScreenshotTarget(d) then
+				table.insert(list, d)
+			end
 		end
 	end
-
-	local argsPart = select("#", ...) > 0 and (" | Args: " .. fmtArgs(...)) or ""
-	return string.format("Mouse=(%.0f,%.0f) Origin=%s Dir=%s Hit=%s%s",
-		mousePos.X, mousePos.Y, originStr, dirStr, hitStr, argsPart)
+	return list
 end
 
-local function hookGunEvents(tool: Tool)
-	if hookedGunTools[tool] then
+local function hookRemote(obj: Instance)
+	if not obj or hookedRemotes[obj] then
 		return
 	end
-	hookedGunTools[tool] = true
-	watchAttributes(tool, "GUN_ATTR")
+	if obj:IsA("RemoteEvent") and (obj.Name == "Shoot" or isScreenshotTarget(obj)) then
+		hookedRemotes[obj] = true
+		watchAttr(obj, "SHOOT_REM_ATTR")
+		obj.OnClientEvent:Connect(function(...)
+			if not scanActive then
+				return
+			end
+			pushLog("SRV -> CLI", string.format("From=Server | To=Client(%s) | Event=%s%s | Args: %s",
+				player.Name, fullPath(obj), getMeta(obj), fmtArgs(...)))
+		end)
+	end
+end
 
-	for _, d in ipairs(tool:GetDescendants()) do
-		watchAttributes(d, "GUN_DESC_ATTR")
+local function attachGunToolListeners(gun: Tool)
+	if hookedTools[gun] then
+		return
+	end
+	hookedTools[gun] = true
+	watchAttr(gun, "GUN_ATTR")
+
+	for _, d in ipairs(gun:GetDescendants()) do
+		watchAttr(d, "GUN_DESC_ATTR")
+		hookRemote(d)
 		if d:IsA("Sound") then
 			d.Played:Connect(function()
-				if scanEnabled then
-					LogEvent("EV_SOUND_PLAYED", string.format("Path=%s | SoundId=%s",
-						fullPath(d), tostring(d.SoundId)))
+				if scanActive then
+					pushLog("GUN_SOUND", string.format("Sound=%s | SoundId=%s | EquippedGun=%s",
+						fullPath(d), tostring(d.SoundId), getEquippedGunPath()))
 				end
 			end)
 		end
 	end
 
-	tool.Equipped:Connect(function()
-		if scanEnabled then
-			LogEvent("EV_EQUIPPED", string.format("Path=%s | %s%s",
-				fullPath(tool), getRayAndAim(), fmtAttrs(tool)))
+	gun.Equipped:Connect(function()
+		if scanActive then
+			pushLog("EV_EQUIPPED", string.format("Gun=%s", fullPath(gun)))
 		end
 	end)
 
-	tool.Unequipped:Connect(function()
-		if scanEnabled then
-			LogEvent("EV_UNEQUIPPED", string.format("Path=%s%s",
-				fullPath(tool), fmtAttrs(tool)))
+	gun.Unequipped:Connect(function()
+		if scanActive then
+			pushLog("EV_UNEQUIPPED", string.format("Gun=%s", fullPath(gun)))
 		end
 	end)
 
-	tool.Activated:Connect(function()
-		if scanEnabled then
-			LogEvent("EV_ACTIVATED", string.format("Path=%s | %s%s",
-				fullPath(tool), getRayAndAim(), fmtAttrs(tool)))
+	gun.Activated:Connect(function()
+		if scanActive then
+			pushLog("EV_ACTIVATED", string.format("Gun=%s", fullPath(gun)))
 		end
 	end)
 
-	tool.Deactivated:Connect(function()
-		if scanEnabled then
-			LogEvent("EV_DEACTIVATED", string.format("Path=%s%s",
-				fullPath(tool), fmtAttrs(tool)))
-		end
-	end)
-
-	tool.DescendantAdded:Connect(function(d)
-		watchAttributes(d, "GUN_DESC_ATTR")
-		if scanEnabled then
-			LogEvent("EV_DESC_ADDED", string.format("Gun=%s | Added=%s%s",
-				fullPath(tool), fullPath(d), fmtAttrs(d)))
-		end
-	end)
-
-	tool.DescendantRemoving:Connect(function(d)
-		if scanEnabled then
-			LogEvent("EV_DESC_REMOVING", string.format("Gun=%s | Removing=%s",
-				fullPath(tool), fullPath(d)))
+	gun.DescendantAdded:Connect(function(d)
+		watchAttr(d, "GUN_DESC_ATTR")
+		hookRemote(d)
+		if scanActive then
+			pushLog("GUN_ADD", string.format("Added=%s%s", fullPath(d), getMeta(d)))
 		end
 	end)
 end
 
-local function dumpGunFullTreeWithPaths(tool: Tool)
-	hookGunEvents(tool)
-	LogEvent("TREE_ROOT", string.format("Path=%s%s", fullPath(tool), fmtAttrs(tool)))
-
-	local desc = tool:GetDescendants()
-	for _, d in ipairs(desc) do
-		watchAttributes(d, "GUN_DESC_ATTR")
-		local extra = ""
-		if d:IsA("BaseScript") then
-			extra = " | Disabled=" .. tostring(d.Disabled)
-		elseif d:IsA("ValueBase") then
-			extra = " | Value=" .. fmtVal((d :: any).Value)
-		elseif d:IsA("Sound") then
-			extra = " | SoundId=" .. tostring(d.SoundId)
-		elseif d:IsA("Animation") then
-			extra = " | AnimId=" .. tostring(d.AnimationId)
+local function dumpTargetsSnapshot()
+	local targets = collectScreenshotTargets()
+	for _, t in ipairs(targets) do
+		watchAttr(t, "TARGET_ATTR")
+		hookRemote(t)
+		if t:IsA("Tool") and t.Name == "Gun" then
+			attachGunToolListeners(t)
 		end
-
-		local tags = CollectionService:GetTags(d)
-		local tagStr = #tags > 0 and (" | Tags[" .. table.concat(tags, ", ") .. "]") or ""
-		LogEvent("TREE_PATH", string.format("Path=%s%s%s%s",
-			fullPath(d), extra, fmtAttrs(d), tagStr))
+		pushLog("TARGET_FOUND", string.format("Name=%s | Path=%s%s",
+			t.Name, fullPath(t), getMeta(t)))
 	end
 end
 
-local function scanTick()
-	if not scanEnabled then
-		if statusLabel then
-			statusLabel.Text = "Scan: PAUSED"
-		end
+local function buildSnapshot(): string
+	local targets = collectScreenshotTargets()
+	if #targets == 0 then
+		return "EMPTY"
+	end
+	local parts = {}
+	for _, t in ipairs(targets) do
+		table.insert(parts, fullPath(t) .. ":" .. t.ClassName .. getMeta(t))
+	end
+	return table.concat(parts, ";")
+end
+
+local function scanTick(force: boolean)
+	local snap = buildSnapshot()
+	local targets = collectScreenshotTargets()
+	if statusLbl then
+		statusLbl.Text = scanActive
+			and string.format("0.2s ON | Found: %d", #targets)
+			or string.format("PAUSED | Found: %d", #targets)
+	end
+	if not scanActive and not force then
 		return
 	end
-
-	local guns = findAllGunTools()
-	local eq = getEquippedGun()
-	local snapParts = {
-		"EQ:" .. (eq and eq:GetFullName() or "NONE"),
-		"N:" .. tostring(#guns)
-	}
-
-	for _, g in ipairs(guns) do
-		hookGunEvents(g)
-		table.insert(snapParts, g:GetFullName() .. ":" .. tostring(#g:GetDescendants()) .. fmtAttrs(g))
-		for _, d in ipairs(g:GetDescendants()) do
-			local vStr = d:IsA("ValueBase") and ("=" .. fmtVal((d :: any).Value)) or ""
-			table.insert(snapParts, d:GetFullName() .. vStr .. fmtAttrs(d))
-		end
-	end
-
-	local snap = table.concat(snapParts, "|")
-	if statusLabel then
-		statusLabel.Text = string.format("0.2s ON | Guns:%d | Eq:%s",
-			#guns, eq and eq.Name or "none")
-	end
-
-	if snap ~= lastGunSnap then
-		lastGunSnap = snap
-		if #guns == 0 then
-			LogEvent("GUN_SCAN", "Gun не найден (проверены Backpack и Character).")
+	if force or snap ~= lastSnap then
+		lastSnap = snap
+		if #targets == 0 then
+			pushLog("SCAN", "Объекты со скриншотов (Gun / Shoot / Attachments / Handle) пока не найдены.")
 		else
-			for _, g in ipairs(guns) do
-				dumpGunFullTreeWithPaths(g)
-			end
+			dumpTargetsSnapshot()
 		end
 	end
 end
-
-local function watchContainer(container: Instance, prefix: string)
-	watchAttributes(container, prefix .. "_ATTR")
-	container.ChildAdded:Connect(function(child)
-		watchAttributes(child, prefix .. "_CHILD_ATTR")
-		if isGunTool(child) then
-			hookGunEvents(child :: Tool)
-		end
-		if scanEnabled then
-			LogEvent(prefix .. "_ADDED", string.format("Path=%s%s", fullPath(child), fmtAttrs(child)))
-		end
-		task.defer(scanTick)
-	end)
-	container.ChildRemoved:Connect(function(child)
-		if scanEnabled then
-			LogEvent(prefix .. "_REMOVED", string.format("Path=%s", fullPath(child)))
-		end
-		task.defer(scanTick)
-	end)
-end
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if not scanEnabled then
-		return
-	end
-	local eq = getEquippedGun()
-	if not eq then
-		return
-	end
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch
-		or input.KeyCode == Enum.KeyCode.R
-		or input.KeyCode == Enum.KeyCode.F
-	then
-		local keyName = input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name or input.UserInputType.Name
-		LogEvent("EV_INPUT_BEGAN", string.format("Input=%s (GP=%s) | GunPath=%s | %s",
-			keyName, tostring(gameProcessed), fullPath(eq), getRayAndAim()))
-	end
-end)
 
 local function createUI()
-	local old = playerGui:FindFirstChild("GunFullPathEventsGui")
-	if old then
-		old:Destroy()
+	local prev = playerGui:FindFirstChild("ScreenshotGunShootTracker")
+	if prev then
+		prev:Destroy()
 	end
 
 	local sg = Instance.new("ScreenGui")
-	sg.Name = "GunFullPathEventsGui"
+	sg.Name = "ScreenshotGunShootTracker"
 	sg.ResetOnSpawn = false
 	sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	sg.Parent = playerGui
 
-	local main = Instance.new("Frame")
-	main.Size = UDim2.new(0, 620, 0, 360)
-	main.Position = UDim2.new(0, 20, 0, 70)
-	main.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
-	main.BorderSizePixel = 0
-	main.Active = true
-	main.Draggable = true
-	main.Parent = sg
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
-	corner.Parent = main
+	local win = Instance.new("Frame")
+	win.Size = UDim2.new(0, 620, 0, 340)
+	win.Position = UDim2.new(0, 20, 0, 80)
+	win.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
+	win.BorderSizePixel = 0
+	win.Active = true
+	win.Draggable = true
+	win.Parent = sg
+	Instance.new("UICorner", win).CornerRadius = UDim.new(0, 8)
 
 	local top = Instance.new("Frame")
 	top.Size = UDim2.new(1, 0, 0, 34)
 	top.BackgroundColor3 = Color3.fromRGB(30, 34, 44)
 	top.BorderSizePixel = 0
-	top.Parent = main
-
-	local tCorner = Instance.new("UICorner")
-	tCorner.CornerRadius = UDim.new(0, 8)
-	tCorner.Parent = top
+	top.Parent = win
+	Instance.new("UICorner", top).CornerRadius = UDim.new(0, 8)
 
 	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(0.55, 0, 1, 0)
+	title.Size = UDim2.new(0.56, 0, 1, 0)
 	title.Position = UDim2.new(0, 10, 0, 0)
 	title.BackgroundTransparency = 1
-	title.Text = "GUN FULL PATHS, CLI & SRV EVENTS (0.2s)"
+	title.Text = "GUN DIRECTION & EVENTS TRACKER (0.2s)"
 	title.TextColor3 = Color3.fromRGB(235, 240, 250)
 	title.TextSize = 12
 	title.Font = Enum.Font.GothamBold
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.Parent = top
 
-	statusLabel = Instance.new("TextLabel")
-	statusLabel.Size = UDim2.new(0.42, -10, 1, 0)
-	statusLabel.Position = UDim2.new(0.55, 0, 0, 0)
-	statusLabel.BackgroundTransparency = 1
-	statusLabel.Text = "0.2s ON"
-	statusLabel.TextColor3 = Color3.fromRGB(130, 220, 160)
-	statusLabel.TextSize = 12
-	statusLabel.Font = Enum.Font.GothamMedium
-	statusLabel.TextXAlignment = Enum.TextXAlignment.Right
-	statusLabel.Parent = top
+	statusLbl = Instance.new("TextLabel")
+	statusLbl.Size = UDim2.new(0.41, -10, 1, 0)
+	statusLbl.Position = UDim2.new(0.56, 0, 0, 0)
+	statusLbl.BackgroundTransparency = 1
+	statusLbl.Text = "0.2s ON"
+	statusLbl.TextColor3 = Color3.fromRGB(130, 220, 160)
+	statusLbl.TextSize = 12
+	statusLbl.Font = Enum.Font.GothamMedium
+	statusLbl.TextXAlignment = Enum.TextXAlignment.Right
+	statusLbl.Parent = top
 
 	local bar = Instance.new("Frame")
 	bar.Size = UDim2.new(1, -16, 0, 28)
 	bar.Position = UDim2.new(0, 8, 0, 40)
 	bar.BackgroundTransparency = 1
-	bar.Parent = main
+	bar.Parent = win
 
 	local function makeBtn(txt: string, x: number, w: number, bg: Color3): TextButton
 		local b = Instance.new("TextButton")
@@ -477,178 +386,107 @@ local function createUI()
 		b.TextSize = 11
 		b.Font = Enum.Font.GothamBold
 		b.Parent = bar
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, 6)
-		c.Parent = b
+		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
 		return b
 	end
 
-	scanBtn = makeBtn("Scan: ON", 0, 80, Color3.fromRGB(45, 130, 85))
-	srvBtn = makeBtn("SrvEv: ON", 86, 84, Color3.fromRGB(50, 110, 155))
-	pulseBtn = makeBtn("Pulse: OFF", 176, 86, Color3.fromRGB(70, 75, 90))
-	local dumpBtn = makeBtn("Full Paths", 268, 86, Color3.fromRGB(95, 70, 160))
-	local clearBtn = makeBtn("Clear", 360, 62, Color3.fromRGB(130, 50, 55))
-	local copyBtn = makeBtn("Copy", 428, 66, Color3.fromRGB(55, 95, 150))
-	local hideBtn = makeBtn("Hide", 500, 56, Color3.fromRGB(65, 68, 80))
+	toggleBtn = makeBtn("Scan: ON", 0, 86, Color3.fromRGB(45, 130, 85))
+	local scanBtn = makeBtn("Scan Now", 92, 88, Color3.fromRGB(95, 70, 160))
+	local clearBtn = makeBtn("Clear", 186, 68, Color3.fromRGB(130, 50, 55))
+	local copyBtn = makeBtn("Copy", 260, 72, Color3.fromRGB(55, 95, 150))
+	local hideBtn = makeBtn("Hide", 338, 58, Color3.fromRGB(65, 68, 80))
 
-	local body = Instance.new("Frame")
-	body.Size = UDim2.new(1, -16, 1, -76)
-	body.Position = UDim2.new(0, 8, 0, 72)
-	body.BackgroundColor3 = Color3.fromRGB(14, 16, 21)
-	body.BorderSizePixel = 0
-	body.Parent = main
-
-	local bCorner = Instance.new("UICorner")
-	bCorner.CornerRadius = UDim.new(0, 6)
-	bCorner.Parent = body
+	local box = Instance.new("Frame")
+	box.Size = UDim2.new(1, -16, 1, -76)
+	box.Position = UDim2.new(0, 8, 0, 72)
+	box.BackgroundColor3 = Color3.fromRGB(14, 16, 21)
+	box.BorderSizePixel = 0
+	box.Parent = win
+	Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
 
 	scrollFrame = Instance.new("ScrollingFrame")
 	scrollFrame.Size = UDim2.new(1, -8, 1, -8)
 	scrollFrame.Position = UDim2.new(0, 4, 0, 4)
 	scrollFrame.BackgroundTransparency = 1
 	scrollFrame.ScrollBarThickness = 6
-	scrollFrame.Parent = body
+	scrollFrame.Parent = box
 
-	logLabel = Instance.new("TextLabel")
-	logLabel.Size = UDim2.new(1, -8, 0, 200)
-	logLabel.BackgroundTransparency = 1
-	logLabel.Text = ""
-	logLabel.TextColor3 = Color3.fromRGB(215, 222, 235)
-	logLabel.TextSize = 11
-	logLabel.Font = Enum.Font.Code
-	logLabel.TextWrapped = true
-	logLabel.TextXAlignment = Enum.TextXAlignment.Left
-	logLabel.TextYAlignment = Enum.TextYAlignment.Top
-	logLabel.Parent = scrollFrame
+	logLbl = Instance.new("TextLabel")
+	logLbl.Size = UDim2.new(1, -8, 0, 200)
+	logLbl.BackgroundTransparency = 1
+	logLbl.Text = ""
+	logLbl.TextColor3 = Color3.fromRGB(215, 222, 235)
+	logLbl.TextSize = 11
+	logLbl.Font = Enum.Font.Code
+	logLbl.TextWrapped = true
+	logLbl.TextXAlignment = Enum.TextXAlignment.Left
+	logLbl.TextYAlignment = Enum.TextYAlignment.Top
+	logLbl.Parent = scrollFrame
+
+	toggleBtn.MouseButton1Click:Connect(function()
+		scanActive = not scanActive
+		toggleBtn.Text = scanActive and "Scan: ON" or "Scan: OFF"
+		toggleBtn.BackgroundColor3 = scanActive and Color3.fromRGB(45, 130, 85) or Color3.fromRGB(120, 60, 60)
+		scanTick(false)
+	end)
 
 	scanBtn.MouseButton1Click:Connect(function()
-		scanEnabled = not scanEnabled
-		scanBtn.Text = scanEnabled and "Scan: ON" or "Scan: OFF"
-		scanBtn.BackgroundColor3 = scanEnabled and Color3.fromRGB(45, 130, 85) or Color3.fromRGB(120, 60, 60)
-		LogEvent("UI", "Scan -> " .. tostring(scanEnabled))
-	end)
-
-	srvBtn.MouseButton1Click:Connect(function()
-		serverEventsEnabled = not serverEventsEnabled
-		srvBtn.Text = serverEventsEnabled and "SrvEv: ON" or "SrvEv: OFF"
-		srvBtn.BackgroundColor3 = serverEventsEnabled and Color3.fromRGB(50, 110, 155) or Color3.fromRGB(90, 65, 65)
-		LogEvent("UI", "ServerEvents -> " .. tostring(serverEventsEnabled))
-	end)
-
-	pulseBtn.MouseButton1Click:Connect(function()
-		pulseEnabled = not pulseEnabled
-		pulseBtn.Text = pulseEnabled and "Pulse: ON" or "Pulse: OFF"
-		pulseBtn.BackgroundColor3 = pulseEnabled and Color3.fromRGB(145, 105, 35) or Color3.fromRGB(70, 75, 90)
-		LogEvent("UI", "Pulse -> " .. tostring(pulseEnabled))
-	end)
-
-	dumpBtn.MouseButton1Click:Connect(function()
-		local guns = findAllGunTools()
-		if #guns == 0 then
-			LogEvent("FULL_PATHS", "Gun не найден.")
-			return
-		end
-		for _, g in ipairs(guns) do
-			dumpGunFullTreeWithPaths(g)
-		end
+		scanTick(true)
 	end)
 
 	clearBtn.MouseButton1Click:Connect(function()
 		table.clear(logLines)
-		lastGunSnap = ""
+		lastSnap = ""
 		refreshUI()
 	end)
 
 	copyBtn.MouseButton1Click:Connect(function()
 		if typeof(setclipboard) == "function" then
 			setclipboard(table.concat(logLines, "\n"))
-			LogEvent("UI", "Лог скопирован.")
+			pushLog("UI", "Лог скопирован.")
 		else
-			LogEvent("UI", "setclipboard недоступен.")
+			pushLog("UI", "setclipboard недоступен.")
 		end
 	end)
 
 	local minimized = false
 	hideBtn.MouseButton1Click:Connect(function()
 		minimized = not minimized
-		body.Visible = not minimized
+		box.Visible = not minimized
 		bar.Visible = not minimized
 		hideBtn.Text = minimized and "Show" or "Hide"
-		main.Size = minimized and UDim2.new(0, 620, 0, 38) or UDim2.new(0, 620, 0, 360)
+		win.Size = minimized and UDim2.new(0, 620, 0, 38) or UDim2.new(0, 620, 0, 340)
 	end)
 end
-
-createUI()
-hookAllExistingAndNewRemotes()
-
-local bp = player:FindFirstChild("Backpack")
-if bp then
-	watchContainer(bp, "BP")
-end
-player.ChildAdded:Connect(function(child)
-	if child.Name == "Backpack" then
-		watchContainer(child, "BP")
-		task.defer(scanTick)
-	end
-end)
-
-if player.Character then
-	watchContainer(player.Character, "CHAR")
-end
-player.CharacterAdded:Connect(function(char)
-	watchContainer(char, "CHAR")
-	task.defer(scanTick)
-end)
-
-task.spawn(function()
-	while true do
-		scanTick()
-		task.wait(scanInterval)
-	end
-end)
-
-task.spawn(function()
-	while true do
-		task.wait(pulseInterval)
-		if scanEnabled and pulseEnabled then
-			LogEvent("PULSE", getRayAndAim())
-		end
-	end
-end)
 
 if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
 	local oldNamecall
 	oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 		local method = getnamecallmethod()
-		if not checkcaller() and typeof(self) == "Instance" then
+		local callerOrigin = (typeof(checkcaller) == "function" and checkcaller()) and "Executor" or "GameClient"
+		if typeof(self) == "Instance" and (self.Name == "Shoot" or isScreenshotTarget(self)) then
 			if (method == "FireServer" or method == "InvokeServer") and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")) then
-				watchAttributes(self, "REM_ATTR")
-				local eq = getEquippedGun()
-				local eqInfo = eq and (" | EquippedGun=" .. fullPath(eq)) or ""
-				local pStr = fullPath(self)
+				watchAttr(self, "SHOOT_REM_ATTR")
 				local argsStr = fmtArgs(...)
-				task.defer(LogEvent, method, string.format("Path=%s%s%s | Args: %s",
-					pStr, eqInfo, fmtAttrs(self), argsStr))
-				local lowPath = string.lower(pStr)
-				if string.find(lowPath, "shoot", 1, true)
-					or string.find(lowPath, "gun", 1, true)
-					or string.find(lowPath, "fire", 1, true)
-				then
-					task.defer(LogEvent, "RAY_SHOT", method .. " Path=" .. pStr .. eqInfo .. " | " .. getRayAndAim(...))
-				end
+				local eqStr = getEquippedGunPath()
+				task.defer(pushLog, "CLI -> SRV", string.format("From=Client(%s, %s) | To=Server | Method=%s | Event=%s%s | EquippedGun=%s | Args: %s",
+					player.Name, callerOrigin, method, fullPath(self), getMeta(self), eqStr, argsStr))
 			elseif method == "Fire" and self:IsA("BindableEvent") then
-				watchAttributes(self, "BIND_ATTR")
-				local eq = getEquippedGun()
-				local eqInfo = eq and (" | EquippedGun=" .. fullPath(eq)) or ""
-				local pStr = fullPath(self)
+				watchAttr(self, "SHOOT_BIND_ATTR")
 				local argsStr = fmtArgs(...)
-				task.defer(LogEvent, "Bindable:Fire", string.format("Path=%s%s%s | Args: %s",
-					pStr, eqInfo, fmtAttrs(self), argsStr))
+				task.defer(pushLog, "LOCAL_BIND", string.format("From=%s(%s) | LocalBind=%s%s | Args: %s",
+					player.Name, callerOrigin, fullPath(self), getMeta(self), argsStr))
 			end
 		end
 		return oldNamecall(self, ...)
 	end)
-	LogEvent("INIT", "GUN FULL PATHS, CLI & SRV EVENTS (0.2s) запущен.")
-else
-	LogEvent("INIT", "GUN FULL PATHS, CLI & SRV EVENTS (0.2s) запущен без __namecall хука.")
 end
+
+createUI()
+
+task.spawn(function()
+	while true do
+		scanTick(false)
+		task.wait(SCAN_INTERVAL)
+	end
+end)
