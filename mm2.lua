@@ -8,9 +8,6 @@ local SoundService = game:GetService("SoundService")
 
 local LocalPlayer = Players.LocalPlayer
 
--- Переключатели глубины вывода:
--- SHOW_FULL_GAME_TREE = true выведет ВООБЩЕ всю доступную структуру игры (может быть много строк)
--- SHOW_ONLY_WEAPON_TREES = true выведет полные деревья только для найденных оружий
 local SHOW_FULL_GAME_TREE = false
 local SHOW_ONLY_WEAPON_TREES = true
 
@@ -109,7 +106,6 @@ local function formatValue(val, depth)
 	end
 end
 
--- Рекурсивный вывод полного дерева любого объекта с ветвлением ├── и └──
 local function printHierarchyTree(root, prefix, isLast)
 	local connector = isLast and "└── " or "├── "
 	local linePrefix = prefix or ""
