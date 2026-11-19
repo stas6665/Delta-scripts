@@ -186,10 +186,6 @@ do
 	end)
 end
 
-local copyFn = (typeof(setclipboard) == "function" and setclipboard)
-	or (typeof(toclipboard) == "function" and toclipboard)
-	or (typeof(set_clipboard) == "function" and set_clipboard)
-
 local statusToken = 0
 local function notifyStatus(msg)
 	statusToken += 1
@@ -202,14 +198,49 @@ local function notifyStatus(msg)
 	end)
 end
 
+local function resolveClipboardFn()
+	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
+	local candidates = {
+		setclipboard,
+		toclipboard,
+		set_clipboard,
+		writeclipboard,
+		Clipboard and Clipboard.set,
+		Clipboard and Clipboard.Set,
+		genv and genv.setclipboard,
+		genv and genv.toclipboard,
+		genv and genv.set_clipboard,
+		genv and genv.writeclipboard,
+	}
+	for _, fn in ipairs(candidates) do
+		if type(fn) == "function" then
+			return fn
+		end
+	end
+	return nil
+end
+
 local function copyToClipboard(text, labelForStatus)
-	if copyFn then
-		pcall(copyFn, tostring(text))
-		notifyStatus(labelForStatus or "Copied!")
+	local str = tostring(text or "")
+	if #str == 0 then
+		notifyStatus("Empty text")
+		return false
+	end
+
+	local fn = resolveClipboardFn()
+	if type(fn) ~= "function" then
+		notifyStatus("No Clip API")
+		warn("[EspLogger] Нет доступной функции буфера обмена. Длина текста: " .. tostring(#str))
+		return false
+	end
+
+	local ok, err = pcall(fn, str)
+	if ok then
+		notifyStatus((labelForStatus or "Copied!") .. " (" .. tostring(#str) .. "ch)")
 		return true
 	else
-		notifyStatus("Clipboard N/A")
-		warn("[EspLogger] Clipboard:\n" .. tostring(text))
+		notifyStatus("Clip Err")
+		warn("[EspLogger] Ошибка копирования в буфер: " .. tostring(err))
 		return false
 	end
 end
@@ -526,7 +557,7 @@ function LogEvent(tag, message)
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 
 	btn.MouseButton1Click:Connect(function()
-		copyToClipboard(fullText, "Copied line!")
+		copyToClipboard(fullText, "Copied line")
 	end)
 
 	table.insert(logs, {
@@ -852,7 +883,7 @@ local function watchKnifeTool(tool)
 	end)
 end
 
--- Наблюдение за Gun (сохранено)
+-- Наблюдение за Gun
 local watchedGuns = {}
 local function watchGunTool(tool)
 	if not tool or not tool:IsA("Tool") or tool.Name ~= "Gun" or watchedGuns[tool] then
@@ -967,6 +998,77 @@ game.DescendantAdded:Connect(function(obj)
 	elseif obj:IsA("BindableEvent") then
 		hookBindableEvent(obj)
 	end
+end)
+
+-- Кнопки управления
+FilterBox:GetPropertyChangedSignal("Text"):Connect(refreshLogs)
+
+BottomCopyBtn.MouseButton1Click:Connect(function()
+	if #logs == 0 then
+		notifyStatus("Nothing to copy")
+		return
+	end
+	local allLines = table.create(#logs)
+	for i, item in ipairs(logs) do
+		allLines[i] = item.RawText
+	end
+	copyToClipboard(table.concat(allLines, "\n"), "All")
+end)
+
+CopyBtn.MouseButton1Click:Connect(function()
+	local visibleLines = {}
+	for _, item in ipairs(logs) do
+		if item.Button.Visible then
+			table.insert(visibleLines, item.RawText)
+		end
+	end
+	if #visibleLines == 0 then
+		notifyStatus("Nothing to copy")
+		return
+	end
+	copyToClipboard(table.concat(visibleLines, "\n"), "Filtered")
+end)
+
+ClearBtn.MouseButton1Click:Connect(function()
+	for _, item in ipairs(logs) do
+		if item.Button then
+			item.Button:Destroy()
+		end
+	end
+	table.clear(logs)
+	lastRoleSummary = ""
+end)
+
+PulseBtn.MouseButton1Click:Connect(function()
+	pulseEnabled = not pulseEnabled
+	PulseBtn.Text = pulseEnabled and "Pulse:ON" or "Pulse:OFF"
+	PulseBtn.BackgroundColor3 = pulseEnabled
+		and Color3.fromRGB(165, 95, 25)
+		or Color3.fromRGB(65, 65, 85)
+end)
+
+ScanBtn.MouseButton1Click:Connect(function()
+	scanEnabled = not scanEnabled
+	ScanBtn.Text = scanEnabled and "Scan:ON" or "Scan:OFF"
+	ScanBtn.BackgroundColor3 = scanEnabled
+		and Color3.fromRGB(38, 125, 75)
+		or Color3.fromRGB(115, 45, 45)
+end)
+
+local minimized = false
+ToggleBtn.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	FilterBox.Visible = not minimized
+	Scroll.Visible = not minimized
+	BottomCopyBtn.Visible = not minimized
+	PulseBtn.Visible = not minimized
+	ScanBtn.Visible = not minimized
+	CopyBtn.Visible = not minimized
+	ClearBtn.Visible = not minimized
+	MainFrame.Size = minimized
+		and UDim2.new(0.55, 0, 0, 32)
+		or UDim2.new(0.94, 0, 0.5, 0)
+	ToggleBtn.Text = minimized and "Max" or "Min"
 end)
 
 -- Атрибуты и изменения персонажа Stas_mine12, Knife и Gun
