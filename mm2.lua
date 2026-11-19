@@ -45,7 +45,7 @@ local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Size = UDim2.new(0.32, -6, 1, 0)
 TitleLabel.Position = UDim2.new(0, 8, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "LITE+ATTR " .. targetNick
+TitleLabel.Text = "ESP+GUN " .. targetNick
 TitleLabel.TextColor3 = Color3.fromRGB(235, 235, 245)
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Font = Enum.Font.GothamBold
@@ -111,7 +111,7 @@ local FilterBox = Instance.new("TextBox")
 FilterBox.Size = UDim2.new(1, -16, 0, 28)
 FilterBox.Position = UDim2.new(0, 8, 0, 38)
 FilterBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-FilterBox.PlaceholderText = "Фильтр (например: RAY, GunFired, FireServer, ATTR, GUN)..."
+FilterBox.PlaceholderText = "Фильтр (например: ROLE_LIST, RAY, GunFired, GUN, ATTR)..."
 FilterBox.PlaceholderColor3 = Color3.fromRGB(130, 130, 150)
 FilterBox.Text = ""
 FilterBox.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -197,7 +197,7 @@ local function notifyStatus(msg)
 	TitleLabel.Text = msg
 	task.delay(1.8, function()
 		if statusToken == currentToken then
-			TitleLabel.Text = "LITE+ATTR " .. targetNick
+			TitleLabel.Text = "ESP+GUN " .. targetNick
 		end
 	end)
 end
@@ -209,7 +209,7 @@ local function copyToClipboard(text, labelForStatus)
 		return true
 	else
 		notifyStatus("Clipboard N/A")
-		warn("[LiteAttrLogger] Clipboard:\n" .. tostring(text))
+		warn("[EspLogger] Clipboard:\n" .. tostring(text))
 		return false
 	end
 end
@@ -328,6 +328,152 @@ local function formatArgs(...)
 	return table.concat(parts, ", ")
 end
 
+-- Автоподсветка ролей через Highlight (запускается сразу без кнопки)
+local playerRoles = {} -- [nick] = { Role = ..., Dead = ... }
+local highlights = {} -- [nick] = Highlight
+
+local function getRoleColor(role)
+	if role == "Murderer" then
+		return Color3.fromRGB(255, 50, 50)
+	elseif role == "Sheriff" then
+		return Color3.fromRGB(55, 145, 255)
+	else
+		return Color3.fromRGB(65, 215, 110)
+	end
+end
+
+local function removeHighlight(nick)
+	local hl = highlights[nick]
+	if hl then
+		pcall(function()
+			hl:Destroy()
+		end)
+		highlights[nick] = nil
+	end
+end
+
+local function applyHighlightForNick(nick)
+	removeHighlight(nick)
+	local info = playerRoles[nick]
+	if not info or not info.Role or info.Dead == true then
+		return
+	end
+
+	local plr = Players:FindFirstChild(nick)
+	local char = plr and plr.Character
+	if not char or not char.Parent then
+		return
+	end
+
+	local color = getRoleColor(info.Role)
+	local hl = Instance.new("Highlight")
+	hl.Name = "RoleEspHighlight"
+	hl.FillColor = color
+	hl.OutlineColor = color
+	hl.FillTransparency = 0.65
+	hl.OutlineTransparency = 0.1
+	hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	hl.Adornee = char
+	hl.Parent = char
+	highlights[nick] = hl
+end
+
+local function refreshAllHighlights()
+	for nick in pairs(playerRoles) do
+		applyHighlightForNick(nick)
+	end
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+	plr.CharacterAdded:Connect(function()
+		task.defer(applyHighlightForNick, plr.Name)
+	end)
+	plr.CharacterRemoving:Connect(function()
+		removeHighlight(plr.Name)
+	end)
+end
+
+Players.PlayerAdded:Connect(function(plr)
+	plr.CharacterAdded:Connect(function()
+		task.defer(applyHighlightForNick, plr.Name)
+	end)
+	plr.CharacterRemoving:Connect(function()
+		removeHighlight(plr.Name)
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+	playerRoles[plr.Name] = nil
+	removeHighlight(plr.Name)
+end)
+
+-- Разбор таблиц игроков (Fade / RoundStart / PlayerDataChanged) и вывод "Ник - Роль"
+local lastRoleSummary = ""
+local function tryLogPlayerRoles(remoteName, ...)
+	local foundEntries = {}
+	local seenNicks = {}
+	local updatedAny = false
+
+	local function scanTable(tbl)
+		if type(tbl) ~= "table" then
+			return
+		end
+		for k, v in pairs(tbl) do
+			if type(v) == "table" then
+				local nick = v.PlayerName or v.Name or (type(k) == "string" and k) or nil
+				local role = v.Role
+				if nick and role then
+					local nickStr = tostring(nick)
+					local roleStr = tostring(role)
+					local isDead = (v.Dead == true)
+					playerRoles[nickStr] = { Role = roleStr, Dead = isDead }
+					updatedAny = true
+
+					if not seenNicks[nickStr] then
+						seenNicks[nickStr] = true
+						local deadTag = isDead and " [DEAD]" or ""
+						table.insert(foundEntries, string.format("%s - %s%s", nickStr, roleStr, deadTag))
+					end
+				end
+			end
+		end
+	end
+
+	for i = 1, select("#", ...) do
+		local arg = select(i, ...)
+		if type(arg) == "table" then
+			scanTable(arg)
+		end
+	end
+
+	if updatedAny then
+		refreshAllHighlights()
+	end
+
+	if #foundEntries > 0 then
+		table.sort(foundEntries)
+		local summary = table.concat(foundEntries, " | ")
+		if summary ~= lastRoleSummary then
+			lastRoleSummary = summary
+			LogEvent("ROLE_LIST", string.format("(%s) %s", tostring(remoteName), summary))
+		end
+	elseif remoteName == "RoleSelect" then
+		local myRole = select(1, ...)
+		if myRole ~= nil then
+			local nickStr = tostring(player.Name)
+			local roleStr = tostring(myRole)
+			playerRoles[nickStr] = { Role = roleStr, Dead = false }
+			refreshAllHighlights()
+
+			local singleSummary = string.format("%s - %s", nickStr, roleStr)
+			if singleSummary ~= lastRoleSummary then
+				lastRoleSummary = singleSummary
+				LogEvent("ROLE_LIST", string.format("(RoleSelect) %s", singleSummary))
+			end
+		end
+	end
+end
+
 local scrollScheduled = false
 local function scheduleScrollToBottom()
 	if scrollScheduled then
@@ -381,7 +527,7 @@ function LogEvent(tag, message)
 	scheduleScrollToBottom()
 end
 
--- Снимок камеры, персонажа, Gun и геометрии луча при выстреле/событии
+-- Снимок камеры, персонажа, Gun и геометрии луча при выстреле
 local function getRayAndAimSnapshot(...)
 	local info = {}
 	local cam = Workspace.CurrentCamera
@@ -477,6 +623,7 @@ ClearBtn.MouseButton1Click:Connect(function()
 		end
 	end
 	table.clear(logs)
+	lastRoleSummary = ""
 end)
 
 PulseBtn.MouseButton1Click:Connect(function()
@@ -528,7 +675,8 @@ local function hookRemoteEvent(rem)
 		local fullName = rem:GetFullName()
 		local argsStr = formatArgs(...)
 		LogEvent("OnClientEvent", string.format("%s%s | Args: %s", fullName, formatAttributes(rem), argsStr))
-		if string.find(fullName, "Gun", 1, true) or string.find(fullName, "Weapon", 1, true) or string.find(fullName, "Shoot", 1, true) then
+		tryLogPlayerRoles(rem.Name, ...)
+		if string.find(fullName, "GunFired", 1, true) then
 			LogEvent("RAY_SHOT", fullName .. " | " .. getRayAndAimSnapshot(...))
 		end
 	end)
@@ -698,7 +846,9 @@ if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "functi
 				local fullName = self:GetFullName()
 				local argsStr = formatArgs(...)
 				task.defer(LogEvent, method, string.format("%s%s | Args: %s", fullName, formatAttributes(self), argsStr))
-				task.defer(LogEvent, "RAY_SHOT", method .. " " .. fullName .. " | " .. getRayAndAimSnapshot(...))
+				if string.find(fullName, "Shoot", 1, true) then
+					task.defer(LogEvent, "RAY_SHOT", method .. " " .. fullName .. " | " .. getRayAndAimSnapshot(...))
+				end
 			elseif method == "Fire" and self:IsA("BindableEvent") then
 				watchAttributes(self, "BIND_ATTR")
 				local fullName = self:GetFullName()
@@ -708,7 +858,7 @@ if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "functi
 		end
 		return oldNamecall(self, ...)
 	end)
-	LogEvent("INIT", "LITE+ATTR запущен без тяжёлого WS-скана (атрибуты на персонаже, Gun, ремоутах и аргументах сохранены).")
+	LogEvent("INIT", "ESP+GUN логгер запущен: автоподсветка ролей, [ROLE_LIST], RAY_SHOT, Gun, атрибуты.")
 else
-	LogEvent("INIT", "LITE+ATTR запущен без __namecall хука.")
+	LogEvent("INIT", "ESP+GUN логгер запущен без __namecall хука.")
 end
