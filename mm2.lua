@@ -125,7 +125,7 @@ local FilterBox = Instance.new("TextBox")
 FilterBox.Size = UDim2.new(1, -16, 0, 28)
 FilterBox.Position = UDim2.new(0, 8, 0, 38)
 FilterBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-FilterBox.PlaceholderText = "Фильтр (TREE_SCAN, SCRIPT_PATH, SCRIPT_SRC, KNIFE_TREE, ROLE_LIST)..."
+FilterBox.PlaceholderText = "Фильтр (FULL_TREE, TREE_SCRIPT, SCRIPT_PATH, SCRIPT_SRC, ROLE_LIST)..."
 FilterBox.PlaceholderColor3 = Color3.fromRGB(130, 130, 150)
 FilterBox.Text = ""
 FilterBox.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -260,7 +260,7 @@ local function copyToClipboard(text, labelForStatus)
 end
 
 local logs = {}
-local maxLogs = 600
+local maxLogs = 1500
 local logOrder = 0
 local pulseEnabled = false
 local scanEnabled = true
@@ -439,7 +439,7 @@ local function formatArgs(...)
 	return table.concat(parts, ", ")
 end
 
--- === СКАНЕР ДЕРЕВЬЕВ (Sync, Item, Inventory, Module) БЕЗ ЛИМИТА ГЛУБИНЫ + АВТО-СКАН 0.2с ===
+-- === ЦЕЛЫЕ ДЕРЕВЬЯ ПО ПОИСКАМ (Sync, Item, Inventory, Module, Moduls) + СКРИПТЫ ===
 local TARGET_TREE_KEYWORDS = { "sync", "item", "inventory", "module", "moduls" }
 local autoTreeScanEnabled = false
 local autoTreeScanThread = nil
@@ -528,7 +528,36 @@ local function collectAllClientRoots()
 	return all
 end
 
-local function appendTreeLines(rootObj, linesOut)
+local function collectWholeTrees(allObjs)
+	local candidates = {}
+	for _, obj in ipairs(allObjs) do
+		if containsAnyKeyword(obj.Name, TARGET_TREE_KEYWORDS) then
+			table.insert(candidates, obj)
+		end
+	end
+
+	local wholeTrees = {}
+	for _, cand in ipairs(candidates) do
+		local insideExisting = false
+		for _, chosen in ipairs(wholeTrees) do
+			local okAnc, isDesc = pcall(function()
+				return cand:IsDescendantOf(chosen)
+			end)
+			if okAnc and isDesc then
+				insideExisting = true
+				break
+			end
+		end
+		if not insideExisting then
+			table.insert(wholeTrees, cand)
+		end
+	end
+	return wholeTrees
+end
+
+local function buildWholeTreeLines(rootObj)
+	local linesOut = {}
+
 	local function walk(node, depth, prefix, isLast)
 		local branch = (depth == 0) and "" or (isLast and "└── " or "├── ")
 		local meta = ""
@@ -546,7 +575,8 @@ local function appendTreeLines(rootObj, linesOut)
 			end
 		end)
 
-		table.insert(linesOut, string.format("%s%s[%s] %s%s", prefix, branch, node.ClassName, node.Name, meta))
+		local attrsStr = formatAttributes(node)
+		table.insert(linesOut, string.format("%s%s[%s] %s%s%s", prefix, branch, node.ClassName, node.Name, meta, attrsStr))
 
 		local okCh, children = pcall(function()
 			return node:GetChildren()
@@ -560,6 +590,21 @@ local function appendTreeLines(rootObj, linesOut)
 	end
 
 	walk(rootObj, 0, "", true)
+	return linesOut
+end
+
+local function logChunkedText(tag, prefixHeader, bigText)
+	local chunkSize = 1500
+	local str = tostring(bigText or "")
+	if #str <= chunkSize then
+		LogEvent(tag, prefixHeader .. str)
+		return
+	end
+	local part = 0
+	for i = 1, #str, chunkSize do
+		part += 1
+		LogEvent(tag, string.format("%s [part %d]\n%s", prefixHeader, part, string.sub(str, i, i + chunkSize - 1)))
+	end
 end
 
 local function logOnceSignature(tag, msg)
@@ -572,18 +617,17 @@ end
 
 local function runTreesAndScriptsScan(isAutoTick)
 	local allObjs = collectAllClientRoots()
-	local matchedRoots = {}
+	local wholeTrees = collectWholeTrees(allObjs)
 	local allReadableScripts = {}
 	local fullReportLines = {}
 
-	table.insert(fullReportLines, "=== TREES SCAN (Sync, Item, Inventory, Module) - UNLIMITED DEPTH + FULL WORKSPACE ===")
+	table.insert(fullReportLines, "=================================================================")
+	table.insert(fullReportLines, "WHOLE TREES DUMP (Sync, Item, Inventory, Module, Moduls) + SCRIPTS")
 	table.insert(fullReportLines, "Player: " .. player.Name .. " | Time: " .. os.date("%Y-%m-%d %H:%M:%S"))
+	table.insert(fullReportLines, "=================================================================")
 	table.insert(fullReportLines, "")
 
 	for _, obj in ipairs(allObjs) do
-		if containsAnyKeyword(obj.Name, TARGET_TREE_KEYWORDS) then
-			table.insert(matchedRoots, obj)
-		end
 		if isReadableClientScript(obj) then
 			local src, method, isReal = readClientScriptSource(obj)
 			table.insert(allReadableScripts, {
@@ -597,27 +641,41 @@ local function runTreesAndScriptsScan(isAutoTick)
 		end
 	end
 
-	table.insert(fullReportLines, string.format("Matched target trees: %d | Total client scripts inspected: %d", #matchedRoots, #allReadableScripts))
+	local summaryMsg = string.format("Целых деревьев: %d | Клиентских скриптов: %d", #wholeTrees, #allReadableScripts)
+	table.insert(fullReportLines, summaryMsg)
 	table.insert(fullReportLines, "")
 
 	if not isAutoTick then
-		LogEvent("TREE_SCAN", string.format("Найдено веток [Sync/Item/Inventory/Module]: %d | Клиентских скриптов: %d", #matchedRoots, #allReadableScripts))
+		LogEvent("FULL_TREE", summaryMsg)
 	else
-		logOnceSignature("TREE_SCAN", string.format("Найдено веток [Sync/Item/Inventory/Module]: %d | Клиентских скриптов: %d", #matchedRoots, #allReadableScripts))
+		logOnceSignature("FULL_TREE", summaryMsg)
 	end
 
-	for idx, rootObj in ipairs(matchedRoots) do
+	for idx, rootObj in ipairs(wholeTrees) do
 		local pathStr = safeFullName(rootObj)
-		table.insert(fullReportLines, string.format("--- TREE #%d: %s [%s] ---", idx, pathStr, rootObj.ClassName))
+		local descCount = 0
+		local okD, descList = pcall(function()
+			return rootObj:GetDescendants()
+		end)
+		if okD and type(descList) == "table" then
+			descCount = #descList
+		end
 
-		local treeLines = {}
-		appendTreeLines(rootObj, treeLines)
+		local treeHeader = string.format("════ ЦЕЛОЕ ДЕРЕВО #%d: %s [%s] (Узлов внутри: %d) ════", idx, pathStr, rootObj.ClassName, descCount)
+		table.insert(fullReportLines, treeHeader)
+		if not isAutoTick then
+			LogEvent("FULL_TREE", treeHeader)
+		else
+			logOnceSignature("FULL_TREE", treeHeader)
+		end
+
+		local treeLines = buildWholeTreeLines(rootObj)
 		for _, tLine in ipairs(treeLines) do
 			table.insert(fullReportLines, tLine)
 			if not isAutoTick then
-				LogEvent("TREE_SCAN", tLine)
+				LogEvent("FULL_TREE", tLine)
 			else
-				logOnceSignature("TREE_SCAN", pathStr .. " -> " .. tLine)
+				logOnceSignature("FULL_TREE", pathStr .. " :: " .. tLine)
 			end
 		end
 
@@ -625,9 +683,6 @@ local function runTreesAndScriptsScan(isAutoTick)
 		if isReadableClientScript(rootObj) then
 			table.insert(innerScripts, rootObj)
 		end
-		local okD, descList = pcall(function()
-			return rootObj:GetDescendants()
-		end)
 		if okD and type(descList) == "table" then
 			for _, d in ipairs(descList) do
 				if isReadableClientScript(d) then
@@ -638,35 +693,40 @@ local function runTreesAndScriptsScan(isAutoTick)
 
 		for sIdx, scr in ipairs(innerScripts) do
 			local scrPath = safeFullName(scr)
-			local src, method = readClientScriptSource(scr)
-			table.insert(fullReportLines, string.format("[Tree#%d -> Script#%d] (%s via %s) %s", idx, sIdx, scr.ClassName, method, scrPath))
+			local src, method, isReal = readClientScriptSource(scr)
+			local innerLine = string.format("[Tree#%d -> Script#%d] (%s via %s | readable=%s) %s", idx, sIdx, scr.ClassName, method, tostring(isReal), scrPath)
+			table.insert(fullReportLines, innerLine)
 			table.insert(fullReportLines, "--- SCRIPT CODE START ---")
 			table.insert(fullReportLines, src)
 			table.insert(fullReportLines, "--- SCRIPT CODE END ---")
 
 			if not isAutoTick then
-				LogEvent("SCRIPT_PATH", string.format("[Tree#%d -> Script#%d] (%s via %s) %s", idx, sIdx, scr.ClassName, method, scrPath))
-				LogEvent("SCRIPT_SRC", string.format("=== CODE: %s ===\n%s", scrPath, src))
+				LogEvent("TREE_SCRIPT", innerLine)
+				LogEvent("SCRIPT_PATH", innerLine)
+				logChunkedText("SCRIPT_SRC", "=== CODE: " .. scrPath .. " ===\n", src)
 			else
-				logOnceSignature("SCRIPT_PATH", scrPath .. "|" .. method)
+				logOnceSignature("TREE_SCRIPT", innerLine)
+				logOnceSignature("SCRIPT_PATH", innerLine)
 				logOnceSignature("SCRIPT_SRC", scrPath .. "|" .. src)
 			end
 		end
+
+		table.insert(fullReportLines, "")
 	end
 
-	table.insert(fullReportLines, "")
 	table.insert(fullReportLines, string.format("=== ALL CLIENT SCRIPTS (%d) ===", #allReadableScripts))
-
 	local readableCount = 0
+
 	for i, entry in ipairs(allReadableScripts) do
 		if entry.IsReal then
 			readableCount += 1
 		end
-		table.insert(fullReportLines, string.format("#%d [%s | %s | readable=%s] %s", i, entry.ClassName, entry.Method, tostring(entry.IsReal), entry.Path))
+		local pathLine = string.format("#%d [%s | %s | readable=%s] %s", i, entry.ClassName, entry.Method, tostring(entry.IsReal), entry.Path)
+		table.insert(fullReportLines, pathLine)
 		if not isAutoTick then
-			LogEvent("SCRIPT_PATH", string.format("#%d [%s | %s | readable=%s] %s", i, entry.ClassName, entry.Method, tostring(entry.IsReal), entry.Path))
+			LogEvent("SCRIPT_PATH", pathLine)
 		else
-			logOnceSignature("SCRIPT_PATH", entry.Path .. "|" .. entry.Method .. "|" .. tostring(entry.IsReal))
+			logOnceSignature("SCRIPT_PATH", pathLine)
 		end
 
 		if entry.IsReal then
@@ -674,7 +734,7 @@ local function runTreesAndScriptsScan(isAutoTick)
 			table.insert(fullReportLines, entry.Source)
 			table.insert(fullReportLines, "--- SOURCE END ---")
 			if not isAutoTick then
-				LogEvent("SCRIPT_SRC", string.format("=== SOURCE #%d: %s ===\n%s", i, entry.Path, entry.Source))
+				logChunkedText("SCRIPT_SRC", string.format("=== SOURCE #%d: %s ===\n", i, entry.Path), entry.Source)
 			else
 				logOnceSignature("SCRIPT_SRC", entry.Path .. "|" .. entry.Source)
 			end
@@ -685,10 +745,10 @@ local function runTreesAndScriptsScan(isAutoTick)
 
 	if not isAutoTick then
 		if type(writefile) == "function" then
-			pcall(writefile, "MM2_Trees_Scripts_Dump_" .. tostring(os.time()) .. ".txt", lastFullDumpText)
+			pcall(writefile, "MM2_Whole_Trees_Dump_" .. tostring(os.time()) .. ".txt", lastFullDumpText)
 		end
-		copyToClipboard(lastFullDumpText, "TreeScan")
-		LogEvent("TREE_SCAN", string.format("Готово! Полностью читаемых скриптов: %d/%d. Дамп скопирован в буфер.", readableCount, #allReadableScripts))
+		copyToClipboard(lastFullDumpText, "WholeTrees")
+		LogEvent("FULL_TREE", string.format("Готово! Целых деревьев: %d | Читаемых скриптов: %d/%d.", #wholeTrees, readableCount, #allReadableScripts))
 	end
 end
 
@@ -861,21 +921,6 @@ local function tryLogPlayerRoles(remoteName, ...)
 			end
 		end
 	end
-end
-
-local function isKnifeTool(inst)
-	if typeof(inst) ~= "Instance" or not inst:IsA("Tool") then
-		return false
-	end
-	local lowerName = string.lower(inst.Name)
-	local attrWeapon = inst:GetAttribute("WeaponType") or inst:GetAttribute("Type")
-	if inst.Name == "Knife" or string.find(lowerName, "knife", 1, true) or attrWeapon == "Knife" then
-		return true
-	end
-	if inst:FindFirstChild("KnifeScript") or inst:FindFirstChild("ThrowScript") or inst:FindFirstChild("Hitbox") then
-		return true
-	end
-	return false
 end
 
 local function getCombatSnapshot(...)
@@ -1051,4 +1096,4 @@ if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "functi
 	end)
 end
 
-LogEvent("INIT", "MobileOmniLogger запущен. Нажми TreeScan для скана Sync/Item/Inventory/Module каждые 0.2с.")
+LogEvent("INIT", "MobileOmniLogger запущен. Нажми TreeScan для скана целых деревьев каждые 0.2с.")
