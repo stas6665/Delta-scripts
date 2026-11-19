@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -9,17 +10,17 @@ local MAX_LOG_LINES = 800
 
 local scanActive = true
 local lastSnap = ""
-local hookedAttr: { [Instance]: boolean } = {}
-local hookedTools: { [Tool]: boolean } = {}
-local hookedRemotes: { [Instance]: boolean } = {}
-local logLines: { string } = {}
+local hookedAttr = {}
+local hookedTools = {}
+local hookedRemotes = {}
+local logLines = {}
 
-local logLbl: TextLabel? = nil
-local scrollFrame: ScrollingFrame? = nil
-local statusLbl: TextLabel? = nil
-local toggleBtn: TextButton? = nil
+local logLbl = nil
+local scrollFrame = nil
+local statusLbl = nil
+local toggleBtn = nil
 
-local SCREENSHOT_TARGET_NAMES = {
+local TARGET_NAMES = {
 	["Gun"] = true,
 	["Animations"] = true,
 	["Reload"] = true,
@@ -37,7 +38,7 @@ local SCREENSHOT_TARGET_NAMES = {
 	["DisplayRefGun"] = true,
 }
 
-local function fullPath(inst: Instance?): string
+local function fullPath(inst)
 	if not inst then
 		return "nil"
 	end
@@ -47,7 +48,7 @@ local function fullPath(inst: Instance?): string
 	return (ok and path) and path or tostring(inst)
 end
 
-local function fmtVal(v: any): string
+local function fmtVal(v)
 	local t = typeof(v)
 	if t == "Instance" then
 		return string.format("%s [%s]", fullPath(v), v.ClassName)
@@ -61,9 +62,11 @@ local function fmtVal(v: any): string
 			math.round(v.R * 255), math.round(v.G * 255), math.round(v.B * 255))
 	elseif t == "table" then
 		local parts = {}
+		local count = 0
 		for k, val in pairs(v) do
+			count = count + 1
 			table.insert(parts, tostring(k) .. "=" .. fmtVal(val))
-			if #parts >= 12 then
+			if count >= 10 then
 				table.insert(parts, "...")
 				break
 			end
@@ -73,7 +76,7 @@ local function fmtVal(v: any): string
 	return tostring(v)
 end
 
-local function fmtArgs(...): string
+local function fmtArgs(...)
 	local n = select("#", ...)
 	if n == 0 then
 		return "none"
@@ -86,23 +89,30 @@ local function fmtArgs(...): string
 	return table.concat(list, ", ")
 end
 
-local function getMeta(obj: Instance): string
+local function safeGetValue(obj)
+	local ok, val = pcall(function()
+		return obj.Value
+	end)
+	return ok and fmtVal(val) or "err"
+end
+
+local function getMeta(obj)
 	local parts = {}
 
 	pcall(function()
 		if obj:IsA("Tool") then
-			table.insert(parts, string.format("Enabled=%s", tostring(obj.Enabled)))
+			table.insert(parts, "Enabled=" .. tostring(obj.Enabled))
 		elseif obj:IsA("BaseScript") then
-			table.insert(parts, string.format("Disabled=%s", tostring(obj.Disabled)))
+			table.insert(parts, "Disabled=" .. tostring(obj.Disabled))
 		elseif obj:IsA("ValueBase") then
-			table.insert(parts, string.format("Value=%s", fmtVal((obj :: any).Value)))
+			table.insert(parts, "Value=" .. safeGetValue(obj))
 		elseif obj:IsA("BasePart") then
 			table.insert(parts, string.format("Anchored=%s CanCollide=%s Trans=%.2f",
 				tostring(obj.Anchored), tostring(obj.CanCollide), obj.Transparency))
 		elseif obj:IsA("Sound") then
-			table.insert(parts, string.format("SoundId=%s", tostring(obj.SoundId)))
+			table.insert(parts, "SoundId=" .. tostring(obj.SoundId))
 		elseif obj:IsA("Animation") then
-			table.insert(parts, string.format("AnimId=%s", tostring(obj.AnimationId)))
+			table.insert(parts, "AnimId=" .. tostring(obj.AnimationId))
 		end
 	end)
 
@@ -127,12 +137,29 @@ local function getMeta(obj: Instance): string
 	return #parts > 0 and (" | " .. table.concat(parts, " | ")) or ""
 end
 
-local function getEquippedGunPath(): string
-	local char = player.Character
-	if char then
-		for _, ch in ipairs(char:GetChildren()) do
-			if ch:IsA("Tool") and ch.Name == "Gun" then
-				return fullPath(ch)
+local function getPlayerRoots()
+	local roots = {}
+	local bp = player:FindFirstChild("Backpack")
+	if bp then
+		table.insert(roots, bp)
+	end
+	if player.Character then
+		table.insert(roots, player.Character)
+	end
+	local wsChar = Workspace:FindFirstChild(player.Name)
+	if wsChar and wsChar ~= player.Character then
+		table.insert(roots, wsChar)
+	end
+	return roots
+end
+
+local function getEquippedGunPath()
+	for _, root in ipairs(getPlayerRoots()) do
+		if root:IsA("Model") then
+			for _, ch in ipairs(root:GetChildren()) do
+				if ch:IsA("Tool") and ch.Name == "Gun" then
+					return fullPath(ch)
+				end
 			end
 		end
 	end
@@ -143,43 +170,48 @@ local function refreshUI()
 	if not logLbl or not scrollFrame then
 		return
 	end
-	logLbl.Text = table.concat(logLines, "\n")
-	local h = math.max(scrollFrame.AbsoluteSize.Y, logLbl.TextBounds.Y + 14)
-	logLbl.Size = UDim2.new(1, -8, 0, h)
-	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, logLbl.TextBounds.Y + 18)
-	scrollFrame.CanvasPosition = Vector2.new(0, math.max(0, scrollFrame.CanvasSize.Y.Offset - scrollFrame.AbsoluteSize.Y))
+	local text = table.concat(logLines, "\n")
+	logLbl.Text = text
+	task.defer(function()
+		if not logLbl or not scrollFrame then
+			return
+		end
+		local h = math.max(scrollFrame.AbsoluteSize.Y, logLbl.TextBounds.Y + 16)
+		logLbl.Size = UDim2.new(1, -8, 0, h)
+		scrollFrame.CanvasSize = UDim2.new(0, 0, 0, h + 8)
+		scrollFrame.CanvasPosition = Vector2.new(0, math.max(0, scrollFrame.CanvasSize.Y.Offset - scrollFrame.AbsoluteSize.Y))
+	end)
 end
 
-local function pushLog(tag: string, msg: string)
-	local line = string.format("[%s | t=%.2f][%s] %s", os.date("%H:%M:%S"), tick() % 10000, tag, msg)
+local function pushLog(tag, msg)
+	local line = string.format("[%s | t=%.2f][%s] %s", os.date("%H:%M:%S"), tick() % 10000, tostring(tag), tostring(msg))
 	table.insert(logLines, line)
 	if #logLines > MAX_LOG_LINES then
 		table.remove(logLines, 1)
 	end
 	refreshUI()
-	print(line)
+	pcall(print, line)
 end
 
-local function watchAttr(inst: Instance, tag: string)
+local function watchAttr(inst, tag)
 	if not inst or not inst.Parent or hookedAttr[inst] then
 		return
 	end
 	hookedAttr[inst] = true
-	inst.AttributeChanged:Connect(function(attrName)
-		if not scanActive then
-			return
-		end
-		local val = inst:GetAttribute(attrName)
-		pushLog(tag, string.format("Path=%s | Attr '%s' = %s (%s)",
-			fullPath(inst), tostring(attrName), fmtVal(val), typeof(val)))
+	pcall(function()
+		inst.AttributeChanged:Connect(function(attrName)
+			if not scanActive then
+				return
+			end
+			local val = inst:GetAttribute(attrName)
+			pushLog(tag, string.format("Path=%s | Attr '%s' = %s (%s)",
+				fullPath(inst), tostring(attrName), fmtVal(val), typeof(val)))
+		end)
 	end)
 end
 
-local function isScreenshotTarget(obj: Instance): boolean
-	if SCREENSHOT_TARGET_NAMES[obj.Name] then
-		return true
-	end
-	local cur: Instance? = obj.Parent
+local function isInsideGun(obj)
+	local cur = obj
 	while cur do
 		if cur:IsA("Tool") and cur.Name == "Gun" then
 			return true
@@ -189,19 +221,27 @@ local function isScreenshotTarget(obj: Instance): boolean
 	return false
 end
 
-local function collectScreenshotTargets(): { Instance }
-	local list: { Instance } = {}
-	local bp = player:FindFirstChild("Backpack")
-	if bp then
-		for _, d in ipairs(bp:GetDescendants()) do
-			if isScreenshotTarget(d) then
-				table.insert(list, d)
+local function isRelevantTarget(obj)
+	if isInsideGun(obj) then
+		return true
+	end
+	if TARGET_NAMES[obj.Name] then
+		for _, root in ipairs(getPlayerRoots()) do
+			if obj:IsDescendantOf(root) or obj == root then
+				return true
 			end
 		end
 	end
-	if player.Character then
-		for _, d in ipairs(player.Character:GetDescendants()) do
-			if isScreenshotTarget(d) then
+	return false
+end
+
+local function collectTargets()
+	local list = {}
+	local seen = {}
+	for _, root in ipairs(getPlayerRoots()) do
+		for _, d in ipairs(root:GetDescendants()) do
+			if not seen[d] and isRelevantTarget(d) then
+				seen[d] = true
 				table.insert(list, d)
 			end
 		end
@@ -209,24 +249,26 @@ local function collectScreenshotTargets(): { Instance }
 	return list
 end
 
-local function hookRemote(obj: Instance)
+local function hookRemote(obj)
 	if not obj or hookedRemotes[obj] then
 		return
 	end
-	if obj:IsA("RemoteEvent") and (obj.Name == "Shoot" or isScreenshotTarget(obj)) then
+	if obj:IsA("RemoteEvent") and (obj.Name == "Shoot" or isInsideGun(obj)) then
 		hookedRemotes[obj] = true
 		watchAttr(obj, "SHOOT_REM_ATTR")
-		obj.OnClientEvent:Connect(function(...)
-			if not scanActive then
-				return
-			end
-			pushLog("SRV -> CLI", string.format("From=Server | To=Client(%s) | Event=%s%s | Args: %s",
-				player.Name, fullPath(obj), getMeta(obj), fmtArgs(...)))
+		pcall(function()
+			obj.OnClientEvent:Connect(function(...)
+				if not scanActive then
+					return
+				end
+				pushLog("SRV -> CLI", string.format("From=Server | To=Client(%s) | Event=%s%s | Args: %s",
+					player.Name, fullPath(obj), getMeta(obj), fmtArgs(...)))
+			end)
 		end)
 	end
 end
 
-local function attachGunToolListeners(gun: Tool)
+local function attachGunToolListeners(gun)
 	if hookedTools[gun] then
 		return
 	end
@@ -237,44 +279,44 @@ local function attachGunToolListeners(gun: Tool)
 		watchAttr(d, "GUN_DESC_ATTR")
 		hookRemote(d)
 		if d:IsA("Sound") then
-			d.Played:Connect(function()
-				if scanActive then
-					pushLog("GUN_SOUND", string.format("Sound=%s | SoundId=%s | EquippedGun=%s",
-						fullPath(d), tostring(d.SoundId), getEquippedGunPath()))
-				end
+			pcall(function()
+				d.Played:Connect(function()
+					if scanActive then
+						pushLog("GUN_SOUND", string.format("Sound=%s | SoundId=%s | EquippedGun=%s",
+							fullPath(d), tostring(d.SoundId), getEquippedGunPath()))
+					end
+				end)
 			end)
 		end
 	end
 
-	gun.Equipped:Connect(function()
-		if scanActive then
-			pushLog("EV_EQUIPPED", string.format("Gun=%s", fullPath(gun)))
-		end
-	end)
-
-	gun.Unequipped:Connect(function()
-		if scanActive then
-			pushLog("EV_UNEQUIPPED", string.format("Gun=%s", fullPath(gun)))
-		end
-	end)
-
-	gun.Activated:Connect(function()
-		if scanActive then
-			pushLog("EV_ACTIVATED", string.format("Gun=%s", fullPath(gun)))
-		end
-	end)
-
-	gun.DescendantAdded:Connect(function(d)
-		watchAttr(d, "GUN_DESC_ATTR")
-		hookRemote(d)
-		if scanActive then
-			pushLog("GUN_ADD", string.format("Added=%s%s", fullPath(d), getMeta(d)))
-		end
+	pcall(function()
+		gun.Equipped:Connect(function()
+			if scanActive then
+				pushLog("EV_EQUIPPED", "Gun=" .. fullPath(gun))
+			end
+		end)
+		gun.Unequipped:Connect(function()
+			if scanActive then
+				pushLog("EV_UNEQUIPPED", "Gun=" .. fullPath(gun))
+			end
+		end)
+		gun.Activated:Connect(function()
+			if scanActive then
+				pushLog("EV_ACTIVATED", "Gun=" .. fullPath(gun))
+			end
+		end)
+		gun.DescendantAdded:Connect(function(d)
+			watchAttr(d, "GUN_DESC_ATTR")
+			hookRemote(d)
+			if scanActive then
+				pushLog("GUN_ADD", "Added=" .. fullPath(d) .. getMeta(d))
+			end
+		end)
 	end)
 end
 
-local function dumpTargetsSnapshot()
-	local targets = collectScreenshotTargets()
+local function dumpTargets(targets)
 	for _, t in ipairs(targets) do
 		watchAttr(t, "TARGET_ATTR")
 		hookRemote(t)
@@ -286,8 +328,7 @@ local function dumpTargetsSnapshot()
 	end
 end
 
-local function buildSnapshot(): string
-	local targets = collectScreenshotTargets()
+local function buildSnapshot(targets)
 	if #targets == 0 then
 		return "EMPTY"
 	end
@@ -298,35 +339,38 @@ local function buildSnapshot(): string
 	return table.concat(parts, ";")
 end
 
-local function scanTick(force: boolean)
-	local snap = buildSnapshot()
-	local targets = collectScreenshotTargets()
+local function scanTick(force)
+	local targets = collectTargets()
+	local snap = buildSnapshot(targets)
+
 	if statusLbl then
 		statusLbl.Text = scanActive
 			and string.format("0.2s ON | Found: %d", #targets)
 			or string.format("PAUSED | Found: %d", #targets)
 	end
+
 	if not scanActive and not force then
 		return
 	end
+
 	if force or snap ~= lastSnap then
 		lastSnap = snap
 		if #targets == 0 then
-			pushLog("SCAN", "Объекты со скриншотов (Gun / Shoot / Attachments / Handle) пока не найдены.")
+			pushLog("SCAN", "Цели Gun / Shoot / Attachments / Handle пока не найдены.")
 		else
-			dumpTargetsSnapshot()
+			dumpTargets(targets)
 		end
 	end
 end
 
 local function createUI()
-	local prev = playerGui:FindFirstChild("ScreenshotGunShootTracker")
+	local prev = playerGui:FindFirstChild("GunFixedTrackerUI")
 	if prev then
 		prev:Destroy()
 	end
 
 	local sg = Instance.new("ScreenGui")
-	sg.Name = "ScreenshotGunShootTracker"
+	sg.Name = "GunFixedTrackerUI"
 	sg.ResetOnSpawn = false
 	sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	sg.Parent = playerGui
@@ -352,7 +396,7 @@ local function createUI()
 	title.Size = UDim2.new(0.56, 0, 1, 0)
 	title.Position = UDim2.new(0, 10, 0, 0)
 	title.BackgroundTransparency = 1
-	title.Text = "GUN DIRECTION & EVENTS TRACKER (0.2s)"
+	title.Text = "GUN FIXED SCANNER & SHOOT (0.2s)"
 	title.TextColor3 = Color3.fromRGB(235, 240, 250)
 	title.TextSize = 12
 	title.Font = Enum.Font.GothamBold
@@ -376,7 +420,7 @@ local function createUI()
 	bar.BackgroundTransparency = 1
 	bar.Parent = win
 
-	local function makeBtn(txt: string, x: number, w: number, bg: Color3): TextButton
+	local function makeBtn(txt, x, w, bg)
 		local b = Instance.new("TextButton")
 		b.Size = UDim2.new(0, w, 1, 0)
 		b.Position = UDim2.new(0, x, 0, 0)
@@ -460,25 +504,27 @@ local function createUI()
 end
 
 if typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function" then
-	local oldNamecall
-	oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-		local method = getnamecallmethod()
-		local callerOrigin = (typeof(checkcaller) == "function" and checkcaller()) and "Executor" or "GameClient"
-		if typeof(self) == "Instance" and (self.Name == "Shoot" or isScreenshotTarget(self)) then
-			if (method == "FireServer" or method == "InvokeServer") and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")) then
-				watchAttr(self, "SHOOT_REM_ATTR")
-				local argsStr = fmtArgs(...)
-				local eqStr = getEquippedGunPath()
-				task.defer(pushLog, "CLI -> SRV", string.format("From=Client(%s, %s) | To=Server | Method=%s | Event=%s%s | EquippedGun=%s | Args: %s",
-					player.Name, callerOrigin, method, fullPath(self), getMeta(self), eqStr, argsStr))
-			elseif method == "Fire" and self:IsA("BindableEvent") then
-				watchAttr(self, "SHOOT_BIND_ATTR")
-				local argsStr = fmtArgs(...)
-				task.defer(pushLog, "LOCAL_BIND", string.format("From=%s(%s) | LocalBind=%s%s | Args: %s",
-					player.Name, callerOrigin, fullPath(self), getMeta(self), argsStr))
+	pcall(function()
+		local oldNamecall
+		oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+			local method = getnamecallmethod()
+			local callerOrigin = (typeof(checkcaller) == "function" and checkcaller()) and "Executor" or "GameClient"
+			if typeof(self) == "Instance" and (self.Name == "Shoot" or isInsideGun(self) or TARGET_NAMES[self.Name]) then
+				if (method == "FireServer" or method == "InvokeServer") and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")) then
+					watchAttr(self, "SHOOT_REM_ATTR")
+					local argsStr = fmtArgs(...)
+					local eqStr = getEquippedGunPath()
+					task.defer(pushLog, "CLI -> SRV", string.format("From=Client(%s, %s) | To=Server | Method=%s | Event=%s%s | EquippedGun=%s | Args: %s",
+						player.Name, callerOrigin, method, fullPath(self), getMeta(self), eqStr, argsStr))
+				elseif method == "Fire" and self:IsA("BindableEvent") then
+					watchAttr(self, "SHOOT_BIND_ATTR")
+					local argsStr = fmtArgs(...)
+					task.defer(pushLog, "LOCAL_BIND", string.format("From=%s(%s) | LocalBind=%s%s | Args: %s",
+						player.Name, callerOrigin, fullPath(self), getMeta(self), argsStr))
+				end
 			end
-		end
-		return oldNamecall(self, ...)
+			return oldNamecall(self, ...)
+		end)
 	end)
 end
 
@@ -486,7 +532,7 @@ createUI()
 
 task.spawn(function()
 	while true do
-		scanTick(false)
+		pcall(scanTick, false)
 		task.wait(SCAN_INTERVAL)
 	end
 end)
