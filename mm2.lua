@@ -6,13 +6,13 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local parentGui = LocalPlayer:WaitForChild("PlayerGui")
 
-if parentGui:FindFirstChild("QueryAndScriptsDumperGui") then
-	parentGui.QueryAndScriptsDumperGui:Destroy()
+if parentGui:FindFirstChild("FullReportCopyGui") then
+	parentGui.FullReportCopyGui:Destroy()
 end
 
 -- === ИНТЕРФЕЙС ===
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "QueryAndScriptsDumperGui"
+ScreenGui.Name = "FullReportCopyGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = parentGui
@@ -45,7 +45,7 @@ local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Size = UDim2.new(0.28, -8, 1, 0)
 TitleLabel.Position = UDim2.new(0, 10, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "TREE + SCRIPTS"
+TitleLabel.Text = "FULL COPY"
 TitleLabel.TextColor3 = Color3.fromRGB(235, 240, 255)
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Font = Enum.Font.GothamBold
@@ -78,7 +78,7 @@ local TopCopyBtn = Instance.new("TextButton")
 TopCopyBtn.Size = UDim2.new(0, 52, 0, 24)
 TopCopyBtn.Position = UDim2.new(1, -206, 0.5, -12)
 TopCopyBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
-TopCopyBtn.Text = "Кусок"
+TopCopyBtn.Text = "Copy"
 TopCopyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 TopCopyBtn.Font = Enum.Font.GothamBold
 TopCopyBtn.TextSize = 9
@@ -132,17 +132,17 @@ QueryBox.TextSize = 12
 QueryBox.Parent = MainFrame
 Instance.new("UICorner", QueryBox).CornerRadius = UDim.new(0, 6)
 
-local CopyBufferBtn = Instance.new("TextButton")
-CopyBufferBtn.Name = "CopyChunksBtn"
-CopyBufferBtn.Size = UDim2.new(1, -16, 0, 34)
-CopyBufferBtn.Position = UDim2.new(0, 8, 1, -42)
-CopyBufferBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
-CopyBufferBtn.Text = "КОПИРОВАТЬ ПО КУСКАМ"
-CopyBufferBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CopyBufferBtn.Font = Enum.Font.GothamBold
-CopyBufferBtn.TextSize = 12
-CopyBufferBtn.Parent = MainFrame
-Instance.new("UICorner", CopyBufferBtn).CornerRadius = UDim.new(0, 7)
+local CopyAllBtn = Instance.new("TextButton")
+CopyAllBtn.Name = "CopyAllBtn"
+CopyAllBtn.Size = UDim2.new(1, -16, 0, 34)
+CopyAllBtn.Position = UDim2.new(0, 8, 1, -42)
+CopyAllBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
+CopyAllBtn.Text = "СКОПИРОВАТЬ ВСЁ ЦЕЛИКОМ"
+CopyAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CopyAllBtn.Font = Enum.Font.GothamBold
+CopyAllBtn.TextSize = 12
+CopyAllBtn.Parent = MainFrame
+Instance.new("UICorner", CopyAllBtn).CornerRadius = UDim.new(0, 7)
 
 local Scroll = Instance.new("ScrollingFrame")
 Scroll.Size = UDim2.new(1, -16, 1, -118)
@@ -197,11 +197,9 @@ do
 	end)
 end
 
--- === СТАТУС И КОПИРОВАНИЕ ПО КУСКАМ ===
-local CHUNK_CHAR_LIMIT = 24000
+-- === СТАТУС И КОПИРОВАНИЕ ВСЁ ЦЕЛИКОМ ===
 local statusSeq = 0
-local chunksCache = {}
-local nextChunkIndex = 1
+local fullReportCache = ""
 local isBusy = false
 
 local function setStatus(msg)
@@ -210,24 +208,17 @@ local function setStatus(msg)
 	TitleLabel.Text = msg
 	task.delay(2.5, function()
 		if statusSeq == cur then
-			TitleLabel.Text = "TREE + SCRIPTS"
+			TitleLabel.Text = "FULL COPY"
 		end
 	end)
 end
 
-local function refreshChunkButton()
-	if #chunksCache == 0 then
-		CopyBufferBtn.Text = "КОПИРОВАТЬ ПО КУСКАМ"
-		return
+local function refreshCopyLabel()
+	if #fullReportCache > 0 then
+		CopyAllBtn.Text = string.format("СКОПИРОВАТЬ ВСЁ (%d)", #fullReportCache)
+	else
+		CopyAllBtn.Text = "СКОПИРОВАТЬ ВСЁ ЦЕЛИКОМ"
 	end
-	local idx = math.clamp(nextChunkIndex, 1, #chunksCache)
-	CopyBufferBtn.Text = string.format("КУСОК %d/%d", idx, #chunksCache)
-end
-
-local function clearChunks()
-	table.clear(chunksCache)
-	nextChunkIndex = 1
-	refreshChunkButton()
 end
 
 local function getClipboardFn()
@@ -243,7 +234,7 @@ local function getClipboardFn()
 		or nil
 end
 
-local function copySingleText(str, statusLabel)
+local function copyTextToClipboard(str, statusLabel)
 	local txt = tostring(str or "")
 	if #txt == 0 then
 		setStatus("Empty!")
@@ -256,46 +247,27 @@ local function copySingleText(str, statusLabel)
 	end
 	local ok = pcall(fn, txt)
 	if ok then
-		setStatus((statusLabel or "Copied") .. " [" .. tostring(#txt) .. "]")
+		setStatus((statusLabel or "Copied All") .. " [" .. tostring(#txt) .. "]")
 		return true
 	end
 	setStatus("Clip Err")
 	return false
 end
 
-local function buildChunksSmoothly(linesList, maxCharsPerChunk)
-	local limit = maxCharsPerChunk or CHUNK_CHAR_LIMIT
-	local chunks = {}
-	local curLines = {}
-	local curLen = 0
-
+local function buildFullReportSmoothly(linesList)
+	local parts = {}
 	for i = 1, #linesList do
-		if i % 1000 == 0 then
+		if i % 1500 == 0 then
 			RunService.Heartbeat:Wait()
 		end
-		local line = tostring(linesList[i])
-		local addLen = #line + (#curLines > 0 and 1 or 0)
-		if #curLines > 0 and (curLen + addLen) > limit then
-			table.insert(chunks, table.concat(curLines, "\n"))
-			table.clear(curLines)
-			curLen = 0
-			addLen = #line
-		end
-		table.insert(curLines, line)
-		curLen += addLen
+		table.insert(parts, tostring(linesList[i]))
 	end
-
-	if #curLines > 0 then
-		table.insert(chunks, table.concat(curLines, "\n"))
-	end
-
-	return chunks
+	return table.concat(parts, "\n")
 end
 
 -- === ВЫВОД В ИНТЕРФЕЙС ===
 local rows = {}
 local rowOrder = 0
-local reportLinesCache = {}
 local maxUiRows = 350
 
 local function pushUiLine(text, color)
@@ -326,7 +298,7 @@ local function pushUiLine(text, color)
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 
 	btn.Activated:Connect(function()
-		copySingleText(lineStr, "Line")
+		copyTextToClipboard(lineStr, "Line")
 	end)
 
 	table.insert(rows, {
@@ -514,7 +486,8 @@ local function runQueryStructureScan()
 		return
 	end
 	isBusy = true
-	clearChunks()
+	fullReportCache = ""
+	refreshCopyLabel()
 	ScanQueryBtn.Text = "Wait..."
 	ScanQueryBtn.BackgroundColor3 = Color3.fromRGB(185, 115, 30)
 
@@ -592,13 +565,11 @@ local function runQueryStructureScan()
 			end
 
 			table.insert(report, string.format("TOTAL TREES: %d | TOTAL NODES: %d", #matched, totalNodes))
-			reportLinesCache = report
-			chunksCache = buildChunksSmoothly(reportLinesCache, CHUNK_CHAR_LIMIT)
-			nextChunkIndex = 1
-			refreshChunkButton()
+			fullReportCache = buildFullReportSmoothly(report)
+			refreshCopyLabel()
 
-			pushUiLine(string.format("ГОТОВО: деревьев %d, узлов %d, кусков %d.", #matched, totalNodes, #chunksCache), Color3.fromRGB(110, 235, 145))
-			setStatus("Chunks: " .. tostring(#chunksCache))
+			pushUiLine(string.format("ГОТОВО: деревьев %d, узлов %d, символов %d.", #matched, totalNodes, #fullReportCache), Color3.fromRGB(110, 235, 145))
+			setStatus("Chars: " .. tostring(#fullReportCache))
 		end)
 
 		if not ok then
@@ -612,7 +583,7 @@ local function runQueryStructureScan()
 	end)
 end
 
--- === 2. ОБХОД ВСЕХ СКРИПТОВ И УЛУЧШЕННЫЙ РАЗБОР REQUIRE(MODULE) ===
+-- === 2. ОБХОД ВСЕХ СКРИПТОВ И РАЗБОР REQUIRE(MODULE) ===
 local function getTargetScriptBranches()
 	local branches = {}
 	local seen = {}
@@ -845,7 +816,8 @@ local function runScriptsBranchesDump()
 		return
 	end
 	isBusy = true
-	clearChunks()
+	fullReportCache = ""
+	refreshCopyLabel()
 	DumpScriptsBtn.Text = "Wait..."
 	DumpScriptsBtn.BackgroundColor3 = Color3.fromRGB(185, 115, 30)
 
@@ -907,12 +879,10 @@ local function runScriptsBranchesDump()
 			end
 
 			table.insert(report, string.format("TOTAL CLIENT SCRIPTS/MODULES: %d", scriptsFound))
-			reportLinesCache = report
-			chunksCache = buildChunksSmoothly(reportLinesCache, CHUNK_CHAR_LIMIT)
-			nextChunkIndex = 1
-			refreshChunkButton()
+			fullReportCache = buildFullReportSmoothly(report)
+			refreshCopyLabel()
 
-			pushUiLine(string.format("ГОТОВО: скриптов/модулей %d, кусков %d.", scriptsFound, #chunksCache), Color3.fromRGB(110, 235, 145))
+			pushUiLine(string.format("ГОТОВО: скриптов/модулей %d, символов %d.", scriptsFound, #fullReportCache), Color3.fromRGB(110, 235, 145))
 			setStatus("Scripts: " .. tostring(scriptsFound))
 		end)
 
@@ -927,40 +897,18 @@ local function runScriptsBranchesDump()
 	end)
 end
 
-local function copyNextChunk()
-	if #chunksCache == 0 then
-		if #reportLinesCache > 0 then
-			chunksCache = buildChunksSmoothly(reportLinesCache, CHUNK_CHAR_LIMIT)
-			nextChunkIndex = 1
-			refreshChunkButton()
-		else
-			setStatus("Empty!")
-			return
-		end
+local function copyFullReport()
+	if #fullReportCache == 0 then
+		setStatus("Empty!")
+		return
 	end
-
-	if nextChunkIndex > #chunksCache then
-		nextChunkIndex = 1
-	end
-
-	local idx = nextChunkIndex
-	local total = #chunksCache
-	local header = string.format("--- CHUNK %d / %d ---\n", idx, total)
-	local ok = copySingleText(header .. chunksCache[idx], string.format("Chunk %d/%d", idx, total))
-	if ok then
-		nextChunkIndex += 1
-		if nextChunkIndex <= total then
-			CopyBufferBtn.Text = string.format("КУСОК %d/%d -> СЛЕД.", idx, total)
-		else
-			CopyBufferBtn.Text = string.format("КОНЕЦ (%d/%d) | ПОВТОР", idx, total)
-		end
-	end
+	copyTextToClipboard(fullReportCache, "Full")
 end
 
 ScanQueryBtn.Activated:Connect(runQueryStructureScan)
 DumpScriptsBtn.Activated:Connect(runScriptsBranchesDump)
-TopCopyBtn.Activated:Connect(copyNextChunk)
-CopyBufferBtn.Activated:Connect(copyNextChunk)
+TopCopyBtn.Activated:Connect(copyFullReport)
+CopyAllBtn.Activated:Connect(copyFullReport)
 
 ClearBtn.Activated:Connect(function()
 	for _, item in ipairs(rows) do
@@ -969,8 +917,8 @@ ClearBtn.Activated:Connect(function()
 		end
 	end
 	table.clear(rows)
-	table.clear(reportLinesCache)
-	clearChunks()
+	fullReportCache = ""
+	refreshCopyLabel()
 	setStatus("Cleared")
 end)
 
@@ -979,7 +927,7 @@ MinBtn.Activated:Connect(function()
 	isMin = not isMin
 	QueryBox.Visible = not isMin
 	Scroll.Visible = not isMin
-	CopyBufferBtn.Visible = not isMin
+	CopyAllBtn.Visible = not isMin
 	ScanQueryBtn.Visible = not isMin
 	DumpScriptsBtn.Visible = not isMin
 	TopCopyBtn.Visible = not isMin
@@ -992,4 +940,4 @@ CloseBtn.Activated:Connect(function()
 	ScreenGui:Destroy()
 end)
 
-pushUiLine("Готово для Delta. Нажми 'Scripts In' для таблиц/ключей из require(module) или 'Find Tree' по запросу.", Color3.fromRGB(180, 200, 230))
+pushUiLine("Готово. Нажми 'Find Tree' или 'Scripts In', затем 'СКОПИРОВАТЬ ВСЁ ЦЕЛИКОМ'.", Color3.fromRGB(180, 200, 230))
