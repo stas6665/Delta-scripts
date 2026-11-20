@@ -1,21 +1,17 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterPlayer = game:GetService("StarterPlayer")
-local StarterGui = game:GetService("StarterGui")
-local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 local parentGui = LocalPlayer:WaitForChild("PlayerGui")
 
-if parentGui:FindFirstChild("UnlimitedTreeGui") then
-	parentGui.UnlimitedTreeGui:Destroy()
+if parentGui:FindFirstChild("WholeGameChunkDumpGui") then
+	parentGui.WholeGameChunkDumpGui:Destroy()
 end
 
--- === КАСТОМНЫЙ ИНТЕРФЕЙС ===
+-- === ИНТЕРФЕЙС ===
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "UnlimitedTreeGui"
+ScreenGui.Name = "WholeGameChunkDumpGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = parentGui
@@ -45,10 +41,10 @@ TopBar.Parent = MainFrame
 Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 10)
 
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(0.32, -8, 1, 0)
+TitleLabel.Size = UDim2.new(0.28, -8, 1, 0)
 TitleLabel.Position = UDim2.new(0, 10, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "TREE SCAN"
+TitleLabel.Text = "WHOLE GAME"
 TitleLabel.TextColor3 = Color3.fromRGB(235, 240, 255)
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Font = Enum.Font.GothamBold
@@ -57,9 +53,9 @@ TitleLabel.Parent = TopBar
 
 local RunBtn = Instance.new("TextButton")
 RunBtn.Size = UDim2.new(0, 62, 0, 24)
-RunBtn.Position = UDim2.new(1, -304, 0.5, -12)
+RunBtn.Position = UDim2.new(1, -342, 0.5, -12)
 RunBtn.BackgroundColor3 = Color3.fromRGB(45, 135, 235)
-RunBtn.Text = "Scan All"
+RunBtn.Text = "Dump All"
 RunBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 RunBtn.Font = Enum.Font.GothamBold
 RunBtn.TextSize = 10
@@ -67,8 +63,8 @@ RunBtn.Parent = TopBar
 Instance.new("UICorner", RunBtn).CornerRadius = UDim.new(0, 6)
 
 local TopCopyBtn = Instance.new("TextButton")
-TopCopyBtn.Size = UDim2.new(0, 64, 0, 24)
-TopCopyBtn.Position = UDim2.new(1, -236, 0.5, -12)
+TopCopyBtn.Size = UDim2.new(0, 56, 0, 24)
+TopCopyBtn.Position = UDim2.new(1, -274, 0.5, -12)
 TopCopyBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
 TopCopyBtn.Text = "Кусок"
 TopCopyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -77,9 +73,20 @@ TopCopyBtn.TextSize = 9
 TopCopyBtn.Parent = TopBar
 Instance.new("UICorner", TopCopyBtn).CornerRadius = UDim.new(0, 6)
 
+local ResetQueueBtn = Instance.new("TextButton")
+ResetQueueBtn.Size = UDim2.new(0, 44, 0, 24)
+ResetQueueBtn.Position = UDim2.new(1, -212, 0.5, -12)
+ResetQueueBtn.BackgroundColor3 = Color3.fromRGB(70, 60, 110)
+ResetQueueBtn.Text = "1/N"
+ResetQueueBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ResetQueueBtn.Font = Enum.Font.GothamBold
+ResetQueueBtn.TextSize = 9
+ResetQueueBtn.Parent = TopBar
+Instance.new("UICorner", ResetQueueBtn).CornerRadius = UDim.new(0, 6)
+
 local ClearBtn = Instance.new("TextButton")
-ClearBtn.Size = UDim2.new(0, 50, 0, 24)
-ClearBtn.Position = UDim2.new(1, -166, 0.5, -12)
+ClearBtn.Size = UDim2.new(0, 48, 0, 24)
+ClearBtn.Position = UDim2.new(1, -162, 0.5, -12)
 ClearBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
 ClearBtn.Text = "Clear"
 ClearBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
@@ -89,8 +96,8 @@ ClearBtn.Parent = TopBar
 Instance.new("UICorner", ClearBtn).CornerRadius = UDim.new(0, 6)
 
 local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 50, 0, 24)
-MinBtn.Position = UDim2.new(1, -110, 0.5, -12)
+MinBtn.Size = UDim2.new(0, 48, 0, 24)
+MinBtn.Position = UDim2.new(1, -108, 0.5, -12)
 MinBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
 MinBtn.Text = "Min"
 MinBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
@@ -114,7 +121,7 @@ local FilterBox = Instance.new("TextBox")
 FilterBox.Size = UDim2.new(1, -16, 0, 28)
 FilterBox.Position = UDim2.new(0, 8, 0, 40)
 FilterBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-FilterBox.PlaceholderText = "Фильтр по пути/имени (Inventory, Sync, Item, Module, Box, Claim)..."
+FilterBox.PlaceholderText = "Фильтр по строкам (Remote, Claim, Box, Script)..."
 FilterBox.PlaceholderColor3 = Color3.fromRGB(135, 135, 155)
 FilterBox.Text = ""
 FilterBox.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -125,7 +132,7 @@ FilterBox.Parent = MainFrame
 Instance.new("UICorner", FilterBox).CornerRadius = UDim.new(0, 6)
 
 local CopyBufferBtn = Instance.new("TextButton")
-CopyBufferBtn.Name = "CopyToClipboardBtn"
+CopyBufferBtn.Name = "CopyChunksBtn"
 CopyBufferBtn.Size = UDim2.new(1, -16, 0, 34)
 CopyBufferBtn.Position = UDim2.new(0, 8, 1, -42)
 CopyBufferBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
@@ -189,17 +196,45 @@ do
 	end)
 end
 
--- === УТИЛИТЫ СТАТУСА И КОПИРОВАНИЯ ПО КУСКАМ ===
+-- === СТАТУС И БЕЗЛАГОВОЕ КОПИРОВАНИЕ ПО КУСКАМ ===
+local CHUNK_CHAR_LIMIT = 24000
 local statusSeq = 0
+local chunksCache = {}
+local nextChunkIndex = 1
+local isBuildingChunks = false
+
 local function setStatus(msg)
 	statusSeq += 1
 	local cur = statusSeq
 	TitleLabel.Text = msg
 	task.delay(2.5, function()
 		if statusSeq == cur then
-			TitleLabel.Text = "TREE SCAN"
+			TitleLabel.Text = "WHOLE GAME"
 		end
 	end)
+end
+
+local function refreshChunkButtonLabel()
+	if #chunksCache == 0 then
+		CopyBufferBtn.Text = "КОПИРОВАТЬ ПО КУСКАМ"
+		return
+	end
+	local showIdx = math.clamp(nextChunkIndex, 1, #chunksCache)
+	CopyBufferBtn.Text = string.format("КУСОК %d/%d", showIdx, #chunksCache)
+end
+
+local function resetChunkIndexToStart()
+	nextChunkIndex = 1
+	refreshChunkButtonLabel()
+	if #chunksCache > 0 then
+		setStatus("Queue -> 1/" .. tostring(#chunksCache))
+	end
+end
+
+local function clearChunksCache()
+	table.clear(chunksCache)
+	nextChunkIndex = 1
+	refreshChunkButtonLabel()
 end
 
 local function getClipboardFn()
@@ -235,13 +270,19 @@ local function copySingleText(str, statusLabel)
 	return false
 end
 
-local function buildChunksFromLines(linesList, maxCharsPerChunk)
-	local limit = maxCharsPerChunk or 35000
+-- Нарезка массива строк на куски по границе строк без фризов
+local function buildChunksSmoothly(linesList, maxCharsPerChunk)
+	isBuildingChunks = true
+	local limit = maxCharsPerChunk or CHUNK_CHAR_LIMIT
 	local chunks = {}
 	local currentLines = {}
 	local currentLen = 0
 
 	for i = 1, #linesList do
+		if i % 1200 == 0 then
+			RunService.Heartbeat:Wait()
+		end
+
 		local line = tostring(linesList[i])
 		local addLen = #line + (#currentLines > 0 and 1 or 0)
 
@@ -260,23 +301,16 @@ local function buildChunksFromLines(linesList, maxCharsPerChunk)
 		table.insert(chunks, table.concat(currentLines, "\n"))
 	end
 
+	isBuildingChunks = false
 	return chunks
 end
 
--- === ВЫВОД СТРОК В ИНТЕРФЕЙС ===
+-- === СПИСОК И ВЫВОД ===
 local rows = {}
 local rowOrder = 0
 local reportLinesCache = {}
-local chunksCache = {}
-local nextChunkIndex = 1
-local isScanning = false
-local maxUiRows = 450
-
-local function resetChunkQueue()
-	table.clear(chunksCache)
-	nextChunkIndex = 1
-	CopyBufferBtn.Text = "КОПИРОВАТЬ ПО КУСКАМ"
-end
+local isDumping = false
+local maxUiRows = 350
 
 local function passesFilter(lineText, query)
 	if query == "" then
@@ -286,7 +320,7 @@ local function passesFilter(lineText, query)
 end
 
 local function applyFilterNow()
-	resetChunkQueue()
+	clearChunksCache()
 	local q = FilterBox.Text
 	for _, item in ipairs(rows) do
 		item.Btn.Visible = passesFilter(item.FullLine, q)
@@ -331,29 +365,7 @@ local function pushUiLine(text, color)
 	})
 end
 
--- === ПОИСК ДЕРЕВЬЕВ БЕЗ ОГРАНИЧЕНИЙ ПО ВЫСОТЕ ===
-local TARGET_NAMES = {
-	"Inventory",
-	"Sync",
-	"Item",
-	"Module",
-	"Box",
-	"Claim",
-}
-
-local function matchName(name)
-	local low = string.lower(tostring(name or ""))
-	for _, target in ipairs(TARGET_NAMES) do
-		local tLow = string.lower(target)
-		if low == tLow then
-			return true, target .. ":exact"
-		elseif string.find(low, tLow, 1, true) then
-			return true, target .. ":part"
-		end
-	end
-	return false, nil
-end
-
+-- === СБОР ВСЕХ СЕРВИСОВ, СКРИПТОВ, РЕМОУТОВ И СТРУКТУРЫ ИГРЫ ===
 local function safeFullName(inst)
 	if typeof(inst) ~= "Instance" then
 		return tostring(inst)
@@ -364,108 +376,139 @@ local function safeFullName(inst)
 	return ok and res or tostring(inst)
 end
 
-local function getNodeExtraInfo(node)
-	local details = {}
+local function isRemoteInstance(node)
+	return node:IsA("RemoteEvent")
+		or node:IsA("RemoteFunction")
+		or node:IsA("UnreliableRemoteEvent")
+end
+
+local function getWholeGameRoots()
+	local roots = {}
+	local seen = {}
+
+	local function addRoot(inst)
+		if inst and typeof(inst) == "Instance" and not seen[inst] then
+			seen[inst] = true
+			table.insert(roots, inst)
+		end
+	end
+
+	local okChildren, gameChildren = pcall(function()
+		return game:GetChildren()
+	end)
+	if okChildren and type(gameChildren) == "table" then
+		for _, child in ipairs(gameChildren) do
+			addRoot(child)
+		end
+	end
+
+	local extraServices = {
+		"Workspace",
+		"Players",
+		"ReplicatedFirst",
+		"ReplicatedStorage",
+		"StarterPlayer",
+		"StarterGui",
+		"StarterPack",
+		"Lighting",
+		"SoundService",
+		"Chat",
+		"TextChatService",
+		"CoreGui",
+	}
+	for _, svcName in ipairs(extraServices) do
+		local okSvc, svc = pcall(function()
+			return game:GetService(svcName)
+		end)
+		if okSvc and svc then
+			addRoot(svc)
+		end
+	end
+
+	return roots
+end
+
+local function describeInstance(node)
+	local meta = {}
+
+	if isRemoteInstance(node) then
+		table.insert(meta, "Remote")
+	elseif node:IsA("LuaSourceContainer") then
+		table.insert(meta, "Script")
+	end
 
 	if node:IsA("TextLabel") or node:IsA("TextButton") or node:IsA("TextBox") then
 		if node.Text ~= "" then
-			table.insert(details, "Text=" .. string.format("%q", tostring(node.Text)))
+			table.insert(meta, "Text=" .. string.format("%q", tostring(node.Text)))
 		end
-	end
-
-	if node:IsA("ImageLabel") or node:IsA("ImageButton") then
+	elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
 		if node.Image ~= "" then
-			table.insert(details, "Image=" .. tostring(node.Image))
+			table.insert(meta, "Image=" .. tostring(node.Image))
 		end
-	end
-
-	if node:IsA("ValueBase") then
-		local okVal, val = pcall(function()
+	elseif node:IsA("ValueBase") then
+		local okV, val = pcall(function()
 			return node.Value
 		end)
-		if okVal then
-			table.insert(details, "Value=" .. tostring(val))
+		if okV then
+			table.insert(meta, "Value=" .. tostring(val))
 		end
 	end
 
-	local okAttrs, attrs = pcall(function()
+	local okAttr, attrs = pcall(function()
 		return node:GetAttributes()
 	end)
-	if okAttrs and type(attrs) == "table" then
+	if okAttr and type(attrs) == "table" then
 		for k, v in pairs(attrs) do
-			table.insert(details, "Attr." .. tostring(k) .. "=" .. tostring(v))
+			table.insert(meta, "Attr." .. tostring(k) .. "=" .. tostring(v))
 		end
 	end
 
-	if #details == 0 then
+	if #meta == 0 then
 		return ""
 	end
-	return "  {" .. table.concat(details, ", ") .. "}"
+	return "  {" .. table.concat(meta, ", ") .. "}"
 end
 
-local function collectRoots()
-	local searchRoots = {
-		ReplicatedStorage,
-		StarterPlayer:FindFirstChild("StarterPlayerScripts"),
-		StarterPlayer:FindFirstChild("StarterCharacterScripts"),
-		LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"),
-		LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"),
-		LocalPlayer and LocalPlayer.Character,
-		StarterGui,
-		Workspace,
-	}
-
-	local found = {}
-	local seen = {}
-	local steps = 0
-
-	for _, r in ipairs(searchRoots) do
-		if r then
-			local m0, tag0 = matchName(r.Name)
-			if m0 and not seen[r] then
-				seen[r] = true
-				table.insert(found, { inst = r, tag = tag0 })
-			end
-
-			local okDesc, desc = pcall(function()
-				return r:GetDescendants()
-			end)
-			if okDesc and type(desc) == "table" then
-				for _, obj in ipairs(desc) do
-					steps += 1
-					if steps % 800 == 0 then
-						RunService.Heartbeat:Wait()
-					end
-					local m, tag = matchName(obj.Name)
-					if m and not seen[obj] then
-						seen[obj] = true
-						table.insert(found, { inst = obj, tag = tag })
-					end
-				end
-			end
-		end
-	end
-
-	return found
-end
-
-local function traverseUnlimited(rootInst, reportLines, uiBudgetRef, includeDetails)
-	local count = 0
+local function dumpWholeBranch(rootInst, reportLines, uiBudgetRef, visitedInstances, remotesList)
+	local nodeCount = 0
+	local scriptCount = 0
+	local remoteCount = 0
 
 	local function walk(node, depth, prefix, isLast)
-		count += 1
-		if count % 350 == 0 then
+		if not node or visitedInstances[node] then
+			return
+		end
+		visitedInstances[node] = true
+
+		nodeCount += 1
+		local isRem = isRemoteInstance(node)
+		if isRem then
+			remoteCount += 1
+			table.insert(remotesList, string.format("[%s] %s  (%s)", node.ClassName, node.Name, safeFullName(node)))
+		elseif node:IsA("LuaSourceContainer") then
+			scriptCount += 1
+		end
+
+		if nodeCount % 500 == 0 then
 			RunService.Heartbeat:Wait()
 		end
 
 		local branch = (depth == 0) and "" or (isLast and "└── " or "├── ")
-		local extra = includeDetails and getNodeExtraInfo(node) or ""
-		local line = string.format("%s%s[%s] %s%s  (%s)", prefix, branch, node.ClassName, node.Name, extra, safeFullName(node))
+		local info = describeInstance(node)
+		local line = string.format("%s%s[%s] %s%s  (%s)", prefix, branch, node.ClassName, node.Name, info, safeFullName(node))
 		table.insert(reportLines, line)
 
 		if uiBudgetRef.left > 0 then
 			uiBudgetRef.left -= 1
-			pushUiLine(line, depth == 0 and Color3.fromRGB(255, 205, 95) or Color3.fromRGB(215, 235, 255))
+			local col = Color3.fromRGB(215, 235, 255)
+			if depth == 0 then
+				col = Color3.fromRGB(255, 205, 95)
+			elseif isRem then
+				col = Color3.fromRGB(255, 195, 80)
+			elseif node:IsA("LuaSourceContainer") then
+				col = Color3.fromRGB(120, 240, 175)
+			end
+			pushUiLine(line, col)
 		end
 
 		local okCh, children = pcall(function()
@@ -480,97 +523,106 @@ local function traverseUnlimited(rootInst, reportLines, uiBudgetRef, includeDeta
 	end
 
 	walk(rootInst, 0, "", true)
-	return count
+	return nodeCount, scriptCount, remoteCount
 end
 
-local function startFullScan()
-	if isScanning then
-		setStatus("Scanning...")
+local function startWholeGameDump()
+	if isDumping or isBuildingChunks then
+		setStatus("Busy...")
 		return
 	end
-	isScanning = true
-	resetChunkQueue()
+	isDumping = true
+	clearChunksCache()
 	RunBtn.Text = "Wait..."
 	RunBtn.BackgroundColor3 = Color3.fromRGB(185, 115, 30)
 
 	task.spawn(function()
 		local ok, err = pcall(function()
-			pushUiLine("=== ПОИСК ВСЕХ ДЕРЕВЬЕВ (Inventory, Sync, Item, Module, Box, Claim) БЕЗ ЛИМИТА ВЫСОТЫ ===", Color3.fromRGB(120, 210, 255))
-			local roots = collectRoots()
-			local report = {}
-			local totalNodes = 0
-			local uiBudget = { left = 380 }
+			pushUiLine("=== ПОЛНЫЙ ДАМП ИГРЫ (СТРУКТУРА + СКРИПТЫ + ВСЕ REMOTE) ===", Color3.fromRGB(120, 210, 255))
 
-			table.insert(report, "=== UNLIMITED TREES SCAN: Inventory, Sync, Item, Module, Box, Claim ===")
-			table.insert(report, "Found roots: " .. tostring(#roots))
+			local roots = getWholeGameRoots()
+			local report = {}
+			local remotesList = {}
+			local visitedInstances = {}
+			local totalNodes = 0
+			local totalScripts = 0
+			local totalRemotes = 0
+			local uiBudget = { left = 320 }
+
+			table.insert(report, "=== WHOLE GAME STRUCTURE + ALL REMOTES DUMP ===")
 			table.insert(report, "")
 
-			for idx, entry in ipairs(roots) do
-				local inst = entry.inst
-				local isClaimBranch = string.find(string.lower(entry.tag), "claim", 1, true) ~= nil
-					or string.find(string.lower(inst.Name), "claim", 1, true) ~= nil
+			for idx, rootInst in ipairs(roots) do
+				if not visitedInstances[rootInst] then
+					local head = string.format("▼ ROOT #%d: %s (%s)", idx, safeFullName(rootInst), rootInst.ClassName)
+					table.insert(report, head)
+					if uiBudget.left > 0 then
+						uiBudget.left -= 1
+						pushUiLine(head, Color3.fromRGB(255, 140, 120))
+					end
 
-				local head = string.format("▼ #%d [%s] %s (%s)", idx, entry.tag, safeFullName(inst), inst.ClassName)
-				table.insert(report, head)
-				if uiBudget.left > 0 then
-					uiBudget.left -= 1
-					pushUiLine(head, isClaimBranch and Color3.fromRGB(115, 240, 165) or Color3.fromRGB(255, 130, 120))
+					local nCount, sCount, rCount = dumpWholeBranch(rootInst, report, uiBudget, visitedInstances, remotesList)
+					totalNodes += nCount
+					totalScripts += sCount
+					totalRemotes += rCount
+
+					local foot = string.format("--- %s: узлов %d, скриптов %d, remote %d ---", rootInst.Name, nCount, sCount, rCount)
+					table.insert(report, foot)
+					table.insert(report, "")
 				end
-
-				local nodesInTree = traverseUnlimited(inst, report, uiBudget, isClaimBranch)
-				totalNodes += nodesInTree
-
-				local foot = string.format("--- Узлов в ветке #%d: %d ---", idx, nodesInTree)
-				table.insert(report, foot)
-				table.insert(report, "")
 			end
 
-			table.insert(report, "TOTAL TREES: " .. tostring(#roots) .. " | TOTAL NODES: " .. tostring(totalNodes))
+			table.insert(report, "=== ALL REMOTES SUMMARY (" .. tostring(#remotesList) .. ") ===")
+			for i, remLine in ipairs(remotesList) do
+				table.insert(report, string.format("%d. %s", i, remLine))
+			end
+			table.insert(report, "")
+			table.insert(report, string.format("GRAND TOTAL: Roots=%d | Nodes=%d | Scripts=%d | Remotes=%d", #roots, totalNodes, totalScripts, totalRemotes))
 			reportLinesCache = report
 
-			local previewChunks = buildChunksFromLines(reportLinesCache, 35000)
-			pushUiLine(string.format("ГОТОВО: веток %d, узлов %d, кусков ~%d. Жми 'КОПИРОВАТЬ ПО КУСКАМ'.", #roots, totalNodes, #previewChunks), Color3.fromRGB(110, 235, 145))
-			setStatus("Done: " .. tostring(#roots) .. " trees")
+			setStatus("Slicing...")
+			chunksCache = buildChunksSmoothly(reportLinesCache, CHUNK_CHAR_LIMIT)
+			nextChunkIndex = 1
+			refreshChunkButtonLabel()
+
+			pushUiLine(string.format("ГОТОВО: узлов %d, скриптов %d, remote %d, кусков %d. Жми 'КУСОК 1/%d'.", totalNodes, totalScripts, totalRemotes, #chunksCache, #chunksCache), Color3.fromRGB(110, 235, 145))
+			setStatus("Chunks: " .. tostring(#chunksCache))
 		end)
 
 		if not ok then
-			pushUiLine("Ошибка: " .. tostring(err), Color3.fromRGB(255, 85, 85))
-			setStatus("Scan Error")
+			pushUiLine("Ошибка дампа: " .. tostring(err), Color3.fromRGB(255, 85, 85))
+			setStatus("Dump Error")
 		end
 
-		isScanning = false
-		RunBtn.Text = "Scan All"
+		isDumping = false
+		RunBtn.Text = "Dump All"
 		RunBtn.BackgroundColor3 = Color3.fromRGB(45, 135, 235)
 	end)
 end
 
-local function prepareChunksIfNeeded()
-	if #chunksCache > 0 then
-		return true
-	end
-
-	local sourceLines = {}
-	if FilterBox.Text ~= "" then
-		for _, item in ipairs(rows) do
-			if item.Btn.Visible then
-				table.insert(sourceLines, item.FullLine)
-			end
-		end
-	else
-		sourceLines = reportLinesCache
-	end
-
-	if #sourceLines == 0 then
-		return false
-	end
-
-	chunksCache = buildChunksFromLines(sourceLines, 35000)
-	nextChunkIndex = 1
-	return #chunksCache > 0
-end
-
 local function copyNextChunk()
-	if not prepareChunksIfNeeded() then
+	if isBuildingChunks then
+		setStatus("Slicing...")
+		return
+	end
+
+	if #chunksCache == 0 then
+		if #reportLinesCache > 0 then
+			task.spawn(function()
+				setStatus("Slicing...")
+				chunksCache = buildChunksSmoothly(reportLinesCache, CHUNK_CHAR_LIMIT)
+				nextChunkIndex = 1
+				refreshChunkButtonLabel()
+				if #chunksCache > 0 then
+					local text1 = chunksCache[1]
+					if copySingleText(text1, "Chunk 1/" .. tostring(#chunksCache)) then
+						nextChunkIndex = 2
+						refreshChunkButtonLabel()
+					end
+				end
+			end)
+			return
+		end
 		setStatus("Empty!")
 		return
 	end
@@ -583,20 +635,22 @@ local function copyNextChunk()
 	local total = #chunksCache
 	local chunkText = chunksCache[idx]
 
-	local ok = copySingleText(chunkText, string.format("Chunk %d/%d", idx, total))
+	local header = string.format("--- CHUNK %d / %d ---\n", idx, total)
+	local ok = copySingleText(header .. chunkText, string.format("Chunk %d/%d", idx, total))
 	if ok then
 		nextChunkIndex += 1
 		if nextChunkIndex <= total then
-			CopyBufferBtn.Text = string.format("КУСОК %d/%d (ДАЛЕЕ)", idx, total)
+			CopyBufferBtn.Text = string.format("КУСОК %d/%d -> СЛЕД.", idx, total)
 		else
-			CopyBufferBtn.Text = string.format("КУСОК %d/%d (ПОВТОР)", idx, total)
+			CopyBufferBtn.Text = string.format("КОНЕЦ (%d/%d) | ПОВТОР", idx, total)
 		end
 	end
 end
 
-RunBtn.Activated:Connect(startFullScan)
+RunBtn.Activated:Connect(startWholeGameDump)
 TopCopyBtn.Activated:Connect(copyNextChunk)
 CopyBufferBtn.Activated:Connect(copyNextChunk)
+ResetQueueBtn.Activated:Connect(resetChunkIndexToStart)
 FilterBox:GetPropertyChangedSignal("Text"):Connect(applyFilterNow)
 
 ClearBtn.Activated:Connect(function()
@@ -607,7 +661,7 @@ ClearBtn.Activated:Connect(function()
 	end
 	table.clear(rows)
 	table.clear(reportLinesCache)
-	resetChunkQueue()
+	clearChunksCache()
 	setStatus("Cleared")
 end)
 
@@ -619,6 +673,7 @@ MinBtn.Activated:Connect(function()
 	CopyBufferBtn.Visible = not isMin
 	RunBtn.Visible = not isMin
 	TopCopyBtn.Visible = not isMin
+	ResetQueueBtn.Visible = not isMin
 	ClearBtn.Visible = not isMin
 	MainFrame.Size = isMin and UDim2.new(0.55, 0, 0, 34) or UDim2.new(0.94, 0, 0.56, 0)
 	MinBtn.Text = isMin and "Max" or "Min"
@@ -628,4 +683,4 @@ CloseBtn.Activated:Connect(function()
 	ScreenGui:Destroy()
 end)
 
-pushUiLine("Интерфейс готов. Жми 'Scan All', затем 'КОПИРОВАТЬ ПО КУСКАМ'.", Color3.fromRGB(180, 200, 230))
+pushUiLine("Готов выгрузить всю игру и копировать по кускам без лагов. Нажми 'Dump All'.", Color3.fromRGB(180, 200, 230))
