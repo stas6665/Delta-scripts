@@ -70,7 +70,7 @@ local TopCopyBtn = Instance.new("TextButton")
 TopCopyBtn.Size = UDim2.new(0, 64, 0, 24)
 TopCopyBtn.Position = UDim2.new(1, -236, 0.5, -12)
 TopCopyBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
-TopCopyBtn.Text = "Копировать"
+TopCopyBtn.Text = "Кусок"
 TopCopyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 TopCopyBtn.Font = Enum.Font.GothamBold
 TopCopyBtn.TextSize = 9
@@ -114,7 +114,7 @@ local FilterBox = Instance.new("TextBox")
 FilterBox.Size = UDim2.new(1, -16, 0, 28)
 FilterBox.Position = UDim2.new(0, 8, 0, 40)
 FilterBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-FilterBox.PlaceholderText = "Фильтр по пути/имени (Inventory, Sync, Item, Module, Box)..."
+FilterBox.PlaceholderText = "Фильтр по пути/имени (Inventory, Sync, Item, Module, Box, Claim)..."
 FilterBox.PlaceholderColor3 = Color3.fromRGB(135, 135, 155)
 FilterBox.Text = ""
 FilterBox.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -129,7 +129,7 @@ CopyBufferBtn.Name = "CopyToClipboardBtn"
 CopyBufferBtn.Size = UDim2.new(1, -16, 0, 34)
 CopyBufferBtn.Position = UDim2.new(0, 8, 1, -42)
 CopyBufferBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
-CopyBufferBtn.Text = "СКОПИРОВАТЬ В БУФЕР"
+CopyBufferBtn.Text = "КОПИРОВАТЬ ПО КУСКАМ"
 CopyBufferBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 CopyBufferBtn.Font = Enum.Font.GothamBold
 CopyBufferBtn.TextSize = 12
@@ -189,13 +189,13 @@ do
 	end)
 end
 
--- === УТИЛИТЫ СТАТУСА И БУФЕРА ===
+-- === УТИЛИТЫ СТАТУСА И КОПИРОВАНИЯ ПО КУСКАМ ===
 local statusSeq = 0
 local function setStatus(msg)
 	statusSeq += 1
 	local cur = statusSeq
 	TitleLabel.Text = msg
-	task.delay(2.0, function()
+	task.delay(2.5, function()
 		if statusSeq == cur then
 			TitleLabel.Text = "TREE SCAN"
 		end
@@ -215,14 +215,11 @@ local function getClipboardFn()
 		or nil
 end
 
-local function copyText(str, statusPrefix)
+local function copySingleText(str, statusLabel)
 	local txt = tostring(str or "")
 	if #txt == 0 then
 		setStatus("Empty!")
 		return false
-	end
-	if #txt > 480000 then
-		txt = string.sub(txt, 1, 480000) .. "\n-- [Обрезано для буфера обмена]"
 	end
 	local fn = getClipboardFn()
 	if type(fn) ~= "function" then
@@ -231,19 +228,55 @@ local function copyText(str, statusPrefix)
 	end
 	local ok = pcall(fn, txt)
 	if ok then
-		setStatus((statusPrefix or "Copied") .. " (" .. tostring(#txt) .. ")")
+		setStatus((statusLabel or "Copied") .. " [" .. tostring(#txt) .. "]")
 		return true
 	end
 	setStatus("Clip Err")
 	return false
 end
 
+local function buildChunksFromLines(linesList, maxCharsPerChunk)
+	local limit = maxCharsPerChunk or 35000
+	local chunks = {}
+	local currentLines = {}
+	local currentLen = 0
+
+	for i = 1, #linesList do
+		local line = tostring(linesList[i])
+		local addLen = #line + (#currentLines > 0 and 1 or 0)
+
+		if #currentLines > 0 and (currentLen + addLen) > limit then
+			table.insert(chunks, table.concat(currentLines, "\n"))
+			table.clear(currentLines)
+			currentLen = 0
+			addLen = #line
+		end
+
+		table.insert(currentLines, line)
+		currentLen += addLen
+	end
+
+	if #currentLines > 0 then
+		table.insert(chunks, table.concat(currentLines, "\n"))
+	end
+
+	return chunks
+end
+
 -- === ВЫВОД СТРОК В ИНТЕРФЕЙС ===
 local rows = {}
 local rowOrder = 0
-local fullReportCache = ""
+local reportLinesCache = {}
+local chunksCache = {}
+local nextChunkIndex = 1
 local isScanning = false
 local maxUiRows = 450
+
+local function resetChunkQueue()
+	table.clear(chunksCache)
+	nextChunkIndex = 1
+	CopyBufferBtn.Text = "КОПИРОВАТЬ ПО КУСКАМ"
+end
 
 local function passesFilter(lineText, query)
 	if query == "" then
@@ -253,6 +286,7 @@ local function passesFilter(lineText, query)
 end
 
 local function applyFilterNow()
+	resetChunkQueue()
 	local q = FilterBox.Text
 	for _, item in ipairs(rows) do
 		item.Btn.Visible = passesFilter(item.FullLine, q)
@@ -287,8 +321,8 @@ local function pushUiLine(text, color)
 	btn.Parent = Scroll
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 
-	btn.MouseButton1Click:Connect(function()
-		copyText(lineStr, "Line")
+	btn.Activated:Connect(function()
+		copySingleText(lineStr, "Line")
 	end)
 
 	table.insert(rows, {
@@ -304,6 +338,7 @@ local TARGET_NAMES = {
 	"Item",
 	"Module",
 	"Box",
+	"Claim",
 }
 
 local function matchName(name)
@@ -327,6 +362,45 @@ local function safeFullName(inst)
 		return inst:GetFullName()
 	end)
 	return ok and res or tostring(inst)
+end
+
+local function getNodeExtraInfo(node)
+	local details = {}
+
+	if node:IsA("TextLabel") or node:IsA("TextButton") or node:IsA("TextBox") then
+		if node.Text ~= "" then
+			table.insert(details, "Text=" .. string.format("%q", tostring(node.Text)))
+		end
+	end
+
+	if node:IsA("ImageLabel") or node:IsA("ImageButton") then
+		if node.Image ~= "" then
+			table.insert(details, "Image=" .. tostring(node.Image))
+		end
+	end
+
+	if node:IsA("ValueBase") then
+		local okVal, val = pcall(function()
+			return node.Value
+		end)
+		if okVal then
+			table.insert(details, "Value=" .. tostring(val))
+		end
+	end
+
+	local okAttrs, attrs = pcall(function()
+		return node:GetAttributes()
+	end)
+	if okAttrs and type(attrs) == "table" then
+		for k, v in pairs(attrs) do
+			table.insert(details, "Attr." .. tostring(k) .. "=" .. tostring(v))
+		end
+	end
+
+	if #details == 0 then
+		return ""
+	end
+	return "  {" .. table.concat(details, ", ") .. "}"
 end
 
 local function collectRoots()
@@ -375,8 +449,7 @@ local function collectRoots()
 	return found
 end
 
--- Полный обход дерева без ограничения по глубине/высоте
-local function traverseUnlimited(rootInst, reportLines, uiBudgetRef)
+local function traverseUnlimited(rootInst, reportLines, uiBudgetRef, includeDetails)
 	local count = 0
 
 	local function walk(node, depth, prefix, isLast)
@@ -386,7 +459,8 @@ local function traverseUnlimited(rootInst, reportLines, uiBudgetRef)
 		end
 
 		local branch = (depth == 0) and "" or (isLast and "└── " or "├── ")
-		local line = string.format("%s%s[%s] %s  (%s)", prefix, branch, node.ClassName, node.Name, safeFullName(node))
+		local extra = includeDetails and getNodeExtraInfo(node) or ""
+		local line = string.format("%s%s[%s] %s%s  (%s)", prefix, branch, node.ClassName, node.Name, extra, safeFullName(node))
 		table.insert(reportLines, line)
 
 		if uiBudgetRef.left > 0 then
@@ -415,31 +489,35 @@ local function startFullScan()
 		return
 	end
 	isScanning = true
+	resetChunkQueue()
 	RunBtn.Text = "Wait..."
 	RunBtn.BackgroundColor3 = Color3.fromRGB(185, 115, 30)
 
 	task.spawn(function()
 		local ok, err = pcall(function()
-			pushUiLine("=== ПОИСК ВСЕХ ДЕРЕВЬЕВ (Inventory, Sync, Item, Module, Box) БЕЗ ЛИМИТА ВЫСОТЫ ===", Color3.fromRGB(120, 210, 255))
+			pushUiLine("=== ПОИСК ВСЕХ ДЕРЕВЬЕВ (Inventory, Sync, Item, Module, Box, Claim) БЕЗ ЛИМИТА ВЫСОТЫ ===", Color3.fromRGB(120, 210, 255))
 			local roots = collectRoots()
 			local report = {}
 			local totalNodes = 0
 			local uiBudget = { left = 380 }
 
-			table.insert(report, "=== UNLIMITED TREES SCAN: Inventory, Sync, Item, Module, Box ===")
+			table.insert(report, "=== UNLIMITED TREES SCAN: Inventory, Sync, Item, Module, Box, Claim ===")
 			table.insert(report, "Found roots: " .. tostring(#roots))
 			table.insert(report, "")
 
 			for idx, entry in ipairs(roots) do
 				local inst = entry.inst
+				local isClaimBranch = string.find(string.lower(entry.tag), "claim", 1, true) ~= nil
+					or string.find(string.lower(inst.Name), "claim", 1, true) ~= nil
+
 				local head = string.format("▼ #%d [%s] %s (%s)", idx, entry.tag, safeFullName(inst), inst.ClassName)
 				table.insert(report, head)
 				if uiBudget.left > 0 then
 					uiBudget.left -= 1
-					pushUiLine(head, Color3.fromRGB(255, 130, 120))
+					pushUiLine(head, isClaimBranch and Color3.fromRGB(115, 240, 165) or Color3.fromRGB(255, 130, 120))
 				end
 
-				local nodesInTree = traverseUnlimited(inst, report, uiBudget)
+				local nodesInTree = traverseUnlimited(inst, report, uiBudget, isClaimBranch)
 				totalNodes += nodesInTree
 
 				local foot = string.format("--- Узлов в ветке #%d: %d ---", idx, nodesInTree)
@@ -448,13 +526,10 @@ local function startFullScan()
 			end
 
 			table.insert(report, "TOTAL TREES: " .. tostring(#roots) .. " | TOTAL NODES: " .. tostring(totalNodes))
-			fullReportCache = table.concat(report, "\n")
+			reportLinesCache = report
 
-			if type(writefile) == "function" then
-				pcall(writefile, "AllTrees_NoLimit_" .. tostring(os.time()) .. ".txt", fullReportCache)
-			end
-
-			pushUiLine(string.format("ГОТОВО: веток %d, узлов %d. Нажми 'СКОПИРОВАТЬ В БУФЕР'.", #roots, totalNodes), Color3.fromRGB(110, 235, 145))
+			local previewChunks = buildChunksFromLines(reportLinesCache, 35000)
+			pushUiLine(string.format("ГОТОВО: веток %d, узлов %d, кусков ~%d. Жми 'КОПИРОВАТЬ ПО КУСКАМ'.", #roots, totalNodes, #previewChunks), Color3.fromRGB(110, 235, 145))
 			setStatus("Done: " .. tostring(#roots) .. " trees")
 		end)
 
@@ -469,42 +544,75 @@ local function startFullScan()
 	end)
 end
 
-local function handleCopyAction()
-	if #fullReportCache > 0 and FilterBox.Text == "" then
-		copyText(fullReportCache, "FullReport")
+local function prepareChunksIfNeeded()
+	if #chunksCache > 0 then
+		return true
+	end
+
+	local sourceLines = {}
+	if FilterBox.Text ~= "" then
+		for _, item in ipairs(rows) do
+			if item.Btn.Visible then
+				table.insert(sourceLines, item.FullLine)
+			end
+		end
+	else
+		sourceLines = reportLinesCache
+	end
+
+	if #sourceLines == 0 then
+		return false
+	end
+
+	chunksCache = buildChunksFromLines(sourceLines, 35000)
+	nextChunkIndex = 1
+	return #chunksCache > 0
+end
+
+local function copyNextChunk()
+	if not prepareChunksIfNeeded() then
+		setStatus("Empty!")
 		return
 	end
-	local visible = {}
-	for _, item in ipairs(rows) do
-		if item.Btn.Visible then
-			table.insert(visible, item.FullLine)
-		end
+
+	if nextChunkIndex > #chunksCache then
+		nextChunkIndex = 1
 	end
-	if #visible > 0 then
-		copyText(table.concat(visible, "\n"), "Lines")
-	else
-		copyText(fullReportCache, "FullReport")
+
+	local idx = nextChunkIndex
+	local total = #chunksCache
+	local chunkText = chunksCache[idx]
+
+	local ok = copySingleText(chunkText, string.format("Chunk %d/%d", idx, total))
+	if ok then
+		nextChunkIndex += 1
+		if nextChunkIndex <= total then
+			CopyBufferBtn.Text = string.format("КУСОК %d/%d (ДАЛЕЕ)", idx, total)
+		else
+			CopyBufferBtn.Text = string.format("КУСОК %d/%d (ПОВТОР)", idx, total)
+		end
 	end
 end
 
-RunBtn.MouseButton1Click:Connect(startFullScan)
-TopCopyBtn.MouseButton1Click:Connect(handleCopyAction)
-CopyBufferBtn.MouseButton1Click:Connect(handleCopyAction)
+RunBtn.Activated:Connect(startFullScan)
+TopCopyBtn.Activated:Connect(copyNextChunk)
+CopyBufferBtn.Activated:Connect(copyNextChunk)
 FilterBox:GetPropertyChangedSignal("Text"):Connect(applyFilterNow)
 
-ClearBtn.MouseButton1Click:Connect(function()
+ClearBtn.Activated:Connect(function()
 	for _, item in ipairs(rows) do
 		if item.Btn then
 			item.Btn:Destroy()
 		end
 	end
 	table.clear(rows)
-	fullReportCache = ""
+	table.clear(reportLinesCache)
+	resetChunkQueue()
 	setStatus("Cleared")
 end)
 
 local isMin = false
-MinBtn.MouseButton1Click:Connect(function()
+MinBtn.Activated:Connect(function()
 	isMin = not isMin
 	FilterBox.Visible = not isMin
 	Scroll.Visible = not isMin
@@ -516,8 +624,8 @@ MinBtn.MouseButton1Click:Connect(function()
 	MinBtn.Text = isMin and "Max" or "Min"
 end)
 
-CloseBtn.MouseButton1Click:Connect(function()
+CloseBtn.Activated:Connect(function()
 	ScreenGui:Destroy()
 end)
 
-pushUiLine("Интерфейс готов. Нажми 'Scan All', затем 'СКОПИРОВАТЬ В БУФЕР'.", Color3.fromRGB(180, 200, 230))
+pushUiLine("Интерфейс готов. Жми 'Scan All', затем 'КОПИРОВАТЬ ПО КУСКАМ'.", Color3.fromRGB(180, 200, 230))
