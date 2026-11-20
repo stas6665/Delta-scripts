@@ -6,13 +6,13 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local parentGui = LocalPlayer:WaitForChild("PlayerGui")
 
-if parentGui:FindFirstChild("SafeDumpNoCrashGui") then
-	parentGui.SafeDumpNoCrashGui:Destroy()
+if parentGui:FindFirstChild("CopyUiAllGui") then
+	parentGui.CopyUiAllGui:Destroy()
 end
 
 -- === ИНТЕРФЕЙС ===
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "SafeDumpNoCrashGui"
+ScreenGui.Name = "CopyUiAllGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = parentGui
@@ -42,10 +42,10 @@ TopBar.Parent = MainFrame
 Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 10)
 
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(0.24, -6, 1, 0)
+TitleLabel.Size = UDim2.new(0.26, -6, 1, 0)
 TitleLabel.Position = UDim2.new(0, 8, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "SAFE DUMP"
+TitleLabel.Text = "UI DUMPER"
 TitleLabel.TextColor3 = Color3.fromRGB(235, 240, 255)
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Font = Enum.Font.GothamBold
@@ -53,8 +53,8 @@ TitleLabel.TextSize = 10
 TitleLabel.Parent = TopBar
 
 local ScanQueryBtn = Instance.new("TextButton")
-ScanQueryBtn.Size = UDim2.new(0, 58, 0, 24)
-ScanQueryBtn.Position = UDim2.new(1, -366, 0.5, -12)
+ScanQueryBtn.Size = UDim2.new(0, 62, 0, 24)
+ScanQueryBtn.Position = UDim2.new(1, -304, 0.5, -12)
 ScanQueryBtn.BackgroundColor3 = Color3.fromRGB(45, 135, 235)
 ScanQueryBtn.Text = "Find Tree"
 ScanQueryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -64,8 +64,8 @@ ScanQueryBtn.Parent = TopBar
 Instance.new("UICorner", ScanQueryBtn).CornerRadius = UDim.new(0, 6)
 
 local DumpScriptsBtn = Instance.new("TextButton")
-DumpScriptsBtn.Size = UDim2.new(0, 62, 0, 24)
-DumpScriptsBtn.Position = UDim2.new(1, -302, 0.5, -12)
+DumpScriptsBtn.Size = UDim2.new(0, 66, 0, 24)
+DumpScriptsBtn.Position = UDim2.new(1, -236, 0.5, -12)
 DumpScriptsBtn.BackgroundColor3 = Color3.fromRGB(125, 65, 195)
 DumpScriptsBtn.Text = "Scripts In"
 DumpScriptsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -74,20 +74,9 @@ DumpScriptsBtn.TextSize = 9
 DumpScriptsBtn.Parent = TopBar
 Instance.new("UICorner", DumpScriptsBtn).CornerRadius = UDim.new(0, 6)
 
-local SaveFileBtn = Instance.new("TextButton")
-SaveFileBtn.Size = UDim2.new(0, 60, 0, 24)
-SaveFileBtn.Position = UDim2.new(1, -234, 0.5, -12)
-SaveFileBtn.BackgroundColor3 = Color3.fromRGB(30, 125, 145)
-SaveFileBtn.Text = "Save File"
-SaveFileBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-SaveFileBtn.Font = Enum.Font.GothamBold
-SaveFileBtn.TextSize = 9
-SaveFileBtn.Parent = TopBar
-Instance.new("UICorner", SaveFileBtn).CornerRadius = UDim.new(0, 6)
-
 local ClearBtn = Instance.new("TextButton")
-ClearBtn.Size = UDim2.new(0, 46, 0, 24)
-ClearBtn.Position = UDim2.new(1, -168, 0.5, -12)
+ClearBtn.Size = UDim2.new(0, 48, 0, 24)
+ClearBtn.Position = UDim2.new(1, -164, 0.5, -12)
 ClearBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
 ClearBtn.Text = "Clear"
 ClearBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
@@ -97,8 +86,8 @@ ClearBtn.Parent = TopBar
 Instance.new("UICorner", ClearBtn).CornerRadius = UDim.new(0, 6)
 
 local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 44, 0, 24)
-MinBtn.Position = UDim2.new(1, -116, 0.5, -12)
+MinBtn.Size = UDim2.new(0, 48, 0, 24)
+MinBtn.Position = UDim2.new(1, -110, 0.5, -12)
 MinBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
 MinBtn.Text = "Min"
 MinBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
@@ -108,8 +97,8 @@ MinBtn.Parent = TopBar
 Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
 
 local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 38, 0, 24)
-CloseBtn.Position = UDim2.new(1, -44, 0.5, -12)
+CloseBtn.Size = UDim2.new(0, 42, 0, 24)
+CloseBtn.Position = UDim2.new(1, -52, 0.5, -12)
 CloseBtn.BackgroundColor3 = Color3.fromRGB(165, 45, 55)
 CloseBtn.Text = "X"
 CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -122,7 +111,7 @@ local QueryBox = Instance.new("TextBox")
 QueryBox.Size = UDim2.new(1, -16, 0, 28)
 QueryBox.Position = UDim2.new(0, 8, 0, 40)
 QueryBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-QueryBox.PlaceholderText = "Введи слово (Claimed, Inventory, Box, Sync, Icecream)..."
+QueryBox.PlaceholderText = "Запрос (Claimed, Inventory, Box, Sync, Item)..."
 QueryBox.PlaceholderColor3 = Color3.fromRGB(135, 135, 155)
 QueryBox.Text = ""
 QueryBox.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -132,17 +121,17 @@ QueryBox.TextSize = 12
 QueryBox.Parent = MainFrame
 Instance.new("UICorner", QueryBox).CornerRadius = UDim.new(0, 6)
 
-local SafeCopyBtn = Instance.new("TextButton")
-SafeCopyBtn.Name = "SafeCopyBtn"
-SafeCopyBtn.Size = UDim2.new(1, -16, 0, 34)
-SafeCopyBtn.Position = UDim2.new(0, 8, 1, -42)
-SafeCopyBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
-SafeCopyBtn.Text = "БЕЗОПАСНОЕ КОПИРОВАНИЕ (БЕЗ ВЫЛЕТОВ)"
-SafeCopyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-SafeCopyBtn.Font = Enum.Font.GothamBold
-SafeCopyBtn.TextSize = 11
-SafeCopyBtn.Parent = MainFrame
-Instance.new("UICorner", SafeCopyBtn).CornerRadius = UDim.new(0, 7)
+local CopyUiBtn = Instance.new("TextButton")
+CopyUiBtn.Name = "CopyUiBtn"
+CopyUiBtn.Size = UDim2.new(1, -16, 0, 34)
+CopyUiBtn.Position = UDim2.new(0, 8, 1, -42)
+CopyUiBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
+CopyUiBtn.Text = "СКОПИРОВАТЬ ВСЁ ИЗ ИНТЕРФЕЙСА"
+CopyUiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CopyUiBtn.Font = Enum.Font.GothamBold
+CopyUiBtn.TextSize = 11
+CopyUiBtn.Parent = MainFrame
+Instance.new("UICorner", CopyUiBtn).CornerRadius = UDim.new(0, 7)
 
 local Scroll = Instance.new("ScrollingFrame")
 Scroll.Size = UDim2.new(1, -16, 1, -118)
@@ -197,14 +186,12 @@ do
 	end)
 end
 
--- === СТАТУС, БЕЗОПАСНЫЙ БУФЕР И ЗАПИСЬ В ФАЙЛ ===
-local SAFE_DIRECT_LIMIT = 45000
-local SAFE_CHUNK_LIMIT = 20000
+-- === СТАТУС И КОПИРОВАНИЕ ВСЕГО ВЫВЕДЕННОГО В ИНТЕРФЕЙС ===
 local statusSeq = 0
-local linesCache = {}
-local chunksCache = {}
-local nextChunkIdx = 1
 local isBusy = false
+local rows = {}
+local rowOrder = 0
+local maxUiRows = 450
 
 local function setStatus(msg)
 	statusSeq += 1
@@ -212,15 +199,9 @@ local function setStatus(msg)
 	TitleLabel.Text = msg
 	task.delay(2.5, function()
 		if statusSeq == cur then
-			TitleLabel.Text = "SAFE DUMP"
+			TitleLabel.Text = "UI DUMPER"
 		end
 	end)
-end
-
-local function resetChunks()
-	table.clear(chunksCache)
-	nextChunkIdx = 1
-	SafeCopyBtn.Text = "БЕЗОПАСНОЕ КОПИРОВАНИЕ (БЕЗ ВЫЛЕТОВ)"
 end
 
 local function getClipboardFn()
@@ -236,14 +217,7 @@ local function getClipboardFn()
 		or nil
 end
 
-local function getFileApis()
-	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
-	local wFn = writefile or (genv and genv.writefile)
-	local aFn = appendfile or (genv and genv.appendfile)
-	return wFn, aFn
-end
-
-local function copyClipSafe(str, label)
+local function copyToClipboard(str, label)
 	local txt = tostring(str or "")
 	if #txt == 0 then
 		setStatus("Empty!")
@@ -263,115 +237,25 @@ local function copyClipSafe(str, label)
 	return false
 end
 
-local function buildChunksFromLines(srcLines, maxChars)
-	local limit = maxChars or SAFE_CHUNK_LIMIT
-	local out = {}
-	local buf = {}
-	local curLen = 0
-
-	for i = 1, #srcLines do
-		if i % 900 == 0 then
-			RunService.Heartbeat:Wait()
-		end
-		local line = tostring(srcLines[i])
-		if #line > limit then
-			line = string.sub(line, 1, limit) .. "...[TRIMMED]"
-		end
-		local addLen = #line + (#buf > 0 and 1 or 0)
-		if #buf > 0 and (curLen + addLen) > limit then
-			table.insert(out, table.concat(buf, "\n"))
-			table.clear(buf)
-			curLen = 0
-			addLen = #line
-		end
-		table.insert(buf, line)
-		curLen += addLen
-	end
-
-	if #buf > 0 then
-		table.insert(out, table.concat(buf, "\n"))
-	end
-	return out
-end
-
-local function estimateTotalChars(srcLines)
-	local total = 0
-	for i = 1, #srcLines do
-		total += #tostring(srcLines[i]) + 1
-	end
-	return total
-end
-
-local function saveReportToFile()
-	if isBusy then
-		setStatus("Busy...")
-		return
-	end
-	if #linesCache == 0 then
+local function copyAllVisibleInUi()
+	if #rows == 0 then
 		setStatus("Empty!")
 		return
 	end
-
-	local writeFn, appendFn = getFileApis()
-	if type(writeFn) ~= "function" then
-		setStatus("No writefile")
-		return
-	end
-
-	isBusy = true
-	SaveFileBtn.Text = "Saving..."
-	task.spawn(function()
-		local fileName = "game_dump_" .. tostring(os.time()) .. ".txt"
-		local ok, err = pcall(function()
-			writeFn(fileName, "")
-			local batch = {}
-			local batchLen = 0
-			for i = 1, #linesCache do
-				if i % 800 == 0 then
-					RunService.Heartbeat:Wait()
-				end
-				local ln = tostring(linesCache[i]) .. "\n"
-				if batchLen + #ln > 32000 then
-					if type(appendFn) == "function" then
-						appendFn(fileName, table.concat(batch))
-					else
-						writeFn(fileName, table.concat(batch))
-					end
-					table.clear(batch)
-					batchLen = 0
-				end
-				table.insert(batch, ln)
-				batchLen += #ln
-			end
-			if #batch > 0 then
-				if type(appendFn) == "function" then
-					appendFn(fileName, table.concat(batch))
-				else
-					writeFn(fileName, table.concat(batch))
-				end
-			end
-		end)
-		if ok then
-			setStatus("Saved: " .. fileName)
-		else
-			setStatus("File Err: " .. tostring(err))
+	local parts = {}
+	for i = 1, #rows do
+		local item = rows[i]
+		if item and item.FullLine then
+			table.insert(parts, item.FullLine)
 		end
-		isBusy = false
-		SaveFileBtn.Text = "Save File"
-	end)
+	end
+	copyToClipboard(table.concat(parts, "\n"), "UI All")
 end
 
 -- === ВЫВОД В ИНТЕРФЕЙС ===
-local rows = {}
-local rowOrder = 0
-local maxUiRows = 220
-
 local function pushUiLine(text, color)
 	rowOrder += 1
 	local lineStr = tostring(text)
-	if #lineStr > 450 then
-		lineStr = string.sub(lineStr, 1, 450) .. "..."
-	end
 
 	if #rows >= maxUiRows then
 		local first = table.remove(rows, 1)
@@ -397,7 +281,7 @@ local function pushUiLine(text, color)
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 
 	btn.Activated:Connect(function()
-		copyClipSafe(lineStr, "Line")
+		copyToClipboard(lineStr, "Line")
 	end)
 
 	table.insert(rows, {
@@ -478,20 +362,20 @@ local function describeNode(node)
 	return "  {" .. table.concat(props, ", ") .. "}"
 end
 
-local function dumpSubtree(rootInst, reportLines, uiBudget)
+local function dumpSubtreeToUi(rootInst, budget)
 	local count = 0
 	local function walk(node, depth, prefix, isLast)
+		if budget.left <= 0 then
+			return
+		end
 		count += 1
-		if count % 400 == 0 then
+		if count % 300 == 0 then
 			RunService.Heartbeat:Wait()
 		end
 		local branch = (depth == 0) and "" or (isLast and "└── " or "├── ")
 		local line = string.format("%s%s[%s] %s%s  (%s)", prefix, branch, node.ClassName, node.Name, describeNode(node), safeFullName(node))
-		table.insert(reportLines, line)
-		if uiBudget.left > 0 then
-			uiBudget.left -= 1
-			pushUiLine(line, depth == 0 and Color3.fromRGB(255, 205, 95) or Color3.fromRGB(215, 235, 255))
-		end
+		budget.left -= 1
+		pushUiLine(line, depth == 0 and Color3.fromRGB(255, 205, 95) or Color3.fromRGB(215, 235, 255))
 
 		local okCh, ch = pcall(function()
 			return node:GetChildren()
@@ -499,6 +383,9 @@ local function dumpSubtree(rootInst, reportLines, uiBudget)
 		if okCh and type(ch) == "table" then
 			local nextPrefix = (depth == 0) and "" or (prefix .. (isLast and "    " or "│   "))
 			for i, c in ipairs(ch) do
+				if budget.left <= 0 then
+					break
+				end
 				walk(c, depth + 1, nextPrefix, i == #ch)
 			end
 		end
@@ -568,7 +455,6 @@ local function runQueryStructureScan()
 		return
 	end
 	isBusy = true
-	resetChunks()
 	ScanQueryBtn.Text = "Wait..."
 	ScanQueryBtn.BackgroundColor3 = Color3.fromRGB(185, 115, 30)
 
@@ -612,26 +498,18 @@ local function runQueryStructureScan()
 				end
 			end
 
-			local report = {}
-			local totalNodes = 0
-			local uiBudget = { left = 200 }
-
+			local budget = { left = 350 }
 			for idx, entry in ipairs(matched) do
-				local inst = entry.inst
-				local head = string.format("▼ #%d [%s] %s (%s)", idx, entry.tag, safeFullName(inst), inst.ClassName)
-				table.insert(report, head)
-				if uiBudget.left > 0 then
-					uiBudget.left -= 1
-					pushUiLine(head, Color3.fromRGB(115, 240, 165))
+				if budget.left <= 0 then
+					break
 				end
-				totalNodes += dumpSubtree(inst, report, uiBudget)
-				table.insert(report, "")
+				local inst = entry.inst
+				budget.left -= 1
+				pushUiLine(string.format("▼ #%d [%s] %s (%s)", idx, entry.tag, safeFullName(inst), inst.ClassName), Color3.fromRGB(115, 240, 165))
+				dumpSubtreeToUi(inst, budget)
 			end
 
-			linesCache = report
-			local totalChars = estimateTotalChars(linesCache)
-			pushUiLine(string.format("ГОТОВО: веток %d, узлов %d, символов ~%d.", #matched, totalNodes, totalChars), Color3.fromRGB(110, 235, 145))
-			setStatus("Chars: " .. tostring(totalChars))
+			setStatus("Trees: " .. tostring(#matched))
 		end)
 
 		if not ok then
@@ -703,73 +581,87 @@ local function formatLeafValue(val)
 	return "<" .. t .. ">"
 end
 
-local function dumpRequireValueLines(val, outLines, indent, depth, visited, lineBudget)
-	if lineBudget.left <= 0 then
+local function dumpRequireValueToUi(val, indent, depth, visited, budget)
+	if budget.left <= 0 then
 		return
 	end
 	local pad = string.rep("  ", indent)
 	if type(val) ~= "table" then
-		table.insert(outLines, pad .. formatLeafValue(val))
-		lineBudget.left -= 1
+		budget.left -= 1
+		pushUiLine(pad .. formatLeafValue(val), Color3.fromRGB(205, 225, 245))
 		return
 	end
 	if visited[val] or depth >= 4 then
-		table.insert(outLines, pad .. "{...}")
-		lineBudget.left -= 1
+		budget.left -= 1
+		pushUiLine(pad .. "{...}", Color3.fromRGB(205, 225, 245))
 		return
 	end
 	visited[val] = true
-	table.insert(outLines, pad .. "{")
-	lineBudget.left -= 1
+	budget.left -= 1
+	pushUiLine(pad .. "{", Color3.fromRGB(205, 225, 245))
 
 	local c = 0
 	for k, v in pairs(val) do
 		c += 1
-		if c > 45 or lineBudget.left <= 0 then
-			table.insert(outLines, pad .. "  ...")
-			lineBudget.left -= 1
+		if c > 45 or budget.left <= 0 then
+			if budget.left > 0 then
+				budget.left -= 1
+				pushUiLine(pad .. "  ...", Color3.fromRGB(160, 175, 195))
+			end
 			break
 		end
 		local label = formatKeyLabel(k)
 		if type(v) == "table" and not visited[v] and (depth + 1) < 4 then
-			table.insert(outLines, pad .. "  " .. label .. " =")
-			lineBudget.left -= 1
-			dumpRequireValueLines(v, outLines, indent + 2, depth + 1, visited, lineBudget)
+			if budget.left > 0 then
+				budget.left -= 1
+				pushUiLine(pad .. "  " .. label .. " =", Color3.fromRGB(220, 235, 255))
+			end
+			dumpRequireValueToUi(v, indent + 2, depth + 1, visited, budget)
 		else
-			table.insert(outLines, pad .. "  " .. label .. " = " .. formatLeafValue(v))
-			lineBudget.left -= 1
+			if budget.left > 0 then
+				budget.left -= 1
+				pushUiLine(pad .. "  " .. label .. " = " .. formatLeafValue(v), Color3.fromRGB(205, 225, 245))
+			end
 		end
 	end
 
-	if lineBudget.left > 0 then
-		table.insert(outLines, pad .. "}")
-		lineBudget.left -= 1
+	if budget.left > 0 then
+		budget.left -= 1
+		pushUiLine(pad .. "}", Color3.fromRGB(205, 225, 245))
 	end
 	visited[val] = nil
 end
 
-local function extractScriptInnerContent(scriptObj)
-	local lines = {}
+local function extractScriptInnerToUi(scriptObj, budget)
+	if budget.left <= 0 then
+		return
+	end
 	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
 
 	local decompileFn = decompile or (genv and genv.decompile)
 	if type(decompileFn) == "function" then
 		local okDec, src = pcall(decompileFn, scriptObj)
 		if okDec and type(src) == "string" and #src > 0 then
-			table.insert(lines, "  [DECOMPILED]:")
+			budget.left -= 1
+			pushUiLine("  [DECOMPILED]:", Color3.fromRGB(165, 210, 255))
 			for sLine in string.gmatch(src, "[^\r\n]+") do
-				table.insert(lines, "    " .. sLine)
+				if budget.left <= 0 then
+					break
+				end
+				budget.left -= 1
+				pushUiLine("    " .. sLine, Color3.fromRGB(205, 225, 245))
 			end
-			return lines
+			return
 		end
 	end
 
 	if scriptObj:IsA("ModuleScript") then
 		local okReq, modVal = pcall(require, scriptObj)
 		if okReq then
-			table.insert(lines, "  [REQUIRE]:")
-			dumpRequireValueLines(modVal, lines, 2, 0, {}, { left = 120 })
-			return lines
+			budget.left -= 1
+			pushUiLine("  [REQUIRE]:", Color3.fromRGB(165, 210, 255))
+			dumpRequireValueToUi(modVal, 2, 0, {}, budget)
+			return
 		end
 	end
 
@@ -777,14 +669,14 @@ local function extractScriptInnerContent(scriptObj)
 	if type(bcFn) == "function" then
 		local okBc, bc = pcall(bcFn, scriptObj)
 		if okBc and type(bc) == "string" and #bc > 0 then
-			table.insert(lines, "  [BYTECODE]: " .. tostring(#bc) .. " bytes")
+			budget.left -= 1
+			pushUiLine("  [BYTECODE]: " .. tostring(#bc) .. " bytes", Color3.fromRGB(185, 195, 215))
+			return
 		end
 	end
 
-	if #lines == 0 then
-		table.insert(lines, "  [INNER]: недоступно")
-	end
-	return lines
+	budget.left -= 1
+	pushUiLine("  [INNER]: недоступно", Color3.fromRGB(155, 165, 185))
 end
 
 local function runScriptsBranchesDump()
@@ -793,7 +685,6 @@ local function runScriptsBranchesDump()
 		return
 	end
 	isBusy = true
-	resetChunks()
 	DumpScriptsBtn.Text = "Wait..."
 	DumpScriptsBtn.BackgroundColor3 = Color3.fromRGB(185, 115, 30)
 
@@ -801,12 +692,16 @@ local function runScriptsBranchesDump()
 		local ok, err = pcall(function()
 			pushUiLine("=== СКРИПТЫ И МОДУЛИ (БЕЗ СЕРВЕРНЫХ) ===", Color3.fromRGB(185, 130, 255))
 			local branches = getTargetScriptBranches()
-			local report = {}
 			local scriptsFound = 0
-			local uiBudget = { left = 200 }
+			local budget = { left = 350 }
 
 			for _, branch in ipairs(branches) do
-				table.insert(report, "▼ BRANCH: " .. safeFullName(branch))
+				if budget.left <= 0 then
+					break
+				end
+				budget.left -= 1
+				pushUiLine("▼ BRANCH: " .. safeFullName(branch), Color3.fromRGB(255, 205, 95))
+
 				local candidates = { branch }
 				local okDesc, desc = pcall(function()
 					return branch:GetDescendants()
@@ -818,29 +713,22 @@ local function runScriptsBranchesDump()
 				end
 
 				for idx, obj in ipairs(candidates) do
+					if budget.left <= 0 then
+						break
+					end
 					if idx % 200 == 0 then
 						RunService.Heartbeat:Wait()
 					end
 					if obj:IsA("LuaSourceContainer") and not isServerOnlyScript(obj) then
 						scriptsFound += 1
-						local sHead = string.format("  [%s] %s (%s)", obj.ClassName, obj.Name, safeFullName(obj))
-						table.insert(report, sHead)
-						if uiBudget.left > 0 then
-							uiBudget.left -= 1
-							pushUiLine(sHead, Color3.fromRGB(120, 240, 175))
-						end
-						for _, iLine in ipairs(extractScriptInnerContent(obj)) do
-							table.insert(report, iLine)
-						end
+						budget.left -= 1
+						pushUiLine(string.format("  [%s] %s (%s)", obj.ClassName, obj.Name, safeFullName(obj)), Color3.fromRGB(120, 240, 175))
+						extractScriptInnerToUi(obj, budget)
 					end
 				end
-				table.insert(report, "")
 			end
 
-			linesCache = report
-			local totalChars = estimateTotalChars(linesCache)
-			pushUiLine(string.format("ГОТОВО: скриптов/модулей %d, символов ~%d.", scriptsFound, totalChars), Color3.fromRGB(110, 235, 145))
-			setStatus("Chars: " .. tostring(totalChars))
+			setStatus("Scripts: " .. tostring(scriptsFound))
 		end)
 
 		if not ok then
@@ -854,59 +742,9 @@ local function runScriptsBranchesDump()
 	end)
 end
 
-local function runSafeCopy()
-	if isBusy then
-		setStatus("Busy...")
-		return
-	end
-	if #linesCache == 0 then
-		setStatus("Empty!")
-		return
-	end
-
-	local estChars = estimateTotalChars(linesCache)
-	if estChars <= SAFE_DIRECT_LIMIT and #chunksCache == 0 then
-		local wholeText = table.concat(linesCache, "\n")
-		copyClipSafe(wholeText, "Copied")
-		return
-	end
-
-	if #chunksCache == 0 then
-		isBusy = true
-		SafeCopyBtn.Text = "Slicing..."
-		task.spawn(function()
-			chunksCache = buildChunksFromLines(linesCache, SAFE_CHUNK_LIMIT)
-			nextChunkIdx = 1
-			isBusy = false
-			if #chunksCache > 0 then
-				local idx = nextChunkIdx
-				local total = #chunksCache
-				local head = string.format("[PART %d/%d]\n", idx, total)
-				if copyClipSafe(head .. chunksCache[idx], string.format("Part %d/%d", idx, total)) then
-					nextChunkIdx += 1
-					SafeCopyBtn.Text = string.format("ЧАСТЬ %d/%d -> ДАЛЕЕ", idx, total)
-				end
-			end
-		end)
-		return
-	end
-
-	if nextChunkIdx > #chunksCache then
-		nextChunkIdx = 1
-	end
-	local idx = nextChunkIdx
-	local total = #chunksCache
-	local head = string.format("[PART %d/%d]\n", idx, total)
-	if copyClipSafe(head .. chunksCache[idx], string.format("Part %d/%d", idx, total)) then
-		nextChunkIdx += 1
-		SafeCopyBtn.Text = string.format("ЧАСТЬ %d/%d -> ДАЛЕЕ", idx, total)
-	end
-end
-
 ScanQueryBtn.Activated:Connect(runQueryStructureScan)
 DumpScriptsBtn.Activated:Connect(runScriptsBranchesDump)
-SaveFileBtn.Activated:Connect(saveReportToFile)
-SafeCopyBtn.Activated:Connect(runSafeCopy)
+CopyUiBtn.Activated:Connect(copyAllVisibleInUi)
 
 ClearBtn.Activated:Connect(function()
 	for _, item in ipairs(rows) do
@@ -915,8 +753,6 @@ ClearBtn.Activated:Connect(function()
 		end
 	end
 	table.clear(rows)
-	table.clear(linesCache)
-	resetChunks()
 	setStatus("Cleared")
 end)
 
@@ -925,10 +761,9 @@ MinBtn.Activated:Connect(function()
 	isMin = not isMin
 	QueryBox.Visible = not isMin
 	Scroll.Visible = not isMin
-	SafeCopyBtn.Visible = not isMin
+	CopyUiBtn.Visible = not isMin
 	ScanQueryBtn.Visible = not isMin
 	DumpScriptsBtn.Visible = not isMin
-	SaveFileBtn.Visible = not isMin
 	ClearBtn.Visible = not isMin
 	MainFrame.Size = isMin and UDim2.new(0.55, 0, 0, 34) or UDim2.new(0.94, 0, 0.58, 0)
 	MinBtn.Text = isMin and "Max" or "Min"
@@ -938,4 +773,4 @@ CloseBtn.Activated:Connect(function()
 	ScreenGui:Destroy()
 end)
 
-pushUiLine("Для защиты от вылетов на телефоне: малый отчёт копируется целиком, огромный — безопасными частями или в файл.", Color3.fromRGB(180, 200, 230))
+pushUiLine("Готово. Нажми 'Find Tree' или 'Scripts In', затем 'СКОПИРОВАТЬ ВСЁ ИЗ ИНТЕРФЕЙСА'.", Color3.fromRGB(180, 200, 230))
