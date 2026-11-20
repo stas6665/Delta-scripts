@@ -1,776 +1,794 @@
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local Debris = game:GetService("Debris")
 
-local LocalPlayer = Players.LocalPlayer
-local parentGui = LocalPlayer:WaitForChild("PlayerGui")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
-if parentGui:FindFirstChild("CopyUiAllGui") then
-	parentGui.CopyUiAllGui:Destroy()
+local mainGui = playerGui:WaitForChild("MainGUI")
+local gameGui = mainGui:WaitForChild("Game")
+local newItemFrame = gameGui:WaitForChild("NewItem")
+local claimBtn = newItemFrame:WaitForChild("Container"):WaitForChild("Claim")
+
+local itemModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ItemModule"))
+local syncDb = require(ReplicatedStorage:WaitForChild("Database"):WaitForChild("Sync"))
+
+local TARGET_KEY = "Gingerscope"
+local TARGET_ID = 15617843269
+local FALLBACK_ICON = "rbxassetid://" .. tostring(TARGET_ID)
+local FIRE_COOLDOWN = 0.14
+
+local isClaimed = false
+local isEquipped = false
+local activeHandHandle = nil
+local holdTrack = nil
+local currentCardNameLabel = nil
+local currentCardRoot = nil
+local lastFireTime = 0
+local characterGeneration = 0
+local hiddenToolParts = {}
+local hookedButtons = setmetatable({}, { __mode = "k" })
+local hookedContainers = setmetatable({}, { __mode = "k" })
+
+local gsEntry = (syncDb.Weapons and syncDb.Weapons[TARGET_KEY]) or {
+	ItemName = "Gingerscope",
+	ItemType = "Gun",
+	Rarity = "Ancient",
+	Event = "Christmas",
+	Year = 2023,
+	ItemID = TARGET_ID,
+}
+
+local function centerNewItemWindow()
+	if newItemFrame:IsA("GuiObject") then
+		newItemFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+		newItemFrame.Position = UDim2.fromScale(0.5, 0.5)
+	end
+	local container = newItemFrame:FindFirstChild("Container")
+	if container and container:IsA("GuiObject") and container.Size ~= UDim2.fromScale(1, 1) then
+		container.AnchorPoint = Vector2.new(0.5, 0.5)
+		container.Position = UDim2.fromScale(0.5, 0.5)
+	end
 end
 
--- === ИНТЕРФЕЙС ===
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "CopyUiAllGui"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = parentGui
+local function findGingerscopeAssets()
+	local found = {
+		Model = nil,
+		Sound = nil,
+		Anim = nil,
+		Beam = nil,
+		Image = gsEntry.Image or FALLBACK_ICON,
+	}
+	local idStr = tostring(TARGET_ID)
 
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0.94, 0, 0.58, 0)
-MainFrame.Position = UDim2.new(0.03, 0, 0.04, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
-MainFrame.BackgroundTransparency = 0.08
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Parent = ScreenGui
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+	for _, root in ipairs({ ReplicatedStorage, workspace }) do
+		for _, obj in ipairs(root:GetDescendants()) do
+			local n = obj.Name:lower()
+			local matchName = n:find("gingerscope", 1, true) ~= nil
+			local matchId = false
 
-local Stroke = Instance.new("UIStroke")
-Stroke.Color = Color3.fromRGB(80, 80, 100)
-Stroke.Thickness = 1
-Stroke.Parent = MainFrame
+			if obj:IsA("Model") or obj:IsA("Tool") or obj:IsA("MeshPart") or obj:IsA("SpecialMesh") then
+				local meshId = (obj:IsA("MeshPart") and tostring(obj.MeshId))
+					or (obj:IsA("SpecialMesh") and tostring(obj.MeshId))
+					or ""
+				if meshId:find(idStr, 1, true) or tostring(obj:GetAttribute("ItemID") or "") == idStr then
+					matchId = true
+				end
+			end
 
-local TopBar = Instance.new("Frame")
-TopBar.Name = "TopBar"
-TopBar.Size = UDim2.new(1, 0, 0, 34)
-TopBar.BackgroundColor3 = Color3.fromRGB(26, 26, 34)
-TopBar.BorderSizePixel = 0
-TopBar.Parent = MainFrame
-Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 10)
+			if matchName or matchId then
+				if not found.Model and (obj:IsA("Model") or obj:IsA("Tool") or obj:IsA("MeshPart") or obj:IsA("BasePart")) then
+					found.Model = obj
+				elseif not found.Sound and obj:IsA("Sound") then
+					found.Sound = obj
+				elseif not found.Anim and obj:IsA("Animation") then
+					found.Anim = obj
+				elseif not found.Beam and obj:IsA("Beam") then
+					found.Beam = obj
+				end
+			end
+		end
+	end
 
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(0.26, -6, 1, 0)
-TitleLabel.Position = UDim2.new(0, 8, 0, 0)
-TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "UI DUMPER"
-TitleLabel.TextColor3 = Color3.fromRGB(235, 240, 255)
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.TextSize = 10
-TitleLabel.Parent = TopBar
+	return found
+end
 
-local ScanQueryBtn = Instance.new("TextButton")
-ScanQueryBtn.Size = UDim2.new(0, 62, 0, 24)
-ScanQueryBtn.Position = UDim2.new(1, -304, 0.5, -12)
-ScanQueryBtn.BackgroundColor3 = Color3.fromRGB(45, 135, 235)
-ScanQueryBtn.Text = "Find Tree"
-ScanQueryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ScanQueryBtn.Font = Enum.Font.GothamBold
-ScanQueryBtn.TextSize = 9
-ScanQueryBtn.Parent = TopBar
-Instance.new("UICorner", ScanQueryBtn).CornerRadius = UDim.new(0, 6)
+local assets = findGingerscopeAssets()
 
-local DumpScriptsBtn = Instance.new("TextButton")
-DumpScriptsBtn.Size = UDim2.new(0, 66, 0, 24)
-DumpScriptsBtn.Position = UDim2.new(1, -236, 0.5, -12)
-DumpScriptsBtn.BackgroundColor3 = Color3.fromRGB(125, 65, 195)
-DumpScriptsBtn.Text = "Scripts In"
-DumpScriptsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-DumpScriptsBtn.Font = Enum.Font.GothamBold
-DumpScriptsBtn.TextSize = 9
-DumpScriptsBtn.Parent = TopBar
-Instance.new("UICorner", DumpScriptsBtn).CornerRadius = UDim.new(0, 6)
+local function findMuzzleAttachment(modelRoot)
+	if not modelRoot then return nil end
+	for _, obj in ipairs(modelRoot:GetDescendants()) do
+		if obj:IsA("Attachment") then
+			local n = obj.Name:lower()
+			if n:find("muzzle", 1, true)
+				or n:find("shoot", 1, true)
+				or n:find("fire", 1, true)
+				or n:find("tip", 1, true)
+				or n:find("barrel", 1, true)
+				or n:find("beam", 1, true)
+			then
+				return obj
+			end
+		end
+	end
+	return modelRoot:FindFirstChildWhichIsA("Attachment", true)
+end
 
-local ClearBtn = Instance.new("TextButton")
-ClearBtn.Size = UDim2.new(0, 48, 0, 24)
-ClearBtn.Position = UDim2.new(1, -164, 0.5, -12)
-ClearBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
-ClearBtn.Text = "Clear"
-ClearBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
-ClearBtn.Font = Enum.Font.GothamBold
-ClearBtn.TextSize = 9
-ClearBtn.Parent = TopBar
-Instance.new("UICorner", ClearBtn).CornerRadius = UDim.new(0, 6)
+local function createGunHandleClone()
+	local src = nil
+	if assets.Model then
+		if assets.Model:IsA("BasePart") then
+			src = assets.Model
+		else
+			src = assets.Model:FindFirstChild("Handle", true) or assets.Model:FindFirstChildWhichIsA("BasePart", true)
+		end
+	end
 
-local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 48, 0, 24)
-MinBtn.Position = UDim2.new(1, -110, 0.5, -12)
-MinBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
-MinBtn.Text = "Min"
-MinBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
-MinBtn.Font = Enum.Font.GothamBold
-MinBtn.TextSize = 9
-MinBtn.Parent = TopBar
-Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+	local handle
+	if src and src:IsA("BasePart") then
+		handle = src:Clone()
+	else
+		handle = Instance.new("Part")
+		handle.Size = Vector3.new(0.25, 0.85, 1.4)
+		handle.Color = Color3.fromRGB(190, 45, 45)
+		handle.Material = Enum.Material.Neon
+	end
 
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 42, 0, 24)
-CloseBtn.Position = UDim2.new(1, -52, 0.5, -12)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(165, 45, 55)
-CloseBtn.Text = "X"
-CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 10
-CloseBtn.Parent = TopBar
-Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+	handle.Name = "Handle"
+	handle.LocalTransparencyModifier = 0
+	return handle
+end
 
-local QueryBox = Instance.new("TextBox")
-QueryBox.Size = UDim2.new(1, -16, 0, 28)
-QueryBox.Position = UDim2.new(0, 8, 0, 40)
-QueryBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-QueryBox.PlaceholderText = "Запрос (Claimed, Inventory, Box, Sync, Item)..."
-QueryBox.PlaceholderColor3 = Color3.fromRGB(135, 135, 155)
-QueryBox.Text = ""
-QueryBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-QueryBox.ClearTextOnFocus = false
-QueryBox.Font = Enum.Font.Code
-QueryBox.TextSize = 12
-QueryBox.Parent = MainFrame
-Instance.new("UICorner", QueryBox).CornerRadius = UDim.new(0, 6)
+local function updateGunDisplay()
+	for _, container in ipairs({ workspace, playerGui }) do
+		for _, d in ipairs(container:GetDescendants()) do
+			if d.Name == "GS_GunDisplay_Handle" then
+				d:Destroy()
+			end
+		end
+	end
 
-local CopyUiBtn = Instance.new("TextButton")
-CopyUiBtn.Name = "CopyUiBtn"
-CopyUiBtn.Size = UDim2.new(1, -16, 0, 34)
-CopyUiBtn.Position = UDim2.new(0, 8, 1, -42)
-CopyUiBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
-CopyUiBtn.Text = "СКОПИРОВАТЬ ВСЁ ИЗ ИНТЕРФЕЙСА"
-CopyUiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CopyUiBtn.Font = Enum.Font.GothamBold
-CopyUiBtn.TextSize = 11
-CopyUiBtn.Parent = MainFrame
-Instance.new("UICorner", CopyUiBtn).CornerRadius = UDim.new(0, 7)
+	if not isEquipped then return end
 
-local Scroll = Instance.new("ScrollingFrame")
-Scroll.Size = UDim2.new(1, -16, 1, -118)
-Scroll.Position = UDim2.new(0, 8, 0, 74)
-Scroll.BackgroundColor3 = Color3.fromRGB(11, 11, 15)
-Scroll.BorderSizePixel = 0
-Scroll.ScrollBarThickness = 5
-Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-Scroll.Parent = MainFrame
-Instance.new("UICorner", Scroll).CornerRadius = UDim.new(0, 6)
+	for _, container in ipairs({ workspace, playerGui }) do
+		for _, d in ipairs(container:GetDescendants()) do
+			if d.Name:lower():find("gundisplay", 1, true) then
+				if d:IsA("BasePart") or d:IsA("Model") then
+					local anchor = d:IsA("Model") and (d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")) or d
+					if anchor then
+						local handle = createGunHandleClone()
+						handle.Name = "GS_GunDisplay_Handle"
+						handle.Anchored = true
+						handle.CanCollide = false
+						handle.CFrame = anchor.CFrame * CFrame.new(0, 1.5, 0)
+						handle.Parent = d
+					end
+				elseif d:IsA("GuiObject") then
+					local lbl = Instance.new("TextLabel")
+					lbl.Name = "GS_GunDisplay_Handle"
+					lbl.Size = UDim2.fromScale(1, 1)
+					lbl.BackgroundTransparency = 0.3
+					lbl.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+					lbl.Text = tostring(gsEntry.ItemName or TARGET_KEY)
+					lbl.TextColor3 = Color3.fromRGB(255, 215, 110)
+					lbl.Font = Enum.Font.GothamBold
+					lbl.TextScaled = true
+					lbl.Parent = d
+				end
+			end
+		end
+	end
+end
 
-local Layout = Instance.new("UIListLayout")
-Layout.Padding = UDim.new(0, 3)
-Layout.SortOrder = Enum.SortOrder.LayoutOrder
-Layout.Parent = Scroll
+local function hideOtherToolsVisuals(char)
+	table.clear(hiddenToolParts)
+	for _, container in ipairs({ char, player:FindFirstChild("Backpack") }) do
+		if container then
+			for _, obj in ipairs(container:GetDescendants()) do
+				if obj:IsA("Tool") and obj.Name ~= "GS_Hand_Handle" then
+					for _, desc in ipairs(obj:GetDescendants()) do
+						if desc:IsA("BasePart") then
+							hiddenToolParts[desc] = desc.LocalTransparencyModifier
+							desc.LocalTransparencyModifier = 1
+						end
+					end
+				end
+			end
+		end
+	end
+end
 
--- Перетаскивание окна (тач + мышь)
-do
-	local dragging = false
-	local dragInput, dragStart, startPos
+local function restoreOtherToolsVisuals()
+	for part, oldMod in pairs(hiddenToolParts) do
+		if part and part.Parent then
+			part.LocalTransparencyModifier = oldMod or 0
+		end
+	end
+	table.clear(hiddenToolParts)
 
-	TopBar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			dragStart = input.Position
-			startPos = MainFrame.Position
-			input.Changed:Connect(function()
-				if input.UserInputState == Enum.UserInputState.End then
-					dragging = false
+	local char = player.Character
+	for _, container in ipairs({ char, player:FindFirstChild("Backpack") }) do
+		if container then
+			for _, obj in ipairs(container:GetDescendants()) do
+				if obj:IsA("Tool") and obj.Name ~= "GS_Hand_Handle" then
+					for _, desc in ipairs(obj:GetDescendants()) do
+						if desc:IsA("BasePart") then
+							desc.LocalTransparencyModifier = 0
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
+local function clearHandVisuals()
+	if activeHandHandle then
+		pcall(function()
+			activeHandHandle:Destroy()
+		end)
+		activeHandHandle = nil
+	end
+	if holdTrack then
+		pcall(function()
+			holdTrack:Stop()
+			holdTrack:Destroy()
+		end)
+		holdTrack = nil
+	end
+	restoreOtherToolsVisuals()
+end
+
+local function applyHandVisuals(targetChar, targetHum, targetHand)
+	clearHandVisuals()
+	if not isEquipped then return end
+
+	local char = targetChar or player.Character
+	local hum = targetHum or (char and char:FindFirstChildOfClass("Humanoid"))
+	local hand = targetHand or (char and (char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")))
+	if not char or not char.Parent or not hand or not hand.Parent then return end
+
+	hideOtherToolsVisuals(char)
+
+	local handle = createGunHandleClone()
+	handle.Name = "GS_Hand_Handle"
+	handle.Anchored = false
+	handle.CanCollide = false
+	handle.Massless = true
+	handle.CFrame = hand.CFrame * CFrame.new(0, -0.15, -0.45) * CFrame.Angles(math.rad(-90), 0, 0)
+	handle.Parent = char
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = hand
+	weld.Part1 = handle
+	weld.Parent = handle
+
+	activeHandHandle = handle
+
+	if assets.Anim and hum then
+		local ok, tr = pcall(function()
+			return hum:LoadAnimation(assets.Anim)
+		end)
+		if ok and tr then
+			tr.Priority = Enum.AnimationPriority.Action
+			tr.Looped = true
+			pcall(function()
+				tr:Play()
+			end)
+			holdTrack = tr
+		end
+	end
+end
+
+local function fireBeam(inputPos)
+	if not isEquipped then return end
+	local now = os.clock()
+	if now - lastFireTime < FIRE_COOLDOWN then return end
+	lastFireTime = now
+
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local cam = workspace.CurrentCamera
+	if not hrp or not cam then return end
+
+	if assets.Sound then
+		local snd = assets.Sound:Clone()
+		snd.Parent = hrp
+		snd:Play()
+		Debris:AddItem(snd, 4)
+	else
+		local snd = Instance.new("Sound")
+		snd.SoundId = "rbxassetid://131961136"
+		snd.Volume = 0.7
+		snd.Parent = hrp
+		snd:Play()
+		Debris:AddItem(snd, 2)
+	end
+
+	local screenPos = inputPos or UserInputService:GetMouseLocation()
+	local ray = cam:ViewportPointToRay(screenPos.X, screenPos.Y)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { char }
+
+	local hit = workspace:Raycast(ray.Origin, ray.Direction * 250, params)
+	local endPos = hit and hit.Position or (ray.Origin + ray.Direction * 120)
+
+	local endPart = Instance.new("Part")
+	endPart.Name = "GS_BeamEndPart"
+	endPart.Anchored = true
+	endPart.CanCollide = false
+	endPart.Transparency = 1
+	endPart.Size = Vector3.new(0.1, 0.1, 0.1)
+	endPart.CFrame = CFrame.new(endPos)
+	endPart.Parent = workspace
+
+	local att1 = Instance.new("Attachment")
+	att1.Name = "GS_BeamAtt1"
+	att1.Parent = endPart
+
+	local att0 = findMuzzleAttachment(activeHandHandle) or findMuzzleAttachment(assets.Model)
+	local tempStartPart = nil
+	local createdTempAtt0 = false
+
+	if not att0 then
+		if activeHandHandle and activeHandHandle.Parent then
+			att0 = Instance.new("Attachment")
+			att0.Name = "GS_BeamAtt0"
+			att0.Position = Vector3.new(0, 0, -0.7)
+			att0.Parent = activeHandHandle
+			createdTempAtt0 = true
+		else
+			tempStartPart = Instance.new("Part")
+			tempStartPart.Name = "GS_BeamStartPart"
+			tempStartPart.Anchored = true
+			tempStartPart.CanCollide = false
+			tempStartPart.Transparency = 1
+			tempStartPart.Size = Vector3.new(0.1, 0.1, 0.1)
+			tempStartPart.CFrame = CFrame.new(hrp.Position + hrp.CFrame.LookVector * 2 + Vector3.new(0, 0.6, 0))
+			tempStartPart.Parent = workspace
+
+			att0 = Instance.new("Attachment")
+			att0.Name = "GS_BeamAtt0"
+			att0.Parent = tempStartPart
+			createdTempAtt0 = true
+		end
+	end
+
+	local beam = assets.Beam and assets.Beam:Clone() or Instance.new("Beam")
+	if not assets.Beam then
+		beam.Width0 = 0.16
+		beam.Width1 = 0.04
+		beam.FaceCamera = true
+	end
+
+	beam.Attachment0 = att0
+	beam.Attachment1 = att1
+	beam.Enabled = true
+	beam.Parent = att0.Parent
+
+	task.delay(0.16, function()
+		if beam and beam.Parent then
+			beam.Enabled = false
+		end
+	end)
+
+	Debris:AddItem(beam, 0.22)
+	Debris:AddItem(att1, 0.22)
+	Debris:AddItem(endPart, 0.22)
+	if createdTempAtt0 and att0 then
+		Debris:AddItem(att0, 0.22)
+	end
+	if tempStartPart then
+		Debris:AddItem(tempStartPart, 0.22)
+	end
+end
+
+local invSlotGui = Instance.new("ScreenGui")
+invSlotGui.Name = "GS_InventorySlot_UI"
+invSlotGui.ResetOnSpawn = false
+invSlotGui.IgnoreGuiInset = true
+invSlotGui.Parent = playerGui
+
+local slotBtn = Instance.new("TextButton")
+slotBtn.Visible = false
+slotBtn.Size = UDim2.fromOffset(175, 36)
+slotBtn.Position = UDim2.new(0.5, -87.5, 1, -54)
+slotBtn.BackgroundColor3 = Color3.fromRGB(32, 32, 40)
+slotBtn.Text = tostring(gsEntry.ItemName or TARGET_KEY)
+slotBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+slotBtn.Font = Enum.Font.GothamBold
+slotBtn.TextSize = 12
+slotBtn.Parent = invSlotGui
+
+local function refreshEquipVisuals()
+	local baseName = tostring(gsEntry.ItemName or TARGET_KEY)
+	if currentCardNameLabel and currentCardNameLabel:IsA("TextLabel") then
+		currentCardNameLabel.Text = isEquipped and (baseName .. " [E]") or baseName
+	end
+	slotBtn.BackgroundColor3 = isEquipped and Color3.fromRGB(65, 130, 220) or Color3.fromRGB(32, 32, 40)
+	slotBtn.Text = isEquipped and (baseName .. " [E]") or baseName
+end
+
+local function setEquipped(state)
+	isEquipped = state
+	if isEquipped then
+		applyHandVisuals()
+	else
+		clearHandVisuals()
+	end
+	refreshEquipVisuals()
+	updateGunDisplay()
+end
+
+local function toggleGingerscopeEquip()
+	if not isClaimed then return end
+	setEquipped(not isEquipped)
+end
+
+slotBtn.MouseButton1Click:Connect(toggleGingerscopeEquip)
+
+local function findInventoryListContainer()
+	local invRoots = {
+		mainGui:FindFirstChild("Game") and mainGui.Game:FindFirstChild("Inventory"),
+		mainGui:FindFirstChild("Inventory"),
+		mainGui:FindFirstChild("Inventory2"),
+	}
+
+	for _, root in ipairs(invRoots) do
+		if root then
+			for _, desc in ipairs(root:GetDescendants()) do
+				if (desc:IsA("GuiObject") or desc:IsA("ScrollingFrame")) and desc.Name:lower():find("christmas", 1, true) then
+					if desc:FindFirstChildWhichIsA("UIGridLayout", true) or desc:IsA("ScrollingFrame") then
+						return desc
+					end
+				end
+			end
+		end
+	end
+
+	for _, root in ipairs(invRoots) do
+		if root then
+			for _, desc in ipairs(root:GetDescendants()) do
+				if desc:IsA("UIGridLayout") and desc.Parent and desc.Parent:IsA("GuiObject") then
+					return desc.Parent
+				end
+			end
+		end
+	end
+
+	for _, root in ipairs(invRoots) do
+		if root then
+			local sf = root:FindFirstChildWhichIsA("ScrollingFrame", true)
+			if sf then
+				return sf
+			end
+		end
+	end
+
+	return nil
+end
+
+local function bindOtherItemButton(btn)
+	if hookedButtons[btn] then return end
+	if currentCardRoot and btn:IsDescendantOf(currentCardRoot) then return end
+	if btn.Name == "GS_CardHitButton" then return end
+
+	hookedButtons[btn] = true
+	btn.MouseButton1Click:Connect(function()
+		if isEquipped then
+			setEquipped(false)
+		end
+	end)
+end
+
+local function hookOtherInventoryButtons(listContainer)
+	if not listContainer then return end
+	for _, desc in ipairs(listContainer:GetDescendants()) do
+		if desc:IsA("TextButton") or desc:IsA("ImageButton") then
+			bindOtherItemButton(desc)
+		end
+	end
+
+	if not hookedContainers[listContainer] then
+		hookedContainers[listContainer] = true
+		listContainer.DescendantAdded:Connect(function(desc)
+			if desc:IsA("TextButton") or desc:IsA("ImageButton") then
+				bindOtherItemButton(desc)
+			end
+		end)
+	end
+end
+
+local function findInventoryCardTemplate()
+	local rsMain = ReplicatedStorage:FindFirstChild("MainGUI")
+	local rsInv = rsMain and rsMain:FindFirstChild("Inventory")
+	local rsInvScript = rsInv and rsInv:FindFirstChild("Inventory")
+	if rsInvScript and rsInvScript:FindFirstChild("ItemOld") then
+		return rsInvScript.ItemOld
+	end
+
+	local rsInv2 = rsMain and rsMain:FindFirstChild("Inventory2")
+	if rsInv2 then
+		local eq = rsInv2:FindFirstChild("EquipContainer")
+		if eq and eq:FindFirstChild("ItemFrame") then
+			return eq.ItemFrame
+		end
+	end
+
+	return nil
+end
+
+local function addGingerscopeToInventoryUI()
+	local listContainer = findInventoryListContainer()
+	local template = findInventoryCardTemplate()
+	if not listContainer or not template then
+		return false
+	end
+
+	local existing = listContainer:FindFirstChild("GS_InventoryCard")
+	if existing then
+		existing:Destroy()
+	end
+
+	local card = template:Clone()
+	card.Name = "GS_InventoryCard"
+	card.Visible = true
+	card.LayoutOrder = -9999
+	card.Parent = listContainer
+	currentCardRoot = card
+
+	_G.Cache = _G.Cache or {}
+	_G.SmallCache = _G.SmallCache or {}
+
+	local baseName = tostring(gsEntry.ItemName or TARGET_KEY)
+	local displayData = {
+		ItemName = baseName,
+		Name = baseName,
+		Rarity = gsEntry.Rarity or "Ancient",
+		Event = gsEntry.Event or "Christmas",
+		Year = gsEntry.Year or 2023,
+		DataType = "Weapons",
+		FX = true,
+		Image = gsEntry.Image or TARGET_ID,
+	}
+
+	local usedNativeDisplay = false
+	if itemModule and type(itemModule.DisplayItem) == "function"
+		and card:FindFirstChild("ItemName")
+		and card:FindFirstChild("Container")
+	then
+		usedNativeDisplay = pcall(itemModule.DisplayItem, card, displayData, 1, false)
+	end
+
+	local itemNameFrame = card:FindFirstChild("ItemName")
+	local nameLabel = itemNameFrame and itemNameFrame:FindFirstChild("Label")
+	currentCardNameLabel = nameLabel
+	if nameLabel and nameLabel:IsA("TextLabel") then
+		nameLabel.Text = isEquipped and (baseName .. " [E]") or baseName
+	end
+
+	local cont = card:FindFirstChild("Container")
+	local icon = cont and cont:FindFirstChild("Icon")
+	if icon and icon:IsA("ImageLabel") then
+		if not usedNativeDisplay or icon.Image == "" or icon.Image == "rbxassetid://0" then
+			icon.Image = assets.Image or FALLBACK_ICON
+		end
+		icon.Visible = true
+	end
+
+	local amountLbl = cont and cont:FindFirstChild("Amount")
+	if amountLbl and amountLbl:IsA("TextLabel") then
+		amountLbl.Text = "x1"
+	end
+
+	local tagsFolder = card:FindFirstChild("Tags")
+	if tagsFolder then
+		for _, tag in ipairs(tagsFolder:GetChildren()) do
+			if tag:IsA("GuiObject") then
+				local isFxTag = (tag.Name == "FX")
+				local isChristmasTag = (tag.Name == "Christmas")
+				local showTag = isFxTag or isChristmasTag
+
+				if showTag then
+					tag.Visible = true
+					for _, sub in ipairs(tag:GetDescendants()) do
+						if sub:IsA("GuiObject") then
+							sub.Visible = true
+						end
+						if sub:IsA("TextLabel") then
+							local subName = sub.Name:lower()
+							if subName:find("year", 1, true) then
+								sub.Text = tostring(displayData.Year)
+							elseif isFxTag and subName:find("tagname", 1, true) then
+								sub.Text = "FX"
+							end
+						end
+					end
+				elseif not usedNativeDisplay then
+					tag.Visible = false
+				end
+			end
+		end
+	end
+
+	local actionBtn = cont and cont:FindFirstChild("ActionButton")
+	local clickTarget = (actionBtn and actionBtn:IsA("GuiButton") and actionBtn) or (card:IsA("GuiButton") and card)
+
+	if clickTarget then
+		clickTarget.MouseButton1Click:Connect(toggleGingerscopeEquip)
+	elseif card:IsA("GuiObject") then
+		local hitBtn = Instance.new("TextButton")
+		hitBtn.Name = "GS_CardHitButton"
+		hitBtn.Size = UDim2.fromScale(1, 1)
+		hitBtn.BackgroundTransparency = 1
+		hitBtn.Text = ""
+		hitBtn.ZIndex = 20
+		hitBtn.Parent = card
+		hitBtn.MouseButton1Click:Connect(toggleGingerscopeEquip)
+	end
+
+	hookOtherInventoryButtons(listContainer)
+	slotBtn.Visible = false
+	return true
+end
+
+local function openNativeNewItem()
+	centerNewItemWindow()
+	if _G.NewItem then
+		_G.NewItem(TARGET_KEY, "You Got...", nil, "Weapons", 1)
+	end
+
+	local container = newItemFrame:FindFirstChild("Container")
+	local innerItem = container and container:FindFirstChild("NewItem")
+	if innerItem and itemModule.DisplayItem then
+		_G.Cache = _G.Cache or {}
+		_G.SmallCache = _G.SmallCache or {}
+		pcall(itemModule.DisplayItem, innerItem, gsEntry, 1)
+	end
+
+	local icon = innerItem and innerItem:FindFirstChild("Container") and innerItem.Container:FindFirstChild("Icon")
+	if icon and icon:IsA("ImageLabel") and (icon.Image == "" or icon.Image == "rbxassetid://0") then
+		icon.Image = assets.Image
+	end
+
+	if Lighting:FindFirstChild("NewItemBlur") then
+		Lighting.NewItemBlur.Enabled = true
+	end
+	newItemFrame.Visible = true
+end
+
+local function playFallbackFlyToTarget(iconObj, targetGuiObj)
+	local flyer = Instance.new("ImageLabel")
+	flyer.Name = "GS_FlyIcon"
+	flyer.Size = UDim2.fromOffset(64, 64)
+	flyer.Position = UDim2.fromScale(0.5, 0.5)
+	flyer.AnchorPoint = Vector2.new(0.5, 0.5)
+	flyer.BackgroundTransparency = 1
+	flyer.Image = (iconObj and iconObj:IsA("ImageLabel") and iconObj.Image ~= "" and iconObj.Image) or assets.Image
+	flyer.ZIndex = 70
+	flyer.Parent = invSlotGui
+
+	local dest = targetGuiObj or slotBtn
+	local targetPos = UDim2.fromOffset(
+		dest.AbsolutePosition.X + dest.AbsoluteSize.X * (1 - dest.AnchorPoint.X),
+		dest.AbsolutePosition.Y + dest.AbsoluteSize.Y * (1 - dest.AnchorPoint.Y)
+	)
+
+	local tw = TweenService:Create(flyer, TweenInfo.new(0.42, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = targetPos,
+		Size = UDim2.fromOffset(32, 32),
+	})
+	tw:Play()
+	tw.Completed:Connect(function()
+		flyer:Destroy()
+	end)
+end
+
+claimBtn.MouseButton1Click:Connect(function()
+	if isClaimed then return end
+	isClaimed = true
+
+	local container = newItemFrame:FindFirstChild("Container")
+	local innerItem = container and container:FindFirstChild("NewItem")
+	local iconObj = innerItem and innerItem:FindFirstChild("Container") and innerItem.Container:FindFirstChild("Icon")
+	local dockInv = gameGui:FindFirstChild("Dock") and gameGui.Dock:FindFirstChild("Inventory")
+
+	local nativeAnimOk = false
+	if iconObj and dockInv and itemModule.AnimateItemIconIntoInventory then
+		nativeAnimOk = pcall(itemModule.AnimateItemIconIntoInventory, iconObj, dockInv, gameGui)
+	end
+
+	newItemFrame.Visible = false
+	if Lighting:FindFirstChild("NewItemBlur") then
+		Lighting.NewItemBlur.Enabled = false
+	end
+
+	local addedToUi = addGingerscopeToInventoryUI()
+	if not addedToUi then
+		slotBtn.Visible = true
+	end
+
+	if not nativeAnimOk then
+		playFallbackFlyToTarget(iconObj, addedToUi and dockInv or slotBtn)
+	end
+
+	updateGunDisplay()
+end)
+
+mainGui.DescendantAdded:Connect(function(desc)
+	if isClaimed and desc:IsA("UIGridLayout") then
+		task.defer(function()
+			addGingerscopeToInventoryUI()
+		end)
+	end
+end)
+
+local function waitForRightHand(char, timeout)
+	local deadline = os.clock() + (timeout or 6)
+	while char.Parent and os.clock() < deadline do
+		local hand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
+		if hand and hand:IsA("BasePart") then
+			return hand
+		end
+		task.wait(0.05)
+	end
+	return char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
+end
+
+local function hookCharacter(char)
+	characterGeneration += 1
+	local myGen = characterGeneration
+
+	if holdTrack then
+		pcall(function()
+			holdTrack:Stop()
+			holdTrack:Destroy()
+		end)
+		holdTrack = nil
+	end
+	activeHandHandle = nil
+	table.clear(hiddenToolParts)
+
+	char.ChildAdded:Connect(function(child)
+		if myGen ~= characterGeneration or player.Character ~= char then return end
+		if child:IsA("Tool") and child.Name ~= "GS_Hand_Handle" and isEquipped then
+			task.defer(function()
+				if myGen == characterGeneration and player.Character == char and isEquipped then
+					hideOtherToolsVisuals(char)
 				end
 			end)
 		end
 	end)
 
-	TopBar.InputChanged:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-			dragInput = input
-		end
-	end)
-
-	UserInputService.InputChanged:Connect(function(input)
-		if dragging and input == dragInput then
-			local delta = input.Position - dragStart
-			MainFrame.Position = UDim2.new(
-				startPos.X.Scale,
-				startPos.X.Offset + delta.X,
-				startPos.Y.Scale,
-				startPos.Y.Offset + delta.Y
-			)
-		end
-	end)
-end
-
--- === СТАТУС И КОПИРОВАНИЕ ВСЕГО ВЫВЕДЕННОГО В ИНТЕРФЕЙС ===
-local statusSeq = 0
-local isBusy = false
-local rows = {}
-local rowOrder = 0
-local maxUiRows = 450
-
-local function setStatus(msg)
-	statusSeq += 1
-	local cur = statusSeq
-	TitleLabel.Text = msg
-	task.delay(2.5, function()
-		if statusSeq == cur then
-			TitleLabel.Text = "UI DUMPER"
-		end
-	end)
-end
-
-local function getClipboardFn()
-	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
-	return setclipboard
-		or toclipboard
-		or set_clipboard
-		or writeclipboard
-		or (genv and genv.setclipboard)
-		or (genv and genv.toclipboard)
-		or (genv and genv.set_clipboard)
-		or (genv and genv.writeclipboard)
-		or nil
-end
-
-local function copyToClipboard(str, label)
-	local txt = tostring(str or "")
-	if #txt == 0 then
-		setStatus("Empty!")
-		return false
-	end
-	local fn = getClipboardFn()
-	if type(fn) ~= "function" then
-		setStatus("No Clip API")
-		return false
-	end
-	local ok = pcall(fn, txt)
-	if ok then
-		setStatus((label or "Copied") .. " [" .. tostring(#txt) .. "]")
-		return true
-	end
-	setStatus("Clip Err")
-	return false
-end
-
-local function copyAllVisibleInUi()
-	if #rows == 0 then
-		setStatus("Empty!")
-		return
-	end
-	local parts = {}
-	for i = 1, #rows do
-		local item = rows[i]
-		if item and item.FullLine then
-			table.insert(parts, item.FullLine)
-		end
-	end
-	copyToClipboard(table.concat(parts, "\n"), "UI All")
-end
-
--- === ВЫВОД В ИНТЕРФЕЙС ===
-local function pushUiLine(text, color)
-	rowOrder += 1
-	local lineStr = tostring(text)
-
-	if #rows >= maxUiRows then
-		local first = table.remove(rows, 1)
-		if first and first.Btn then
-			first.Btn:Destroy()
-		end
-	end
-
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1, -8, 0, 0)
-	btn.AutomaticSize = Enum.AutomaticSize.Y
-	btn.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
-	btn.BackgroundTransparency = 0.15
-	btn.Text = lineStr
-	btn.TextColor3 = color or Color3.fromRGB(220, 238, 255)
-	btn.TextWrapped = true
-	btn.TextXAlignment = Enum.TextXAlignment.Left
-	btn.Font = Enum.Font.Code
-	btn.TextSize = 11
-	btn.LayoutOrder = rowOrder
-	btn.AutoButtonColor = true
-	btn.Parent = Scroll
-	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
-
-	btn.Activated:Connect(function()
-		copyToClipboard(lineStr, "Line")
-	end)
-
-	table.insert(rows, {
-		FullLine = lineStr,
-		Btn = btn,
-	})
-end
-
--- === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
-local function safeFullName(inst)
-	if typeof(inst) ~= "Instance" then
-		return tostring(inst)
-	end
-	local ok, res = pcall(function()
-		return inst:GetFullName()
-	end)
-	return ok and res or tostring(inst)
-end
-
-local function isServerOnlyScript(inst)
-	if typeof(inst) ~= "Instance" then
-		return true
-	end
-	if inst:IsA("Script") and not inst:IsA("LocalScript") then
-		local okCtx, ctx = pcall(function()
-			return inst.RunContext
-		end)
-		if okCtx and ctx == Enum.RunContext.Client then
-			return false
-		end
-		return true
-	end
-	return false
-end
-
-local function hasMatchedAncestor(obj, matchedSet)
-	local cur = obj.Parent
-	while cur do
-		if matchedSet[cur] then
-			return true
-		end
-		cur = cur.Parent
-	end
-	return false
-end
-
-local function describeNode(node)
-	local props = {}
-	if node:IsA("TextLabel") or node:IsA("TextButton") or node:IsA("TextBox") then
-		if node.Text ~= "" then
-			table.insert(props, "Text=" .. string.format("%q", tostring(node.Text)))
-		end
-	elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
-		if node.Image ~= "" then
-			table.insert(props, "Image=" .. tostring(node.Image))
-		end
-	elseif node:IsA("ValueBase") then
-		local okV, val = pcall(function()
-			return node.Value
-		end)
-		if okV then
-			table.insert(props, "Value=" .. tostring(val))
-		end
-	end
-
-	local okAttr, attrs = pcall(function()
-		return node:GetAttributes()
-	end)
-	if okAttr and type(attrs) == "table" then
-		for k, v in pairs(attrs) do
-			table.insert(props, "Attr." .. tostring(k) .. "=" .. tostring(v))
-		end
-	end
-
-	if #props == 0 then
-		return ""
-	end
-	return "  {" .. table.concat(props, ", ") .. "}"
-end
-
-local function dumpSubtreeToUi(rootInst, budget)
-	local count = 0
-	local function walk(node, depth, prefix, isLast)
-		if budget.left <= 0 then
-			return
-		end
-		count += 1
-		if count % 300 == 0 then
-			RunService.Heartbeat:Wait()
-		end
-		local branch = (depth == 0) and "" or (isLast and "└── " or "├── ")
-		local line = string.format("%s%s[%s] %s%s  (%s)", prefix, branch, node.ClassName, node.Name, describeNode(node), safeFullName(node))
-		budget.left -= 1
-		pushUiLine(line, depth == 0 and Color3.fromRGB(255, 205, 95) or Color3.fromRGB(215, 235, 255))
-
-		local okCh, ch = pcall(function()
-			return node:GetChildren()
-		end)
-		if okCh and type(ch) == "table" then
-			local nextPrefix = (depth == 0) and "" or (prefix .. (isLast and "    " or "│   "))
-			for i, c in ipairs(ch) do
-				if budget.left <= 0 then
-					break
-				end
-				walk(c, depth + 1, nextPrefix, i == #ch)
-			end
-		end
-	end
-	walk(rootInst, 0, "", true)
-	return count
-end
-
--- === 1. ПОИСК ПОЛНЫХ ДЕРЕВЬЕВ ПО ЗАПРОСУ ===
-local function parseQueries(rawText)
-	local trimmed = string.match(tostring(rawText or ""), "^%s*(.-)%s*$")
-	if not trimmed or trimmed == "" then
-		return { "claimed", "claim", "inventory", "box" }
-	end
-	local list = {}
-	for part in string.gmatch(trimmed, "[^,;|]+") do
-		local tok = string.match(part, "^%s*(.-)%s*$")
-		if tok and tok ~= "" then
-			table.insert(list, string.lower(tok))
-		end
-	end
-	return (#list > 0) and list or { string.lower(trimmed) }
-end
-
-local function matchesQuery(obj, qList)
-	local nameLow = string.lower(tostring(obj.Name or ""))
-	for _, q in ipairs(qList) do
-		if string.find(nameLow, q, 1, true) then
-			return true, "name:" .. q
-		end
-	end
-
-	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-		local tLow = string.lower(tostring(obj.Text or ""))
-		for _, q in ipairs(qList) do
-			if string.find(tLow, q, 1, true) then
-				return true, "text:" .. q
-			end
-		end
-	elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
-		local iLow = string.lower(tostring(obj.Image or ""))
-		for _, q in ipairs(qList) do
-			if string.find(iLow, q, 1, true) then
-				return true, "image:" .. q
-			end
-		end
-	elseif obj:IsA("ValueBase") then
-		local okV, val = pcall(function()
-			return obj.Value
-		end)
-		if okV then
-			local vLow = string.lower(tostring(val))
-			for _, q in ipairs(qList) do
-				if string.find(vLow, q, 1, true) then
-					return true, "val:" .. q
-				end
-			end
-		end
-	end
-
-	return false, nil
-end
-
-local function runQueryStructureScan()
-	if isBusy then
-		setStatus("Busy...")
-		return
-	end
-	isBusy = true
-	ScanQueryBtn.Text = "Wait..."
-	ScanQueryBtn.BackgroundColor3 = Color3.fromRGB(185, 115, 30)
-
 	task.spawn(function()
-		local ok, err = pcall(function()
-			local qList = parseQueries(QueryBox.Text)
-			pushUiLine("=== ПОИСК ДЕРЕВЬЕВ: " .. table.concat(qList, ", ") .. " ===", Color3.fromRGB(120, 210, 255))
-
-			local roots = {
-				ReplicatedStorage,
-				LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"),
-				LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"),
-				LocalPlayer and LocalPlayer.Character,
-				workspace,
-			}
-
-			local matched = {}
-			local matchedSet = {}
-			local steps = 0
-
-			for _, r in ipairs(roots) do
-				if r then
-					local okDesc, desc = pcall(function()
-						return r:GetDescendants()
-					end)
-					if okDesc and type(desc) == "table" then
-						for _, obj in ipairs(desc) do
-							steps += 1
-							if steps % 700 == 0 then
-								RunService.Heartbeat:Wait()
-							end
-							if not matchedSet[obj] and not hasMatchedAncestor(obj, matchedSet) then
-								local m, tag = matchesQuery(obj, qList)
-								if m then
-									matchedSet[obj] = true
-									table.insert(matched, { inst = obj, tag = tag })
-								end
-							end
-						end
-					end
-				end
-			end
-
-			local budget = { left = 350 }
-			for idx, entry in ipairs(matched) do
-				if budget.left <= 0 then
-					break
-				end
-				local inst = entry.inst
-				budget.left -= 1
-				pushUiLine(string.format("▼ #%d [%s] %s (%s)", idx, entry.tag, safeFullName(inst), inst.ClassName), Color3.fromRGB(115, 240, 165))
-				dumpSubtreeToUi(inst, budget)
-			end
-
-			setStatus("Trees: " .. tostring(#matched))
-		end)
-
-		if not ok then
-			pushUiLine("Ошибка: " .. tostring(err), Color3.fromRGB(255, 85, 85))
-			setStatus("Err")
+		local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 6)
+		local hand = waitForRightHand(char, 6)
+		if myGen ~= characterGeneration or player.Character ~= char or not char.Parent then
+			return
 		end
 
-		isBusy = false
-		ScanQueryBtn.Text = "Find Tree"
-		ScanQueryBtn.BackgroundColor3 = Color3.fromRGB(45, 135, 235)
+		if isEquipped and hum and hand then
+			applyHandVisuals(char, hum, hand)
+		end
+		refreshEquipVisuals()
+		updateGunDisplay()
 	end)
 end
 
--- === 2. ОБХОД СКРИПТОВ И РАЗБОР REQUIRE(MODULE) ===
-local function getTargetScriptBranches()
-	local branches = {}
-	local seen = {}
-	local function addPath(parentObj, childName)
-		if not parentObj then
-			return
-		end
-		local ok, found = pcall(function()
-			return parentObj:FindFirstChild(childName)
-		end)
-		if ok and found and not seen[found] then
-			seen[found] = true
-			table.insert(branches, found)
-		end
-	end
-
-	addPath(ReplicatedStorage, "ClientTweenEvents")
-	addPath(ReplicatedStorage, "Database")
-	addPath(ReplicatedStorage, "ClientServices")
-	addPath(ReplicatedStorage, "Modules")
-	local okDb, db = pcall(function()
-		return ReplicatedStorage:FindFirstChild("Database")
-	end)
-	if okDb and db then
-		addPath(db, "Sync")
-	end
-	return branches
+if player.Character then
+	hookCharacter(player.Character)
 end
+player.CharacterAdded:Connect(hookCharacter)
 
-local function formatKeyLabel(k)
-	if type(k) == "string" then
-		if string.match(k, "^[%a_][%w_]*$") then
-			return k
-		end
-		return string.format("[%q]", k)
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp or not isEquipped then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		fireBeam(input.Position)
 	end
-	return "[" .. tostring(k) .. "]"
-end
-
-local function formatLeafValue(val)
-	local t = typeof(val)
-	if t == "string" then
-		local s = val
-		if #s > 180 then
-			s = string.sub(s, 1, 180) .. "..."
-		end
-		return string.format("%q", s)
-	elseif t == "number" or t == "boolean" or t == "nil" then
-		return tostring(val)
-	elseif t == "Instance" then
-		return string.format("<%s:%s>", val.ClassName, val.Name)
-	elseif t == "function" then
-		return "<function>"
-	end
-	return "<" .. t .. ">"
-end
-
-local function dumpRequireValueToUi(val, indent, depth, visited, budget)
-	if budget.left <= 0 then
-		return
-	end
-	local pad = string.rep("  ", indent)
-	if type(val) ~= "table" then
-		budget.left -= 1
-		pushUiLine(pad .. formatLeafValue(val), Color3.fromRGB(205, 225, 245))
-		return
-	end
-	if visited[val] or depth >= 4 then
-		budget.left -= 1
-		pushUiLine(pad .. "{...}", Color3.fromRGB(205, 225, 245))
-		return
-	end
-	visited[val] = true
-	budget.left -= 1
-	pushUiLine(pad .. "{", Color3.fromRGB(205, 225, 245))
-
-	local c = 0
-	for k, v in pairs(val) do
-		c += 1
-		if c > 45 or budget.left <= 0 then
-			if budget.left > 0 then
-				budget.left -= 1
-				pushUiLine(pad .. "  ...", Color3.fromRGB(160, 175, 195))
-			end
-			break
-		end
-		local label = formatKeyLabel(k)
-		if type(v) == "table" and not visited[v] and (depth + 1) < 4 then
-			if budget.left > 0 then
-				budget.left -= 1
-				pushUiLine(pad .. "  " .. label .. " =", Color3.fromRGB(220, 235, 255))
-			end
-			dumpRequireValueToUi(v, indent + 2, depth + 1, visited, budget)
-		else
-			if budget.left > 0 then
-				budget.left -= 1
-				pushUiLine(pad .. "  " .. label .. " = " .. formatLeafValue(v), Color3.fromRGB(205, 225, 245))
-			end
-		end
-	end
-
-	if budget.left > 0 then
-		budget.left -= 1
-		pushUiLine(pad .. "}", Color3.fromRGB(205, 225, 245))
-	end
-	visited[val] = nil
-end
-
-local function extractScriptInnerToUi(scriptObj, budget)
-	if budget.left <= 0 then
-		return
-	end
-	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
-
-	local decompileFn = decompile or (genv and genv.decompile)
-	if type(decompileFn) == "function" then
-		local okDec, src = pcall(decompileFn, scriptObj)
-		if okDec and type(src) == "string" and #src > 0 then
-			budget.left -= 1
-			pushUiLine("  [DECOMPILED]:", Color3.fromRGB(165, 210, 255))
-			for sLine in string.gmatch(src, "[^\r\n]+") do
-				if budget.left <= 0 then
-					break
-				end
-				budget.left -= 1
-				pushUiLine("    " .. sLine, Color3.fromRGB(205, 225, 245))
-			end
-			return
-		end
-	end
-
-	if scriptObj:IsA("ModuleScript") then
-		local okReq, modVal = pcall(require, scriptObj)
-		if okReq then
-			budget.left -= 1
-			pushUiLine("  [REQUIRE]:", Color3.fromRGB(165, 210, 255))
-			dumpRequireValueToUi(modVal, 2, 0, {}, budget)
-			return
-		end
-	end
-
-	local bcFn = getscriptbytecode or (genv and genv.getscriptbytecode)
-	if type(bcFn) == "function" then
-		local okBc, bc = pcall(bcFn, scriptObj)
-		if okBc and type(bc) == "string" and #bc > 0 then
-			budget.left -= 1
-			pushUiLine("  [BYTECODE]: " .. tostring(#bc) .. " bytes", Color3.fromRGB(185, 195, 215))
-			return
-		end
-	end
-
-	budget.left -= 1
-	pushUiLine("  [INNER]: недоступно", Color3.fromRGB(155, 165, 185))
-end
-
-local function runScriptsBranchesDump()
-	if isBusy then
-		setStatus("Busy...")
-		return
-	end
-	isBusy = true
-	DumpScriptsBtn.Text = "Wait..."
-	DumpScriptsBtn.BackgroundColor3 = Color3.fromRGB(185, 115, 30)
-
-	task.spawn(function()
-		local ok, err = pcall(function()
-			pushUiLine("=== СКРИПТЫ И МОДУЛИ (БЕЗ СЕРВЕРНЫХ) ===", Color3.fromRGB(185, 130, 255))
-			local branches = getTargetScriptBranches()
-			local scriptsFound = 0
-			local budget = { left = 350 }
-
-			for _, branch in ipairs(branches) do
-				if budget.left <= 0 then
-					break
-				end
-				budget.left -= 1
-				pushUiLine("▼ BRANCH: " .. safeFullName(branch), Color3.fromRGB(255, 205, 95))
-
-				local candidates = { branch }
-				local okDesc, desc = pcall(function()
-					return branch:GetDescendants()
-				end)
-				if okDesc and type(desc) == "table" then
-					for _, d in ipairs(desc) do
-						table.insert(candidates, d)
-					end
-				end
-
-				for idx, obj in ipairs(candidates) do
-					if budget.left <= 0 then
-						break
-					end
-					if idx % 200 == 0 then
-						RunService.Heartbeat:Wait()
-					end
-					if obj:IsA("LuaSourceContainer") and not isServerOnlyScript(obj) then
-						scriptsFound += 1
-						budget.left -= 1
-						pushUiLine(string.format("  [%s] %s (%s)", obj.ClassName, obj.Name, safeFullName(obj)), Color3.fromRGB(120, 240, 175))
-						extractScriptInnerToUi(obj, budget)
-					end
-				end
-			end
-
-			setStatus("Scripts: " .. tostring(scriptsFound))
-		end)
-
-		if not ok then
-			pushUiLine("Ошибка: " .. tostring(err), Color3.fromRGB(255, 85, 85))
-			setStatus("Err")
-		end
-
-		isBusy = false
-		DumpScriptsBtn.Text = "Scripts In"
-		DumpScriptsBtn.BackgroundColor3 = Color3.fromRGB(125, 65, 195)
-	end)
-end
-
-ScanQueryBtn.Activated:Connect(runQueryStructureScan)
-DumpScriptsBtn.Activated:Connect(runScriptsBranchesDump)
-CopyUiBtn.Activated:Connect(copyAllVisibleInUi)
-
-ClearBtn.Activated:Connect(function()
-	for _, item in ipairs(rows) do
-		if item.Btn then
-			item.Btn:Destroy()
-		end
-	end
-	table.clear(rows)
-	setStatus("Cleared")
 end)
 
-local isMin = false
-MinBtn.Activated:Connect(function()
-	isMin = not isMin
-	QueryBox.Visible = not isMin
-	Scroll.Visible = not isMin
-	CopyUiBtn.Visible = not isMin
-	ScanQueryBtn.Visible = not isMin
-	DumpScriptsBtn.Visible = not isMin
-	ClearBtn.Visible = not isMin
-	MainFrame.Size = isMin and UDim2.new(0.55, 0, 0, 34) or UDim2.new(0.94, 0, 0.58, 0)
-	MinBtn.Text = isMin and "Max" or "Min"
-end)
-
-CloseBtn.Activated:Connect(function()
-	ScreenGui:Destroy()
-end)
-
-pushUiLine("Готово. Нажми 'Find Tree' или 'Scripts In', затем 'СКОПИРОВАТЬ ВСЁ ИЗ ИНТЕРФЕЙСА'.", Color3.fromRGB(180, 200, 230))
+openNativeNewItem()
