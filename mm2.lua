@@ -1,4 +1,4 @@
--- Scan (Direct clipboard copy + large chunks)
+-- Scan (Save full tree + scripts + contents directly to .txt file on phone)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -25,7 +25,7 @@ local SEARCH_QUERIES = {
 }
 
 local CHUNK_SIZE = 95000
-local MAX_SCRIPT_CHARS = 35000
+local MAX_SCRIPT_CHARS = 45000
 
 local function getScanRoots()
 	local roots = {
@@ -114,19 +114,34 @@ local function splitIntoLargeChunks(text, chunkSize)
 	return chunks
 end
 
-local function copyToClipboard(text)
-	if type(text) ~= "string" or #text == 0 then
-		return false
+local function saveTextToPhoneFile(baseName, fullText)
+	if type(fullText) ~= "string" or #fullText == 0 then
+		return false, "Нет данных для файла"
 	end
-	if typeof(setclipboard) == "function" then
-		local ok = pcall(setclipboard, text)
-		if ok then return true end
+	if typeof(writefile) ~= "function" then
+		return false, "writefile недоступен"
 	end
-	if typeof(toclipboard) == "function" then
-		local ok = pcall(toclipboard, text)
-		if ok then return true end
+
+	local stamp = tostring(os.time())
+	local fileName = string.format("Scan_%s_%s.txt", baseName or "dump", stamp)
+
+	local writeParts = splitIntoLargeChunks(fullText, 80000)
+
+	local okFirst = pcall(writefile, fileName, writeParts[1] or "")
+	if not okFirst then
+		return false, "Ошибка записи файла"
 	end
-	return false
+
+	if #writeParts > 1 and typeof(appendfile) == "function" then
+		for i = 2, #writeParts do
+			local okApp = pcall(appendfile, fileName, writeParts[i])
+			if not okApp then
+				return true, fileName .. " (частично)"
+			end
+		end
+	end
+
+	return true, fileName
 end
 
 local function serializeValue(val, depth, seenTables)
@@ -155,7 +170,7 @@ local function serializeValue(val, depth, seenTables)
 		local count = 0
 		for k, v in pairs(val) do
 			count += 1
-			if count > 30 then
+			if count > 35 then
 				table.insert(parts, "  ... (ещё ключи)")
 				break
 			end
@@ -496,7 +511,7 @@ local function buildUI()
 	outBox.Position = UDim2.new(0, 6, 0, 6)
 	outBox.BackgroundTransparency = 1
 	outBox.TextColor3 = Color3.fromRGB(220, 220, 228)
-	outBox.Text = "Нажми кнопку сверху."
+	outBox.Text = "Нажми кнопку сверху и нажми «Сохранить в .txt»."
 	outBox.TextXAlignment = Enum.TextXAlignment.Left
 	outBox.TextYAlignment = Enum.TextYAlignment.Top
 	outBox.MultiLine = true
@@ -524,20 +539,22 @@ local function buildUI()
 	nextChunkBtn.Parent = bottomBar
 	Instance.new("UICorner", nextChunkBtn).CornerRadius = UDim.new(0, 6)
 
-	local copyBtn = Instance.new("TextButton")
-	copyBtn.Size = UDim2.new(0.68, -2, 1, 0)
-	copyBtn.Position = UDim2.new(0.32, 2, 0, 0)
-	copyBtn.BackgroundColor3 = Color3.fromRGB(24, 118, 224)
-	copyBtn.Text = "Скопировать в буфер"
-	copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-	copyBtn.Font = Enum.Font.GothamBold
-	copyBtn.TextSize = 12
-	copyBtn.Parent = bottomBar
-	Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
+	local saveTxtBtn = Instance.new("TextButton")
+	saveTxtBtn.Size = UDim2.new(0.68, -2, 1, 0)
+	saveTxtBtn.Position = UDim2.new(0.32, 2, 0, 0)
+	saveTxtBtn.BackgroundColor3 = Color3.fromRGB(24, 118, 224)
+	saveTxtBtn.Text = "Сохранить в .txt"
+	saveTxtBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	saveTxtBtn.Font = Enum.Font.GothamBold
+	saveTxtBtn.TextSize = 12
+	saveTxtBtn.Parent = bottomBar
+	Instance.new("UICorner", saveTxtBtn).CornerRadius = UDim.new(0, 6)
 
+	local fullReportText = ""
+	local currentTag = "dump"
 	local chunks = { "" }
 	local chunkIndex = 1
-	local isCopying = false
+	local isSaving = false
 
 	local function renderCurrentChunk()
 		local currentText = chunks[chunkIndex] or ""
@@ -556,8 +573,10 @@ local function buildUI()
 		scroll.CanvasPosition = Vector2.new(0, 0)
 	end
 
-	local function setOutput(str)
-		chunks = splitIntoLargeChunks(str or "", CHUNK_SIZE)
+	local function setOutput(str, tag)
+		fullReportText = str or ""
+		currentTag = tag or "dump"
+		chunks = splitIntoLargeChunks(fullReportText, CHUNK_SIZE)
 		chunkIndex = 1
 		renderCurrentChunk()
 	end
@@ -574,22 +593,22 @@ local function buildUI()
 			end
 		end
 
-		setOutput(table.concat(parts, "\n"))
+		setOutput(table.concat(parts, "\n"), "trees")
 	end)
 
 	btnAllTreeScripts.MouseButton1Click:Connect(function()
 		local _, allFoundTrees = searchByQueries()
-		setOutput(collectScriptsWithContents(allFoundTrees, "TREE SCRIPT"))
+		setOutput(collectScriptsWithContents(allFoundTrees, "TREE SCRIPT"), "tree_scripts")
 	end)
 
 	btnDbScripts.MouseButton1Click:Connect(function()
 		local _, _, dbNodes = searchByQueries()
-		setOutput(collectScriptsWithContents(dbNodes, "DATABASE"))
+		setOutput(collectScriptsWithContents(dbNodes, "DATABASE"), "database")
 	end)
 
 	btnModScripts.MouseButton1Click:Connect(function()
 		local _, _, _, modNodes = searchByQueries()
-		setOutput(collectScriptsWithContents(modNodes, "MODULES"))
+		setOutput(collectScriptsWithContents(modNodes, "MODULES"), "modules")
 	end)
 
 	nextChunkBtn.MouseButton1Click:Connect(function()
@@ -599,23 +618,23 @@ local function buildUI()
 		end
 	end)
 
-	copyBtn.MouseButton1Click:Connect(function()
-		if isCopying then return end
-		isCopying = true
+	saveTxtBtn.MouseButton1Click:Connect(function()
+		if isSaving then return end
+		isSaving = true
 
-		local textToCopy = chunks[chunkIndex] or outBox.Text
+		local textToSave = (fullReportText ~= "" and fullReportText) or outBox.Text
 		task.spawn(function()
-			local ok = copyToClipboard(textToCopy)
-			if copyBtn and copyBtn.Parent then
-				copyBtn.Text = ok and ("Кусок " .. chunkIndex .. " скопирован!") or "Буфер недоступен"
-				copyBtn.BackgroundColor3 = ok and Color3.fromRGB(30, 155, 85) or Color3.fromRGB(165, 45, 55)
+			local ok, info = saveTextToPhoneFile(currentTag, textToSave)
+			if saveTxtBtn and saveTxtBtn.Parent then
+				saveTxtBtn.Text = ok and ("Файл: " .. info) or info
+				saveTxtBtn.BackgroundColor3 = ok and Color3.fromRGB(30, 155, 85) or Color3.fromRGB(165, 45, 55)
 			end
-			task.wait(1.2)
-			if copyBtn and copyBtn.Parent then
-				copyBtn.Text = "Скопировать в буфер"
-				copyBtn.BackgroundColor3 = Color3.fromRGB(24, 118, 224)
+			task.wait(1.8)
+			if saveTxtBtn and saveTxtBtn.Parent then
+				saveTxtBtn.Text = "Сохранить в .txt"
+				saveTxtBtn.BackgroundColor3 = Color3.fromRGB(24, 118, 224)
 			end
-			isCopying = false
+			isSaving = false
 		end)
 	end)
 
