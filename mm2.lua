@@ -123,7 +123,7 @@ local QueryBox = Instance.new("TextBox")
 QueryBox.Size = UDim2.new(1, -16, 0, 28)
 QueryBox.Position = UDim2.new(0, 8, 0, 40)
 QueryBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-QueryBox.PlaceholderText = "Доп. запросы (базовые: Inventory, Inventory2, Item, Claime, sync, Box)..."
+QueryBox.PlaceholderText = "Введи имена (пусто = полный дамп + Inventory/Item/Box/Sync)..."
 QueryBox.PlaceholderColor3 = Color3.fromRGB(135, 135, 155)
 QueryBox.Text = ""
 QueryBox.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -205,6 +205,7 @@ local rows = {}
 local rowOrder = 0
 local maxUiRows = 25000
 local stepCounter = 0
+local selectedRowBtn = nil
 
 local function yieldStep(everyN)
 	stepCounter += 1
@@ -280,6 +281,9 @@ local function pushUiLine(text, color)
 	if #rows >= maxUiRows then
 		local first = table.remove(rows, 1)
 		if first and first.Btn then
+			if selectedRowBtn == first.Btn then
+				selectedRowBtn = nil
+			end
 			first.Btn:Destroy()
 		end
 	end
@@ -301,13 +305,30 @@ local function pushUiLine(text, color)
 	btn.Parent = Scroll
 
 	btn.Activated:Connect(function()
-		copyToClipboard(lineStr, "Line")
+		if selectedRowBtn and selectedRowBtn.Parent then
+			selectedRowBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+		end
+		selectedRowBtn = btn
+		btn.BackgroundColor3 = Color3.fromRGB(40, 52, 78)
+		setStatus("Row #" .. tostring(btn.LayoutOrder))
 	end)
 
 	table.insert(rows, {
 		FullLine = lineStr,
 		Btn = btn,
 	})
+end
+
+local function clearUiRows()
+	for _, item in ipairs(rows) do
+		if item.Btn then
+			item.Btn:Destroy()
+		end
+	end
+	selectedRowBtn = nil
+	table.clear(rows)
+	rowOrder = 0
+	Scroll.CanvasPosition = Vector2.new(0, 0)
 end
 
 -- === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
@@ -547,7 +568,30 @@ local function collectAllReplicatedScripts()
 	return list
 end
 
--- === 1. ПОЛНАЯ ВЫГРУЗКА REPLICATEDSTORAGE + ВСЕХ ЕГО СКРИПТОВ + STARTERGUI + ДЕРЕВЬЕВ ===
+-- === 1. ПОИСК И ВЫГРУЗКА ДЕРЕВЬЕВ ===
+local function getCustomQueries(rawText)
+	local list = {}
+	local seen = {}
+	local trimmed = string.match(tostring(rawText or ""), "^%s*(.-)%s*$")
+	if not trimmed or trimmed == "" then
+		return list
+	end
+	for part in string.gmatch(trimmed, "[^,;|%s]+") do
+		local tok = string.match(part, "^%s*(.-)%s*$")
+		if tok and tok ~= "" then
+			local low = string.lower(tok)
+			if not seen[low] then
+				seen[low] = true
+				table.insert(list, low)
+			end
+		end
+	end
+	if #list == 0 then
+		table.insert(list, string.lower(trimmed))
+	end
+	return list
+end
+
 local function parseQueries(rawText)
 	local list = {}
 	local seen = {}
@@ -567,11 +611,8 @@ local function parseQueries(rawText)
 		addTok(defQ)
 	end
 
-	local trimmed = string.match(tostring(rawText or ""), "^%s*(.-)%s*$")
-	if trimmed and trimmed ~= "" then
-		for part in string.gmatch(trimmed, "[^,;|]+") do
-			addTok(part)
-		end
+	for _, customQ in ipairs(getCustomQueries(rawText)) do
+		addTok(customQ)
 	end
 
 	return list
@@ -671,12 +712,63 @@ local function runQueryStructureScan()
 
 	task.spawn(function()
 		local ok, err = pcall(function()
-			local qList = parseQueries(QueryBox.Text)
-			pushUiLine("=== ПОЛНЫЙ ДАМП REPLICATEDSTORAGE + STARTERGUI + ДЕРЕВЬЕВ (" .. table.concat(qList, ", ") .. ") ===", Color3.fromRGB(120, 210, 255))
+			local customList = getCustomQueries(QueryBox.Text)
+			local hasCustomQuery = (#customList > 0)
+			local qList = hasCustomQuery and customList or parseQueries("")
+
+			clearUiRows()
 
 			local roots = getScanRoots()
 			local matched = {}
 			local seenInst = {}
+
+			if hasCustomQuery then
+				pushUiLine("=== НАЙДЕННЫЕ ДЕРЕВЬЯ ПО ЗАПРОСУ: " .. table.concat(qList, ", ") .. " ===", Color3.fromRGB(255, 215, 95))
+
+				for _, r in ipairs(roots) do
+					if r then
+						local mRoot, tagRoot = matchesQuery(r, qList)
+						if mRoot and not seenInst[r] then
+							seenInst[r] = true
+							table.insert(matched, { inst = r, tag = tagRoot })
+						end
+
+						local okDesc, desc = pcall(function()
+							return r:GetDescendants()
+						end)
+						if okDesc and type(desc) == "table" then
+							for i = 1, #desc do
+								yieldStep(220)
+								local obj = desc[i]
+								if not seenInst[obj] then
+									local m, tag = matchesQuery(obj, qList)
+									if m then
+										seenInst[obj] = true
+										table.insert(matched, { inst = obj, tag = tag })
+									end
+								end
+							end
+						end
+					end
+				end
+
+				local totalNodes = 0
+				for idx, entry in ipairs(matched) do
+					local inst = entry.inst
+					pushUiLine(string.format("★ #%d [%s] %s (%s)", idx, entry.tag, safeFullName(inst), inst.ClassName), Color3.fromRGB(115, 245, 175))
+					totalNodes += dumpSubtreeFastToUi(inst, nil, nil, nil)
+				end
+
+				if #matched == 0 then
+					pushUiLine("Ничего не найдено по запросу: " .. table.concat(qList, ", "), Color3.fromRGB(255, 150, 120))
+				end
+
+				setStatus("Found:" .. tostring(#matched) .. " Nodes:" .. tostring(totalNodes))
+				return
+			end
+
+			pushUiLine("=== ПОЛНЫЙ ДАМП REPLICATEDSTORAGE + STARTERGUI + ДЕРЕВЬЕВ (" .. table.concat(qList, ", ") .. ") ===", Color3.fromRGB(120, 210, 255))
+
 			local priorityScripts = {}
 			local seenPriorityScript = {}
 
@@ -866,16 +958,16 @@ local function runScriptsBranchesDump()
 end
 
 ScanQueryBtn.Activated:Connect(runQueryStructureScan)
+QueryBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		runQueryStructureScan()
+	end
+end)
 DumpScriptsBtn.Activated:Connect(runScriptsBranchesDump)
 CopyUiBtn.Activated:Connect(copyAllVisibleInUi)
 
 ClearBtn.Activated:Connect(function()
-	for _, item in ipairs(rows) do
-		if item.Btn then
-			item.Btn:Destroy()
-		end
-	end
-	table.clear(rows)
+	clearUiRows()
 	setStatus("Cleared")
 end)
 
@@ -896,4 +988,4 @@ CloseBtn.Activated:Connect(function()
 	ScreenGui:Destroy()
 end)
 
-pushUiLine("Готово. Сканер загружен: Find Tree и Scripts In готовы к работе.", Color3.fromRGB(180, 200, 230))
+pushUiLine("Готово. Введи имя в поиск и нажми Find Tree или Enter — вылезет нужное дерево.", Color3.fromRGB(180, 200, 230))
