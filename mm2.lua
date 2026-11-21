@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
+local StarterPlayer = game:GetService("StarterPlayer")
 local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 
@@ -320,37 +321,14 @@ local function safeFullName(inst)
 	return ok and res or tostring(inst)
 end
 
-local function isInReplicatedStorage(inst)
+local function isAnyScript(inst)
 	if typeof(inst) ~= "Instance" then
 		return false
 	end
 	local ok, res = pcall(function()
-		return inst == ReplicatedStorage or inst:IsDescendantOf(ReplicatedStorage)
+		return inst:IsA("LuaSourceContainer")
 	end)
 	return ok and res == true
-end
-
-local function isServerOnlyScript(inst)
-	if typeof(inst) ~= "Instance" then
-		return true
-	end
-	if isInReplicatedStorage(inst) then
-		return false
-	end
-	if inst:IsA("Script") and not inst:IsA("LocalScript") then
-		local okCtx, ctx = pcall(function()
-			return inst.RunContext
-		end)
-		if okCtx and ctx == Enum.RunContext.Client then
-			return false
-		end
-		return true
-	end
-	return false
-end
-
-local function isAccessibleScript(inst)
-	return typeof(inst) == "Instance" and inst:IsA("LuaSourceContainer") and not isServerOnlyScript(inst)
 end
 
 local function formatKeyLabel(k)
@@ -418,13 +396,16 @@ end
 
 local function extractScriptInnerToUi(scriptObj, basePrefix)
 	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
+	local wroteAnything = false
 
 	if scriptObj:IsA("ModuleScript") then
 		local okReq, modVal = pcall(require, scriptObj)
 		if okReq then
+			wroteAnything = true
 			pushUiLine(basePrefix .. "  [MODULE REQUIRE]:", Color3.fromRGB(165, 245, 195))
 			dumpRequireValueToUi(modVal, 2, 0, {}, basePrefix)
 		else
+			wroteAnything = true
 			pushUiLine(basePrefix .. "  [MODULE REQUIRE ERR]: " .. tostring(modVal), Color3.fromRGB(255, 150, 120))
 		end
 	end
@@ -433,6 +414,7 @@ local function extractScriptInnerToUi(scriptObj, basePrefix)
 	if type(decompileFn) == "function" then
 		local okDec, src = pcall(decompileFn, scriptObj)
 		if okDec and type(src) == "string" and #src > 0 then
+			wroteAnything = true
 			pushUiLine(basePrefix .. "  [DECOMPILED]:", Color3.fromRGB(165, 210, 255))
 			local lineNum = 0
 			for sLine in string.gmatch(src, "[^\r\n]+") do
@@ -444,7 +426,6 @@ local function extractScriptInnerToUi(scriptObj, basePrefix)
 				yieldStep(120)
 				pushUiLine(basePrefix .. "    " .. sLine, Color3.fromRGB(205, 225, 245))
 			end
-			return
 		end
 	end
 
@@ -452,8 +433,13 @@ local function extractScriptInnerToUi(scriptObj, basePrefix)
 	if type(bcFn) == "function" then
 		local okBc, bc = pcall(bcFn, scriptObj)
 		if okBc and type(bc) == "string" and #bc > 0 then
+			wroteAnything = true
 			pushUiLine(basePrefix .. "  [BYTECODE]: " .. tostring(#bc) .. " bytes", Color3.fromRGB(185, 195, 215))
 		end
+	end
+
+	if not wroteAnything then
+		pushUiLine(basePrefix .. "  [SCRIPT INFO]: Class=" .. scriptObj.ClassName .. " (no source/bytecode returned)", Color3.fromRGB(175, 185, 205))
 	end
 end
 
@@ -515,7 +501,7 @@ local function dumpSubtreeFastToUi(rootInst, dumpedScriptsSet, collectedScriptsL
 		pushUiLine(line, depth == 0 and Color3.fromRGB(255, 205, 95) or Color3.fromRGB(215, 235, 255))
 
 		local nextPrefix = (depth == 0) and "" or (prefix .. (isLast and "    " or "│   "))
-		if isAccessibleScript(node) then
+		if isAnyScript(node) then
 			if dumpedScriptsSet then
 				dumpedScriptsSet[node] = true
 			end
@@ -543,7 +529,7 @@ local function collectAllReplicatedScripts()
 	local list = {}
 	local seen = {}
 	local function tryAdd(obj)
-		if typeof(obj) == "Instance" and obj:IsA("LuaSourceContainer") and not seen[obj] then
+		if isAnyScript(obj) and not seen[obj] then
 			seen[obj] = true
 			table.insert(list, obj)
 		end
@@ -637,6 +623,22 @@ local function getDatabaseRoot()
 	return okDb and db or nil
 end
 
+local function getPlayerScriptsRoot()
+	if not LocalPlayer then
+		return nil
+	end
+	local okPs, ps = pcall(function()
+		return LocalPlayer:FindFirstChild("PlayerScripts")
+	end)
+	if okPs and ps then
+		return ps
+	end
+	local okSp, sp = pcall(function()
+		return StarterPlayer:FindFirstChild("StarterPlayerScripts")
+	end)
+	return okSp and sp or nil
+end
+
 local function getScanRoots()
 	local roots = {}
 	local seen = {}
@@ -650,6 +652,7 @@ local function getScanRoots()
 	addRoot(ReplicatedStorage)
 	addRoot(StarterGui)
 	addRoot(getDatabaseRoot())
+	addRoot(getPlayerScriptsRoot())
 	addRoot(LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
 	addRoot(LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"))
 	addRoot(LocalPlayer and LocalPlayer.Character)
@@ -687,7 +690,7 @@ local function runQueryStructureScan()
 			end
 
 			local function considerScriptPriority(obj)
-				if not isAccessibleScript(obj) then
+				if not isAnyScript(obj) then
 					return
 				end
 				if not seenPriorityScript[obj] then
@@ -762,7 +765,7 @@ local function runQueryStructureScan()
 	end)
 end
 
--- === 2. ОБХОД ВСЕХ СКРИПТОВ REPLICATEDSTORAGE И ВЫБРАННЫХ ВЕТОК ===
+-- === 2. ФИОЛЕТОВАЯ КНОПКА: СКАНИРОВАТЬ ВСЕ СКРИПТЫ И МОДУЛИ + ВНУТРИ НАЙДЕННЫХ ДЕРЕВЬЕВ ===
 local function getTargetScriptBranches()
 	local branches = {}
 	local seen = {}
@@ -776,9 +779,29 @@ local function getTargetScriptBranches()
 	addInst(ReplicatedStorage)
 	addInst(StarterGui)
 	addInst(getDatabaseRoot())
+	addInst(getPlayerScriptsRoot())
 	addInst(LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
 	addInst(LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"))
 	addInst(LocalPlayer and LocalPlayer.Character)
+
+	local qList = parseQueries(QueryBox.Text)
+	for _, r in ipairs(branches) do
+		if matchesQuery(r, qList) then
+			addInst(r)
+		end
+		local okDesc, desc = pcall(function()
+			return r:GetDescendants()
+		end)
+		if okDesc and type(desc) == "table" then
+			for i = 1, #desc do
+				yieldStep(180)
+				local obj = desc[i]
+				if matchesQuery(obj, qList) then
+					addInst(obj)
+				end
+			end
+		end
+	end
 
 	return branches
 end
@@ -794,35 +817,40 @@ local function runScriptsBranchesDump()
 
 	task.spawn(function()
 		local ok, err = pcall(function()
-			pushUiLine("=== ВСЕ СКРИПТЫ И МОДУЛИ (REPLICATEDSTORAGE + STARTERGUI + ВЕТКИ) ===", Color3.fromRGB(185, 130, 255))
+			pushUiLine("=== ВСЕ СКРИПТЫ И МОДУЛИ (ВЕТКИ + ВНУТРИ INVENTORY2 / ITEM / CLAIME / SYNC / BOX) ===", Color3.fromRGB(195, 125, 255))
 			local branches = getTargetScriptBranches()
 			local scriptsFound = 0
 			local seenScripts = {}
 
 			for _, branch in ipairs(branches) do
 				pushUiLine("▼ BRANCH: " .. safeFullName(branch), Color3.fromRGB(255, 205, 95))
+				yieldStep(10)
 
-				local candidates = { branch }
+				if isAnyScript(branch) and not seenScripts[branch] then
+					seenScripts[branch] = true
+					scriptsFound += 1
+					pushUiLine(string.format("  [%s] %s (%s)", branch.ClassName, branch.Name, safeFullName(branch)), Color3.fromRGB(130, 245, 185))
+					extractScriptInnerToUi(branch, "  ")
+				end
+
 				local okDesc, desc = pcall(function()
 					return branch:GetDescendants()
 				end)
 				if okDesc and type(desc) == "table" then
-					for _, d in ipairs(desc) do
-						table.insert(candidates, d)
-					end
-				end
-
-				for _, obj in ipairs(candidates) do
-					yieldStep(80)
-					if isAccessibleScript(obj) and not seenScripts[obj] then
-						seenScripts[obj] = true
-						scriptsFound += 1
-						pushUiLine(string.format("  [%s] %s (%s)", obj.ClassName, obj.Name, safeFullName(obj)), Color3.fromRGB(120, 240, 175))
-						extractScriptInnerToUi(obj, "  ")
+					for i = 1, #desc do
+						yieldStep(60)
+						local obj = desc[i]
+						if isAnyScript(obj) and not seenScripts[obj] then
+							seenScripts[obj] = true
+							scriptsFound += 1
+							pushUiLine(string.format("  [%s] %s (%s)", obj.ClassName, obj.Name, safeFullName(obj)), Color3.fromRGB(130, 245, 185))
+							extractScriptInnerToUi(obj, "  ")
+						end
 					end
 				end
 			end
 
+			pushUiLine("=== ИТОГО НАЙДЕНО СКРИПТОВ И МОДУЛЕЙ: " .. tostring(scriptsFound) .. " ===", Color3.fromRGB(195, 125, 255))
 			setStatus("Scripts: " .. tostring(scriptsFound))
 		end)
 
@@ -868,4 +896,4 @@ CloseBtn.Activated:Connect(function()
 	ScreenGui:Destroy()
 end)
 
-pushUiLine("Готово. Ищет по Inventory, Inventory2, Item, Claime, sync, Box + дамп ReplicatedStorage и StarterGui.", Color3.fromRGB(180, 200, 230))
+pushUiLine("Готово. Сканер загружен: Find Tree и Scripts In готовы к работе.", Color3.fromRGB(180, 200, 230))
