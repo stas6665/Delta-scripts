@@ -1,797 +1,1525 @@
+local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
-local StarterPlayer = game:GetService("StarterPlayer")
-local CollectionService = game:GetService("CollectionService")
+local Workspace = game:GetService("Workspace")
+local UIS = game:GetService("UserInputService")
 
-local LocalPlayer = Players.LocalPlayer
-local parentGui = LocalPlayer:WaitForChild("PlayerGui")
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
 
-if parentGui:FindFirstChild("CopyUiAllGui") then
-	parentGui.CopyUiAllGui:Destroy()
+local LoadingGui = Instance.new("ScreenGui")
+LoadingGui.Name = "MM2LoadingScreen"
+LoadingGui.ResetOnSpawn = false
+LoadingGui.IgnoreGuiInset = true
+LoadingGui.Parent = PlayerGui
+
+local Background = Instance.new("Frame")
+Background.Size = UDim2.fromScale(1, 1)
+Background.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
+Background.BorderSizePixel = 0
+Background.Parent = LoadingGui
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 50)
+Title.Position = UDim2.new(0, 0, 0.42, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "MM2 HUB"
+Title.TextColor3 = Color3.fromRGB(220, 220, 220)
+Title.TextSize = 30
+Title.Font = Enum.Font.GothamBold
+Title.Parent = Background
+
+local Percent = Instance.new("TextLabel")
+Percent.Size = UDim2.new(1, 0, 0, 30)
+Percent.Position = UDim2.new(0, 0, 0.52, 0)
+Percent.BackgroundTransparency = 1
+Percent.Text = "1%"
+Percent.TextColor3 = Color3.fromRGB(255, 255, 255)
+Percent.TextSize = 18
+Percent.Font = Enum.Font.GothamMedium
+Percent.Parent = Background
+
+local Track = Instance.new("Frame")
+Track.Size = UDim2.new(0, 300, 0, 8)
+Track.Position = UDim2.new(0.5, -150, 0.58, 0)
+Track.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+Track.BorderSizePixel = 0
+Track.Parent = Background
+
+local TrackCorner = Instance.new("UICorner", Track)
+TrackCorner.CornerRadius = UDim.new(1, 0)
+
+local Fill = Instance.new("Frame")
+Fill.Size = UDim2.new(0.01, 0, 1, 0)
+Fill.BackgroundColor3 = Color3.fromRGB(160, 25, 45)
+Fill.BorderSizePixel = 0
+Fill.Parent = Track
+
+local FillCorner = Instance.new("UICorner", Fill)
+FillCorner.CornerRadius = UDim.new(1, 0)
+
+local FillTween = TweenService:Create(
+Fill,
+TweenInfo.new(2, Enum.EasingStyle.Linear),
+{Size = UDim2.new(1, 0, 1, 0)}
+)
+
+FillTween:Play()
+
+local percentThread = task.spawn(function()
+for i = 1, 100 do
+Percent.Text = i .. "%"
+task.wait(0.02)
+end
+end)
+
+FillTween.Completed:Wait()
+pcall(task.cancel, percentThread)
+
+local Fade = TweenService:Create(
+Background,
+TweenInfo.new(0.25),
+{BackgroundTransparency = 1}
+)
+
+Fade:Play()
+Fade.Completed:Wait()
+LoadingGui:Destroy()
+
+local Old = PlayerGui:FindFirstChild("MM2UltimateUI")
+if Old then
+Old:Destroy()
 end
 
-local DEFAULT_QUERIES = {
-	"inventory",
-	"inventory2",
-	"item",
-	"claime",
-	"sync",
-	"box",
+local GUI
+local Connections = {}
+local Threads = {}
+local Alive = true
+local ActiveESPObjects = {}
+local RoundRolesCache = {} -- [playerName] = { Role = string, Dead = boolean }
+local HeroPlayers = {}
+local TrackedDrops = {}
+
+local function Connect(signal, callback)
+local connection = signal:Connect(callback)
+table.insert(Connections, connection)
+return connection
+end
+
+local function TrackThread(thread)
+table.insert(Threads, thread)
+return thread
+end
+
+local function SpawnTracked(fn)
+return TrackThread(task.spawn(fn))
+end
+
+local function DelayTracked(delaySeconds, fn)
+return TrackThread(task.delay(delaySeconds, fn))
+end
+
+local function FindGunDrop()
+for _, obj in ipairs(Workspace:GetDescendants()) do
+if obj.Name == "GunDrop" and obj:IsA("BasePart") and obj.Parent then
+return obj
+end
+end
+return nil
+end
+
+local Colors = {
+Red = Color3.fromRGB(220, 45, 55),
+Blue = Color3.fromRGB(45, 115, 230),
+Green = Color3.fromRGB(50, 190, 105),
+Yellow = Color3.fromRGB(235, 195, 45),
+Purple = Color3.fromRGB(145, 75, 220),
+Pink = Color3.fromRGB(230, 90, 165),
+Orange = Color3.fromRGB(235, 125, 45),
+Cyan = Color3.fromRGB(55, 190, 220),
 }
 
--- === ИНТЕРФЕЙС ===
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "CopyUiAllGui"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = parentGui
+local ColorNames = {
+"Red", "Blue", "Green", "Yellow", "Purple", "Pink", "Orange", "Cyan", "Rainbow"
+}
 
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0.94, 0, 0.58, 0)
-MainFrame.Position = UDim2.new(0.03, 0, 0.04, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
-MainFrame.BackgroundTransparency = 0.08
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Parent = ScreenGui
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+local ColorValues = {
+["Red"] = Colors.Red,
+["Blue"] = Colors.Blue,
+["Green"] = Colors.Green,
+["Yellow"] = Colors.Yellow,
+["Purple"] = Colors.Purple,
+["Pink"] = Colors.Pink,
+["Orange"] = Colors.Orange,
+["Cyan"] = Colors.Cyan,
+}
 
-local Stroke = Instance.new("UIStroke")
-Stroke.Color = Color3.fromRGB(80, 80, 100)
-Stroke.Thickness = 1
-Stroke.Parent = MainFrame
+local ThemeColors = {
+["Red"] = Color3.fromRGB(65, 25, 30),
+["Blue"] = Color3.fromRGB(23, 38, 65),
+["Green"] = Color3.fromRGB(24, 53, 39),
+["Yellow"] = Color3.fromRGB(60, 52, 25),
+["Purple"] = Color3.fromRGB(46, 30, 65),
+["Pink"] = Color3.fromRGB(65, 30, 48),
+["Orange"] = Color3.fromRGB(65, 40, 24),
+["Cyan"] = Color3.fromRGB(25, 52, 62),
+}
 
-local TopBar = Instance.new("Frame")
-TopBar.Name = "TopBar"
-TopBar.Size = UDim2.new(1, 0, 0, 34)
-TopBar.BackgroundColor3 = Color3.fromRGB(26, 26, 34)
-TopBar.BorderSizePixel = 0
-TopBar.Parent = MainFrame
-Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 10)
+local Accent = Colors.Red
+local OutlineColor = Colors.Red
 
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(0.26, -6, 1, 0)
-TitleLabel.Position = UDim2.new(0, 8, 0, 0)
-TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "UI DUMPER"
-TitleLabel.TextColor3 = Color3.fromRGB(235, 240, 255)
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.TextSize = 10
-TitleLabel.Parent = TopBar
+local RainbowOutline = false
+local RainbowTheme = false
 
-local ScanQueryBtn = Instance.new("TextButton")
-ScanQueryBtn.Size = UDim2.new(0, 62, 0, 24)
-ScanQueryBtn.Position = UDim2.new(1, -304, 0.5, -12)
-ScanQueryBtn.BackgroundColor3 = Color3.fromRGB(45, 135, 235)
-ScanQueryBtn.Text = "Find Tree"
-ScanQueryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ScanQueryBtn.Font = Enum.Font.GothamBold
-ScanQueryBtn.TextSize = 9
-ScanQueryBtn.Parent = TopBar
-Instance.new("UICorner", ScanQueryBtn).CornerRadius = UDim.new(0, 6)
+local ToggleRecords = {}
+local AccordionRecords = {}
 
-local DumpScriptsBtn = Instance.new("TextButton")
-DumpScriptsBtn.Size = UDim2.new(0, 66, 0, 24)
-DumpScriptsBtn.Position = UDim2.new(1, -236, 0.5, -12)
-DumpScriptsBtn.BackgroundColor3 = Color3.fromRGB(125, 65, 195)
-DumpScriptsBtn.Text = "Scripts In"
-DumpScriptsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-DumpScriptsBtn.Font = Enum.Font.GothamBold
-DumpScriptsBtn.TextSize = 9
-DumpScriptsBtn.Parent = TopBar
-Instance.new("UICorner", DumpScriptsBtn).CornerRadius = UDim.new(0, 6)
+local ESP_Settings = {
+Sheriff = false,
+Murderer = false,
+Innocent = false,
+Hero = false
+}
 
-local ClearBtn = Instance.new("TextButton")
-ClearBtn.Size = UDim2.new(0, 48, 0, 24)
-ClearBtn.Position = UDim2.new(1, -164, 0.5, -12)
-ClearBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
-ClearBtn.Text = "Clear"
-ClearBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
-ClearBtn.Font = Enum.Font.GothamBold
-ClearBtn.TextSize = 9
-ClearBtn.Parent = TopBar
-Instance.new("UICorner", ClearBtn).CornerRadius = UDim.new(0, 6)
+local AimbotSettings = {
+Enabled = false
+}
 
-local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 48, 0, 24)
-MinBtn.Position = UDim2.new(1, -110, 0.5, -12)
-MinBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
-MinBtn.Text = "Min"
-MinBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
-MinBtn.Font = Enum.Font.GothamBold
-MinBtn.TextSize = 9
-MinBtn.Parent = TopBar
-Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+local ShootButtonSettings = {
+Enabled = false
+}
 
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 42, 0, 24)
-CloseBtn.Position = UDim2.new(1, -52, 0.5, -12)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(165, 45, 55)
-CloseBtn.Text = "X"
-CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 10
-CloseBtn.Parent = TopBar
-Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+local AutoGrabSettings = {
+Enabled = false
+}
 
-local QueryBox = Instance.new("TextBox")
-QueryBox.Size = UDim2.new(1, -16, 0, 28)
-QueryBox.Position = UDim2.new(0, 8, 0, 40)
-QueryBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-QueryBox.PlaceholderText = "Имя дерева (например: Item)..."
-QueryBox.PlaceholderColor3 = Color3.fromRGB(135, 135, 155)
-QueryBox.Text = ""
-QueryBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-QueryBox.ClearTextOnFocus = false
-QueryBox.Font = Enum.Font.Code
-QueryBox.TextSize = 12
-QueryBox.Parent = MainFrame
-Instance.new("UICorner", QueryBox).CornerRadius = UDim.new(0, 6)
+local MurdererCombatSettings = {
+KillAllButtonEnabled = false,
+KillAllTriggered = false
+}
 
-local CopyUiBtn = Instance.new("TextButton")
-CopyUiBtn.Name = "CopyUiBtn"
-CopyUiBtn.Size = UDim2.new(1, -16, 0, 34)
-CopyUiBtn.Position = UDim2.new(0, 8, 1, -42)
-CopyUiBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
-CopyUiBtn.Text = "СКОПИРОВАТЬ ВСЁ ИЗ ИНТЕРФЕЙСА"
-CopyUiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CopyUiBtn.Font = Enum.Font.GothamBold
-CopyUiBtn.TextSize = 11
-CopyUiBtn.Parent = MainFrame
-Instance.new("UICorner", CopyUiBtn).CornerRadius = UDim.new(0, 7)
+local BASE_SPEED = 16
+local MIN_SPEED = 1
+local MAX_SPEED = 60
 
-local Scroll = Instance.new("ScrollingFrame")
-Scroll.Size = UDim2.new(1, -16, 1, -118)
-Scroll.Position = UDim2.new(0, 8, 0, 74)
-Scroll.BackgroundColor3 = Color3.fromRGB(11, 11, 15)
-Scroll.BorderSizePixel = 0
-Scroll.ScrollBarThickness = 5
-Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-Scroll.Parent = MainFrame
-Instance.new("UICorner", Scroll).CornerRadius = UDim.new(0, 6)
+local MIN_FARM_SPEED = 1
+local MAX_FARM_SPEED = 45
+local UNDERGROUND_Y_OFFSET = -2.2
 
-local OutputLabel = Instance.new("TextLabel")
-OutputLabel.Size = UDim2.new(1, -10, 0, 0)
-OutputLabel.Position = UDim2.new(0, 4, 0, 2)
-OutputLabel.AutomaticSize = Enum.AutomaticSize.Y
-OutputLabel.BackgroundTransparency = 1
-OutputLabel.Text = "Готово. Введи имя (например Item) и нажми Find Tree."
-OutputLabel.TextColor3 = Color3.fromRGB(215, 235, 255)
-OutputLabel.TextWrapped = true
-OutputLabel.TextXAlignment = Enum.TextXAlignment.Left
-OutputLabel.TextYAlignment = Enum.TextYAlignment.Top
-OutputLabel.Font = Enum.Font.Code
-OutputLabel.TextSize = 11
-OutputLabel.Parent = Scroll
+local FarmingSettings = {
+AutoFarmCoin = false,
+UndergroundMode = false,
+FarmSpeed = BASE_SPEED,
+FlingMurdererWhenFullBag = false,
+ShootMurdererWhenFullBag = false,
+KillAllWhenFullBag = false
+}
 
--- Перетаскивание окна (тач + мышь)
+local TrollSettings = {
+TargetPlayer = nil,
+Speed = BASE_SPEED,
+EvilSpeed = BASE_SPEED,
+SmileEnabled = false,
+EvilSmileEnabled = false
+}
+
+GUI = Instance.new("ScreenGui")
+GUI.Name = "MM2UltimateUI"
+GUI.ResetOnSpawn = false
+GUI.IgnoreGuiInset = true
+GUI.DisplayOrder = 999
+GUI.Parent = PlayerGui
+
+local function RemoveESP(p)
+if ActiveESPObjects[p] then
+if ActiveESPObjects[p].Highlight then ActiveESPObjects[p].Highlight:Destroy() end
+if ActiveESPObjects[p].Billboard then ActiveESPObjects[p].Billboard:Destroy() end
+ActiveESPObjects[p] = nil
+end
+end
+
+local function ClearAllESP()
+for p, _ in pairs(ActiveESPObjects) do
+RemoveESP(p)
+end
+for _, p in ipairs(Players:GetPlayers()) do
+local char = p.Character
+if char then
+for _, child in ipairs(char:GetChildren()) do
+if child:IsA("Highlight") then
+child:Destroy()
+end
+end
+local head = char:FindFirstChild("Head")
+local hrp = char:FindFirstChild("HumanoidRootPart")
+if head then
+for _, child in ipairs(head:GetChildren()) do
+if child:IsA("BillboardGui") then
+child:Destroy()
+end
+end
+end
+if hrp then
+for _, child in ipairs(hrp:GetChildren()) do
+if child:IsA("BillboardGui") then
+child:Destroy()
+end
+end
+end
+end
+end
+end
+
+local function ResetForNewMap()
+table.clear(RoundRolesCache)
+table.clear(HeroPlayers)
+table.clear(TrackedDrops)
+ClearAllESP()
+end
+
+local function New(class, properties, parent)
+local obj = Instance.new(class)
+for key, value in pairs(properties) do
+obj[key] = value
+end
+obj.Parent = parent
+return obj
+end
+
+local function Corner(parent, radius)
+New("UICorner", {CornerRadius = UDim.new(0, radius)}, parent)
+end
+
+local function Stroke(parent, color, thickness)
+return New("UIStroke", {
+Color = color,
+Thickness = thickness,
+ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+}, parent)
+end
+
+local function CmToPx(cm)
+return math.floor((cm * 37.7952755906) + 0.5)
+end
+
+local DRAG_THRESHOLD_PX = 8
+
+local function MakeDraggableActionButton(button, onShortClick)
+button.Active = true
+button.Draggable = false
+
+local activeInput = nil local dragStartPos = nil local buttonStartPos = nil local isDragging = false Connect(button.InputBegan, function(input) 	if activeInput ~= nil then return end 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 		activeInput = input 		dragStartPos = input.Position 		buttonStartPos = button.Position 		isDragging = false 	end end) Connect(UIS.InputChanged, function(input) 	if activeInput == nil or input ~= activeInput then return end 	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then 		local delta = input.Position - dragStartPos 		if not isDragging and delta.Magnitude >= DRAG_THRESHOLD_PX then 			isDragging = true 		end 		if isDragging then 			button.Position = UDim2.new( 				buttonStartPos.X.Scale, 				buttonStartPos.X.Offset + delta.X, 				buttonStartPos.Y.Scale, 				buttonStartPos.Y.Offset + delta.Y 			) 		end 	end end) Connect(UIS.InputEnded, function(input) 	if activeInput == nil or input ~= activeInput then return end 	local wasDragging = isDragging 	activeInput = nil 	dragStartPos = nil 	buttonStartPos = nil 	isDragging = false 	if not wasDragging and onShortClick then 		onShortClick() 	end end) 
+
+end
+
+local Crosshair = New("Frame", {
+Size = UDim2.fromOffset(8, 8),
+Position = UDim2.new(0.5, -4, 0.5, -4),
+BackgroundColor3 = Color3.fromRGB(220, 45, 55),
+BorderSizePixel = 0,
+Visible = false,
+ZIndex = 1000
+}, GUI)
+Corner(Crosshair, 50)
+
+local StopCoinFarmFlight -- forward declaration
+local StopManualKillAll -- forward declaration
+
+local function Cleanup()
+if not Alive then return end
+Alive = false
+FarmingSettings.AutoFarmCoin = false
+FarmingSettings.FlingMurdererWhenFullBag = false
+FarmingSettings.ShootMurdererWhenFullBag = false
+FarmingSettings.KillAllWhenFullBag = false
+MurdererCombatSettings.KillAllButtonEnabled = false
+MurdererCombatSettings.KillAllTriggered = false
+
+if StopManualKillAll then 	StopManualKillAll() end if StopCoinFarmFlight then 	StopCoinFarmFlight() end if Crosshair then 	Crosshair.Visible = false end for _, thread in ipairs(Threads) do 	if coroutine.status(thread) ~= "dead" then 		pcall(task.cancel, thread) 	end end table.clear(Threads) for _, connection in ipairs(Connections) do 	if connection.Connected then 		connection:Disconnect() 	end end table.clear(Connections) ClearAllESP() if GUI then 	GUI:Destroy() end 
+
+end
+
+local ShootButton = New("TextButton", {
+Size = UDim2.fromOffset(190, 114),
+Position = UDim2.new(0.8, -95, 0.7, -57),
+BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+Text = "Shoot Murderer",
+TextColor3 = Color3.fromRGB(255, 255, 255),
+TextSize = 16,
+Font = Enum.Font.GothamBold,
+Visible = false,
+Active = true,
+ZIndex = 1001
+}, GUI)
+Corner(ShootButton, 10)
+Stroke(ShootButton, Color3.fromRGB(220, 45, 55), 3.5)
+
+local killAllBtnW = CmToPx(5)
+local killAllBtnH = CmToPx(3)
+
+local KillAllActionButton = New("TextButton", {
+Name = "KillAllActionButton",
+Size = UDim2.fromOffset(killAllBtnW, killAllBtnH),
+Position = UDim2.new(0.8, -math.floor(killAllBtnW / 2), 0.5, -math.floor(killAllBtnH / 2)),
+BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+BackgroundTransparency = 0,
+Text = "Kill all",
+TextColor3 = Color3.fromRGB(255, 255, 255),
+TextSize = 18,
+Font = Enum.Font.GothamBold,
+BorderSizePixel = 0,
+Visible = false,
+Active = true,
+ZIndex = 1002
+}, GUI)
+Corner(KillAllActionButton, 10)
+Stroke(KillAllActionButton, Color3.fromRGB(220, 45, 55), 3.5)
+
+local Main = New("Frame", {
+Name = "MainWindow",
+Size = UDim2.fromOffset(480, 390),
+Position = UDim2.new(0.5, -240, 0.5, -195),
+BackgroundColor3 = Color3.fromRGB(24, 24, 28),
+BackgroundTransparency = 0,
+BorderSizePixel = 0
+}, GUI)
+
+Corner(Main, 14)
+local MainStroke = Stroke(Main, OutlineColor, 2.5)
+
+local Header = New("Frame", {
+Size = UDim2.new(1, 0, 0, 54),
+BackgroundColor3 = Color3.fromRGB(17, 17, 20),
+BackgroundTransparency = 0,
+BorderSizePixel = 0,
+ZIndex = 5
+}, Main)
+
+Corner(Header, 14)
+
+local HeaderCover = New("Frame", {
+Size = UDim2.new(1, 0, 0, 14),
+Position = UDim2.new(0, 0, 1, -14),
+BackgroundColor3 = Header.BackgroundColor3,
+BorderSizePixel = 0,
+ZIndex = 5
+}, Header)
+
+local TitleLabel = New("TextLabel", {
+Size = UDim2.new(1, -150, 1, 0),
+Position = UDim2.fromOffset(16, 0),
+BackgroundTransparency = 1,
+Text = "MM2 Ultimate Hub",
+TextColor3 = Color3.new(1, 1, 1),
+TextSize = 19,
+Font = Enum.Font.GothamBold,
+TextXAlignment = Enum.TextXAlignment.Left,
+ZIndex = 6
+}, Header)
+
+local function HeaderButton(text, x, color)
+local button = New("TextButton", {
+Size = UDim2.fromOffset(36, 36),
+Position = UDim2.new(1, x, 0, 9),
+BackgroundColor3 = Color3.fromRGB(38, 38, 43),
+BackgroundTransparency = 0,
+Text = text,
+TextColor3 = color or Color3.new(1, 1, 1),
+TextSize = 20,
+Font = Enum.Font.GothamBold,
+BorderSizePixel = 0,
+ZIndex = 7
+}, Header)
+Corner(button, 9)
+return button
+end
+
+local MinimizeButton = HeaderButton("−", -126)
+local SettingsButton = HeaderButton("⚙", -84)
+local CloseButton = HeaderButton("×", -42, Color3.fromRGB(255, 90, 90))
+
+local Body = New("Frame", {
+Name = "Body",
+Position = UDim2.fromOffset(0, 54),
+Size = UDim2.new(1, 0, 1, -54),
+BackgroundColor3 = Main.BackgroundColor3,
+BackgroundTransparency = 0,
+BorderSizePixel = 0
+}, Main)
+
+local Sidebar = New("Frame", {
+Size = UDim2.new(0, 130, 1, 0),
+BackgroundColor3 = Color3.fromRGB(19, 19, 23),
+BackgroundTransparency = 0,
+BorderSizePixel = 0
+}, Body)
+
+local function SidebarButton(text, yPos)
+local btn = New("TextButton", {
+Size = UDim2.new(1, -16, 0, 40),
+Position = UDim2.fromOffset(8, yPos),
+BackgroundColor3 = Color3.fromRGB(28, 28, 34),
+BackgroundTransparency = 0,
+Text = text,
+TextColor3 = Color3.new(1, 1, 1),
+TextSize = 15,
+Font = Enum.Font.GothamBold,
+BorderSizePixel = 0
+}, Sidebar)
+Corner(btn, 9)
+return btn
+end
+
+local FarmingTab = SidebarButton("🪙 Farming", 16)
+local EspTab = SidebarButton("◉ ESP", 64)
+local SheriffTab = SidebarButton("🛡 Sheriff", 112)
+local MurdererTab = SidebarButton("🔪 Murderer", 160)
+local TrollTab = SidebarButton("🤪 Troll", 208)
+
+local Content = New("Frame", {
+Position = UDim2.fromOffset(130, 0),
+Size = UDim2.new(1, -130, 1, 0),
+BackgroundTransparency = 1
+}, Body)
+
+local function Page(name)
+return New("ScrollingFrame", {
+Name = name,
+Size = UDim2.new(1, -16, 1, -16),
+Position = UDim2.fromOffset(8, 8),
+BackgroundTransparency = 1,
+BorderSizePixel = 0,
+ScrollBarThickness = 4,
+ScrollBarImageColor3 = Accent,
+CanvasSize = UDim2.new(0, 0, 0, 0),
+Visible = false,
+CanvasPosition = Vector2.new(0, 0)
+}, Content)
+end
+
+local FarmingPage = Page("FarmingPage")
+local EspPage = Page("ESP")
+local SheriffPage = Page("SheriffPage")
+local MurdererPage = Page("MurdererPage")
+local TrollPage = Page("TrollPage")
+local SettingsPage = Page("Settings")
+FarmingPage.Visible = true
+
+local function AddLayout(page)
+local layout = New("UIListLayout", {
+Padding = UDim.new(0, 12),
+SortOrder = Enum.SortOrder.LayoutOrder
+}, page)
+Connect(layout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 16)
+end)
+return layout
+end
+
+local FarmingLayout = AddLayout(FarmingPage)
+local EspLayout = AddLayout(EspPage)
+local SheriffLayout = AddLayout(SheriffPage)
+local MurdererLayout = AddLayout(MurdererPage)
+local TrollLayout = AddLayout(TrollPage)
+local SettingsLayout = AddLayout(SettingsPage)
+
+local function Label(parent, text)
+return New("TextLabel", {
+Size = UDim2.new(1, -6, 0, 34),
+BackgroundTransparency = 1,
+Text = text,
+TextColor3 = Color3.fromRGB(235, 235, 235),
+TextSize = 17,
+Font = Enum.Font.GothamBold,
+TextXAlignment = Enum.TextXAlignment.Left
+}, parent)
+end
+
+local function UpdateToggleAppearance(record)
+if RainbowTheme then
+record.Button.BackgroundColor3 = record.Enabled and Accent or Color3.fromRGB(0, 0, 0)
+else
+record.Button.BackgroundColor3 = record.Enabled and Accent or Color3.fromRGB(65, 65, 70)
+end
+record.Stroke.Color = Color3.fromRGB(0, 0, 0)
+record.Stroke.Transparency = 0
+end
+
+local function Toggle(parent, name, callback)
+local row = New("Frame", {
+Size = UDim2.new(1, -6, 0, 52),
+BackgroundColor3 = Color3.fromRGB(34, 34, 39),
+BackgroundTransparency = 0,
+BorderSizePixel = 0
+}, parent)
+Corner(row, 10)
+
+New("TextLabel", { 	Size = UDim2.new(1, -85, 1, 0), 	Position = UDim2.fromOffset(14, 0), 	BackgroundTransparency = 1, 	Text = name, 	TextColor3 = Color3.new(1, 1, 1), 	TextSize = 15, 	Font = Enum.Font.GothamMedium, 	TextXAlignment = Enum.TextXAlignment.Left }, row) local enabled = false local button = New("TextButton", { 	Size = UDim2.fromOffset(54, 28), 	Position = UDim2.new(1, -64, 0.5, -14), 	BackgroundColor3 = Color3.fromRGB(65, 65, 70), 	BackgroundTransparency = 0, 	Text = "", 	BorderSizePixel = 0 }, row) Corner(button, 14) local toggleStroke = Stroke(button, Color3.fromRGB(0, 0, 0), 1.5) local knob = New("Frame", { 	Size = UDim2.fromOffset(22, 22), 	Position = UDim2.fromOffset(3, 3), 	BackgroundColor3 = Color3.new(1, 1, 1), 	BorderSizePixel = 0 }, button) Corner(knob, 12) local record = {Button = button, Row = row, Stroke = toggleStroke, Knob = knob, Enabled = false} table.insert(ToggleRecords, record) Connect(button.Activated, function() 	enabled = not enabled 	record.Enabled = enabled 	TweenService:Create(knob, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { 		Position = enabled and UDim2.new(1, -25, 0, 3) or UDim2.fromOffset(3, 3) 	}):Play() 	UpdateToggleAppearance(record) 	if callback then callback(enabled) end end) return button 
+
+end
+
+local UpdateESP -- forward declaration
+local FindKnifeMurdererTarget -- forward declaration
+local GetPlayerRole -- forward declaration
+local RestoreStaticModelState -- forward declaration
+local UpdateAimbotState -- forward declaration
+
+Label(FarmingPage, "FARMING")
+Toggle(FarmingPage, "Auto Farm Coin", function(state)
+FarmingSettings.AutoFarmCoin = state
+if not state and StopCoinFarmFlight then
+StopCoinFarmFlight()
+end
+end)
+Toggle(FarmingPage, "Underground Coin Farm", function(state)
+FarmingSettings.UndergroundMode = state
+end)
+Toggle(FarmingPage, "Fling Murderer (When Full Bag)", function(state)
+FarmingSettings.FlingMurdererWhenFullBag = state
+if not state and StopCoinFarmFlight then
+StopCoinFarmFlight()
+end
+end)
+Toggle(FarmingPage, "Shoot Murderer (When Full Bag)", function(state)
+FarmingSettings.ShootMurdererWhenFullBag = state
+end)
+Toggle(FarmingPage, "Kill All (When Full Bag)", function(state)
+FarmingSettings.KillAllWhenFullBag = state
+if not state and StopCoinFarmFlight then
+StopCoinFarmFlight()
+end
+end)
+
+local FarmSpeedSliderFill
 do
-	local dragging = false
-	local dragInput, dragStart, startPos
+local sliderLabel = Label(FarmingPage, "Farm Speed: " .. FarmingSettings.FarmSpeed)
 
-	TopBar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			dragStart = input.Position
-			startPos = MainFrame.Position
-			input.Changed:Connect(function()
-				if input.UserInputState == Enum.UserInputState.End then
-					dragging = false
-				end
-			end)
-		end
-	end)
+local sliderFrame = New("Frame", { 	Size = UDim2.new(1, -6, 0, 10), 	BackgroundColor3 = Color3.fromRGB(55, 55, 60), 	BackgroundTransparency = 0, 	BorderSizePixel = 0, 	ClipsDescendants = false }, FarmingPage) Corner(sliderFrame, 10) local initPercent = (FarmingSettings.FarmSpeed - MIN_FARM_SPEED) / (MAX_FARM_SPEED - MIN_FARM_SPEED) FarmSpeedSliderFill = New("Frame", { 	Size = UDim2.new(initPercent, 0, 1, 0), 	BackgroundColor3 = Accent, 	BackgroundTransparency = 0, 	BorderSizePixel = 0, 	ZIndex = 2 }, sliderFrame) Corner(FarmSpeedSliderFill, 10) local knobFrame = New("Frame", { 	Size = UDim2.fromOffset(20, 20), 	AnchorPoint = Vector2.new(0.5, 0.5), 	Position = UDim2.new(initPercent, 0, 0.5, 0), 	BackgroundColor3 = Color3.fromRGB(255, 255, 255), 	BackgroundTransparency = 0, 	BorderSizePixel = 0, 	ZIndex = 4 }, sliderFrame) Corner(knobFrame, 50) local hitButton = New("TextButton", { 	Size = UDim2.new(1, 0, 0, 34), 	Position = UDim2.new(0, 0, 0.5, -17), 	BackgroundTransparency = 1, 	Text = "", 	Active = true, 	ZIndex = 5 }, sliderFrame) local dragging = false local function UpdateFarmSpeed(x) 	local width = sliderFrame.AbsoluteSize.X 	if width <= 0 then return end 	local percent = math.clamp((x - sliderFrame.AbsolutePosition.X) / width, 0, 1) 	local val = math.clamp(math.floor(MIN_FARM_SPEED + (percent * (MAX_FARM_SPEED - MIN_FARM_SPEED))), MIN_FARM_SPEED, MAX_FARM_SPEED) 	TweenService:Create(FarmSpeedSliderFill, TweenInfo.new(0.08), {Size = UDim2.new(percent, 0, 1, 0)}):Play() 	TweenService:Create(knobFrame, TweenInfo.new(0.08), {Position = UDim2.new(percent, 0, 0.5, 0)}):Play() 	sliderLabel.Text = "Farm Speed: " .. val 	FarmingSettings.FarmSpeed = val end Connect(hitButton.InputBegan, function(input) 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 		dragging = true 		UpdateFarmSpeed(input.Position.X) 	end end) Connect(UIS.InputChanged, function(input) 	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then 		UpdateFarmSpeed(input.Position.X) 	end end) Connect(UIS.InputEnded, function(input) 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 		dragging = false 	end end) 
 
-	TopBar.InputChanged:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-			dragInput = input
-		end
-	end)
-
-	UserInputService.InputChanged:Connect(function(input)
-		if dragging and input == dragInput then
-			local delta = input.Position - dragStart
-			MainFrame.Position = UDim2.new(
-				startPos.X.Scale,
-				startPos.X.Offset + delta.X,
-				startPos.Y.Scale,
-				startPos.Y.Offset + delta.Y
-			)
-		end
-	end)
 end
 
--- === БУФЕР ВЫВОДА И КОПИРОВАНИЕ ===
-local statusSeq = 0
-local isBusy = false
-local currentDumpText = OutputLabel.Text
-local MAX_LABEL_CHARS = 185000 -- строго ниже лимита Roblox TextLabel (~200000)
-local MAX_CLIP_CHARS = 1500000
+Label(EspPage, "ROLE ESP")
+Toggle(EspPage, "ESP Murderer", function(state) ESP_Settings.Murderer = state; if UpdateESP then UpdateESP() end end)
+Toggle(EspPage, "ESP Sheriff", function(state) ESP_Settings.Sheriff = state; if UpdateESP then UpdateESP() end end)
+Toggle(EspPage, "ESP Innocent", function(state) ESP_Settings.Innocent = state; if UpdateESP then UpdateESP() end end)
+Toggle(EspPage, "ESP Hero", function(state) ESP_Settings.Hero = state; if UpdateESP then UpdateESP() end end)
 
-local function setStatus(msg)
-	statusSeq += 1
-	local cur = statusSeq
-	TitleLabel.Text = msg
-	task.delay(2.5, function()
-		if statusSeq == cur then
-			TitleLabel.Text = "UI DUMPER"
-		end
-	end)
+Label(SheriffPage, "SHERIFF COMBAT")
+Toggle(SheriffPage, "AimBot", function(state)
+AimbotSettings.Enabled = state
+if UpdateAimbotState then
+UpdateAimbotState(state)
+else
+Crosshair.Visible = false
 end
-
-local function safeSetLabelText(txt)
-	local str = tostring(txt or "")
-	if #str > MAX_LABEL_CHARS then
-		str = string.sub(str, 1, MAX_LABEL_CHARS) .. "\n... [PREVIEW TRIMMED AT 185K CHARS; FULL TEXT IN CLIPBOARD]"
-	end
-	local ok = pcall(function()
-		OutputLabel.Text = str
-	end)
-	if not ok then
-		OutputLabel.Text = string.sub(str, 1, 100000) .. "\n... [TRIMMED]"
-	end
-end
-
-local function flushBufferToUi(lines)
-	local full = table.concat(lines, "\n")
-	if #full > MAX_CLIP_CHARS then
-		full = string.sub(full, 1, MAX_CLIP_CHARS) .. "\n... [TRUNCATED FOR MEMORY SAFETY]"
-	end
-	currentDumpText = full
-	safeSetLabelText(full)
-	Scroll.CanvasPosition = Vector2.new(0, 0)
-end
-
-local function getClipboardFn()
-	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
-	return setclipboard
-		or toclipboard
-		or set_clipboard
-		or writeclipboard
-		or (genv and genv.setclipboard)
-		or (genv and genv.toclipboard)
-		or (genv and genv.set_clipboard)
-		or (genv and genv.writeclipboard)
-		or nil
-end
-
-local function copyAllVisibleInUi()
-	local txt = tostring(currentDumpText or "")
-	if #txt == 0 then
-		setStatus("Empty!")
-		return
-	end
-	local fn = getClipboardFn()
-	if type(fn) ~= "function" then
-		setStatus("No Clip API")
-		return
-	end
-	local ok = pcall(fn, txt)
-	if ok then
-		setStatus("Copied [" .. tostring(#txt) .. "]")
-	else
-		setStatus("Clip Err")
-	end
-end
-
--- === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
-local function safeFullName(inst)
-	if typeof(inst) ~= "Instance" then
-		return tostring(inst)
-	end
-	local ok, res = pcall(function()
-		return inst:GetFullName()
-	end)
-	return ok and res or tostring(inst)
-end
-
-local function isAnyScript(inst)
-	if typeof(inst) ~= "Instance" then
-		return false
-	end
-	local ok, res = pcall(function()
-		return inst:IsA("LuaSourceContainer")
-	end)
-	return ok and res == true
-end
-
-local function formatKeyLabel(k)
-	if type(k) == "string" then
-		if string.match(k, "^[%a_][%w_]*$") then
-			return k
-		end
-		return string.format("[%q]", k)
-	end
-	return "[" .. tostring(k) .. "]"
-end
-
-local function formatLeafValue(val)
-	local t = typeof(val)
-	if t == "string" then
-		if #val > 200 then
-			return string.format("%q", string.sub(val, 1, 200) .. "...")
-		end
-		return string.format("%q", val)
-	elseif t == "number" or t == "boolean" or t == "nil" then
-		return tostring(val)
-	elseif t == "Instance" then
-		return string.format("<%s:%s>", val.ClassName, val.Name)
-	elseif t == "function" then
-		return "<function>"
-	end
-	return "<" .. t .. ">"
-end
-
-local function dumpRequireToBuffer(out, val, indent, depth, visited, basePrefix)
-	local pad = basePrefix .. string.rep("  ", indent)
-	if type(val) ~= "table" then
-		table.insert(out, pad .. formatLeafValue(val))
-		return
-	end
-	if visited[val] or depth >= 4 then
-		table.insert(out, pad .. "{...}")
-		return
-	end
-	visited[val] = true
-	table.insert(out, pad .. "{")
-
-	local keysCount = 0
-	for k, v in pairs(val) do
-		keysCount += 1
-		if keysCount > 60 then
-			table.insert(out, pad .. "  ... (more keys)")
-			break
-		end
-		local label = formatKeyLabel(k)
-		if type(v) == "table" and not visited[v] and (depth + 1) < 4 then
-			table.insert(out, pad .. "  " .. label .. " =")
-			dumpRequireToBuffer(out, v, indent + 2, depth + 1, visited, basePrefix)
-		else
-			table.insert(out, pad .. "  " .. label .. " = " .. formatLeafValue(v))
-		end
-	end
-
-	table.insert(out, pad .. "}")
-	visited[val] = nil
-end
-
-local function extractScriptInnerToBuffer(out, scriptObj, basePrefix, includeRequire)
-	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
-
-	if includeRequire and scriptObj:IsA("ModuleScript") then
-		local okReq, modVal = pcall(require, scriptObj)
-		if okReq then
-			table.insert(out, basePrefix .. "  [MODULE REQUIRE]:")
-			dumpRequireToBuffer(out, modVal, 2, 0, {}, basePrefix)
-		else
-			table.insert(out, basePrefix .. "  [MODULE REQUIRE ERR]: " .. tostring(modVal))
-		end
-	end
-
-	local decompileFn = decompile or (genv and genv.decompile)
-	if type(decompileFn) == "function" then
-		local okDec, src = pcall(decompileFn, scriptObj)
-		if okDec and type(src) == "string" and #src > 0 then
-			table.insert(out, basePrefix .. "  [DECOMPILED]:")
-			local lineNum = 0
-			for sLine in string.gmatch(src, "[^\r\n]+") do
-				lineNum += 1
-				if lineNum > 250 then
-					table.insert(out, basePrefix .. "    ... (truncated)")
-					break
-				end
-				table.insert(out, basePrefix .. "    " .. sLine)
-			end
-			return
-		end
-	end
-
-	local bcFn = getscriptbytecode or (genv and genv.getscriptbytecode)
-	if type(bcFn) == "function" then
-		local okBc, bc = pcall(bcFn, scriptObj)
-		if okBc and type(bc) == "string" and #bc > 0 then
-			table.insert(out, basePrefix .. "  [BYTECODE]: " .. tostring(#bc) .. " bytes")
-		end
-	end
-end
-
-local function describeNodeFast(node)
-	local props = {}
-
-	if node:IsA("GuiObject") then
-		table.insert(props, "Visible=" .. tostring(node.Visible))
-	elseif node:IsA("LayerCollector") then
-		table.insert(props, "Enabled=" .. tostring(node.Enabled))
-	end
-
-	if node:IsA("TextLabel") or node:IsA("TextButton") or node:IsA("TextBox") then
-		if node.Text ~= "" then
-			table.insert(props, "Text=" .. formatLeafValue(node.Text))
-		end
-	elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
-		if node.Image ~= "" then
-			table.insert(props, "Image=" .. formatLeafValue(node.Image))
-		end
-	elseif node:IsA("ValueBase") then
-		local okV, val = pcall(function()
-			return node.Value
-		end)
-		if okV then
-			table.insert(props, "Value=" .. formatLeafValue(val))
-		end
-	end
-
-	local okTags, tags = pcall(function()
-		return CollectionService:GetTags(node)
-	end)
-	if okTags and type(tags) == "table" and #tags > 0 then
-		table.insert(props, "Tags=[" .. table.concat(tags, ", ") .. "]")
-	end
-
-	local okAttr, attrs = pcall(function()
-		return node:GetAttributes()
-	end)
-	if okAttr and type(attrs) == "table" then
-		for k, v in pairs(attrs) do
-			table.insert(props, "Attr." .. tostring(k) .. "=" .. formatLeafValue(v))
-		end
-	end
-
-	if #props == 0 then
-		return ""
-	end
-	return "  {" .. table.concat(props, ", ") .. "}"
-end
-
-local function dumpSubtreeToBuffer(out, rootInst, includeRequire)
-	local count = 0
-	local function walk(node, depth, prefix, isLast)
-		count += 1
-		local branch = (depth == 0) and "" or (isLast and "└── " or "├── ")
-		table.insert(out, string.format("%s%s[%s] %s%s  (%s)", prefix, branch, node.ClassName, node.Name, describeNodeFast(node), safeFullName(node)))
-
-		local nextPrefix = (depth == 0) and "" or (prefix .. (isLast and "    " or "│   "))
-		if isAnyScript(node) then
-			extractScriptInnerToBuffer(out, node, nextPrefix, includeRequire)
-		end
-
-		local okCh, ch = pcall(function()
-			return node:GetChildren()
-		end)
-		if okCh and type(ch) == "table" then
-			for i = 1, #ch do
-				walk(ch[i], depth + 1, nextPrefix, i == #ch)
-			end
-		end
-	end
-	walk(rootInst, 0, "", true)
-	return count
-end
-
--- === ЗАПРОСЫ И КОРНИ ===
-local function getCustomQueries(rawText)
-	local list = {}
-	local seen = {}
-	local trimmed = string.match(tostring(rawText or ""), "^%s*(.-)%s*$")
-	if not trimmed or trimmed == "" then
-		return list
-	end
-	for part in string.gmatch(trimmed, "[^,;|%s]+") do
-		local tok = string.match(part, "^%s*(.-)%s*$")
-		if tok and tok ~= "" then
-			local low = string.lower(tok)
-			if not seen[low] then
-				seen[low] = true
-				table.insert(list, low)
-			end
-		end
-	end
-	if #list == 0 then
-		table.insert(list, string.lower(trimmed))
-	end
-	return list
-end
-
-local function parseQueries(rawText)
-	local list = {}
-	local seen = {}
-	local function addTok(tok)
-		local low = string.lower(tostring(tok or ""))
-		if low ~= "" and not seen[low] then
-			seen[low] = true
-			table.insert(list, low)
-		end
-	end
-	for _, d in ipairs(DEFAULT_QUERIES) do
-		addTok(d)
-	end
-	for _, c in ipairs(getCustomQueries(rawText)) do
-		addTok(c)
-	end
-	return list
-end
-
-local function matchesQuery(obj, qList)
-	local nameLow = string.lower(tostring(obj.Name or ""))
-	for _, q in ipairs(qList) do
-		if string.find(nameLow, q, 1, true) then
-			return true, "name:" .. q
-		end
-	end
-
-	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-		local tLow = string.lower(tostring(obj.Text or ""))
-		for _, q in ipairs(qList) do
-			if string.find(tLow, q, 1, true) then
-				return true, "text:" .. q
-			end
-		end
-	elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
-		local iLow = string.lower(tostring(obj.Image or ""))
-		for _, q in ipairs(qList) do
-			if string.find(iLow, q, 1, true) then
-				return true, "image:" .. q
-			end
-		end
-	elseif obj:IsA("ValueBase") then
-		local okV, val = pcall(function()
-			return obj.Value
-		end)
-		if okV then
-			local vLow = string.lower(tostring(val))
-			for _, q in ipairs(qList) do
-				if string.find(vLow, q, 1, true) then
-					return true, "val:" .. q
-				end
-			end
-		end
-	end
-
-	return false, nil
-end
-
-local function getDatabaseRoot()
-	local okDb, db = pcall(function()
-		return ReplicatedStorage:FindFirstChild("Database")
-	end)
-	return okDb and db or nil
-end
-
-local function getPlayerScriptsRoot()
-	if not LocalPlayer then
-		return nil
-	end
-	local okPs, ps = pcall(function()
-		return LocalPlayer:FindFirstChild("PlayerScripts")
-	end)
-	if okPs and ps then
-		return ps
-	end
-	local okSp, sp = pcall(function()
-		return StarterPlayer:FindFirstChild("StarterPlayerScripts")
-	end)
-	return okSp and sp or nil
-end
-
-local function getScanRoots()
-	local roots = {}
-	local seen = {}
-	local function addRoot(r)
-		if r and not seen[r] then
-			seen[r] = true
-			table.insert(roots, r)
-		end
-	end
-
-	addRoot(ReplicatedStorage)
-	addRoot(StarterGui)
-	addRoot(getDatabaseRoot())
-	addRoot(getPlayerScriptsRoot())
-	addRoot(LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
-	addRoot(LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"))
-	addRoot(LocalPlayer and LocalPlayer.Character)
-
-	return roots
-end
-
--- === БЫСТРЫЙ FIND TREE ===
-local function runQueryStructureScan()
-	if isBusy then
-		setStatus("Busy...")
-		return
-	end
-	isBusy = true
-	ScanQueryBtn.Text = "..."
-
-	task.defer(function()
-		local t0 = os.clock()
-		local ok, err = pcall(function()
-			local customList = getCustomQueries(QueryBox.Text)
-			local hasCustom = (#customList > 0)
-			local qList = hasCustom and customList or parseQueries("")
-
-			local out = {}
-			local roots = getScanRoots()
-			local matched = {}
-			local seenInst = {}
-
-			if hasCustom then
-				table.insert(out, "=== TREES FOR: " .. table.concat(qList, ", ") .. " ===")
-				for _, r in ipairs(roots) do
-					if r then
-						local mRoot, tagRoot = matchesQuery(r, qList)
-						if mRoot and not seenInst[r] then
-							seenInst[r] = true
-							table.insert(matched, { inst = r, tag = tagRoot })
-						end
-						local okDesc, desc = pcall(function()
-							return r:GetDescendants()
-						end)
-						if okDesc and type(desc) == "table" then
-							for i = 1, #desc do
-								local obj = desc[i]
-								if not seenInst[obj] then
-									local m, tag = matchesQuery(obj, qList)
-									if m then
-										seenInst[obj] = true
-										table.insert(matched, { inst = obj, tag = tag })
-									end
-								end
-							end
-						end
-					end
-				end
-
-				local totalNodes = 0
-				for idx, entry in ipairs(matched) do
-					table.insert(out, string.format("\n★ #%d [%s] %s (%s)", idx, entry.tag, safeFullName(entry.inst), entry.inst.ClassName))
-					totalNodes += dumpSubtreeToBuffer(out, entry.inst, false)
-				end
-
-				if #matched == 0 then
-					table.insert(out, "Nothing found for: " .. table.concat(qList, ", "))
-				end
-
-				flushBufferToUi(out)
-				setStatus(string.format("Found:%d Nodes:%d (%.2fs)", #matched, totalNodes, os.clock() - t0))
-				return
-			end
-
-			table.insert(out, "=== REPLICATEDSTORAGE + STARTERGUI + DEFAULT (" .. table.concat(qList, ", ") .. ") ===")
-			local priorityRoots = { ReplicatedStorage, StarterGui }
-			for _, pr in ipairs(priorityRoots) do
-				if pr and not seenInst[pr] then
-					seenInst[pr] = true
-					table.insert(matched, { inst = pr, tag = "root:" .. pr.Name })
-				end
-			end
-
-			for _, r in ipairs(roots) do
-				if r then
-					local okDesc, desc = pcall(function()
-						return r:GetDescendants()
-					end)
-					if okDesc and type(desc) == "table" then
-						for i = 1, #desc do
-							local obj = desc[i]
-							if not seenInst[obj] then
-								local m, tag = matchesQuery(obj, qList)
-								if m then
-									seenInst[obj] = true
-									table.insert(matched, { inst = obj, tag = tag })
-								end
-							end
-						end
-					end
-				end
-			end
-
-			local totalNodes = 0
-			for idx, entry in ipairs(matched) do
-				table.insert(out, string.format("\n▼ #%d [%s] %s (%s)", idx, entry.tag, safeFullName(entry.inst), entry.inst.ClassName))
-				totalNodes += dumpSubtreeToBuffer(out, entry.inst, false)
-			end
-
-			flushBufferToUi(out)
-			setStatus(string.format("Trees:%d Nodes:%d (%.2fs)", #matched, totalNodes, os.clock() - t0))
-		end)
-
-		if not ok then
-			currentDumpText = "Ошибка: " .. tostring(err)
-			safeSetLabelText(currentDumpText)
-			setStatus("Err")
-		end
-
-		isBusy = false
-		ScanQueryBtn.Text = "Find Tree"
-	end)
-end
-
--- === БЫСТРЫЙ SCRIPTS IN ===
-local function runScriptsBranchesDump()
-	if isBusy then
-		setStatus("Busy...")
-		return
-	end
-	isBusy = true
-	DumpScriptsBtn.Text = "..."
-
-	task.defer(function()
-		local t0 = os.clock()
-		local ok, err = pcall(function()
-			local out = { "=== SCRIPTS & MODULES ===" }
-			local branches = getScanRoots()
-			local scriptsFound = 0
-			local seenScripts = {}
-
-			for _, branch in ipairs(branches) do
-				if branch then
-					local okDesc, desc = pcall(function()
-						return branch:GetDescendants()
-					end)
-					if okDesc and type(desc) == "table" then
-						for i = 1, #desc do
-							local obj = desc[i]
-							if isAnyScript(obj) and not seenScripts[obj] then
-								seenScripts[obj] = true
-								scriptsFound += 1
-								table.insert(out, string.format("\n[%s] %s (%s)", obj.ClassName, obj.Name, safeFullName(obj)))
-								extractScriptInnerToBuffer(out, obj, "  ", true)
-							end
-						end
-					end
-				end
-			end
-
-			flushBufferToUi(out)
-			setStatus(string.format("Scripts:%d (%.2fs)", scriptsFound, os.clock() - t0))
-		end)
-
-		if not ok then
-			currentDumpText = "Ошибка: " .. tostring(err)
-			safeSetLabelText(currentDumpText)
-			setStatus("Err")
-		end
-
-		isBusy = false
-		DumpScriptsBtn.Text = "Scripts In"
-	end)
-end
-
-ScanQueryBtn.Activated:Connect(runQueryStructureScan)
-QueryBox.FocusLost:Connect(function(enterPressed)
-	if enterPressed then
-		runQueryStructureScan()
-	end
 end)
-DumpScriptsBtn.Activated:Connect(runScriptsBranchesDump)
-CopyUiBtn.Activated:Connect(copyAllVisibleInUi)
+Toggle(SheriffPage, "Shoot Murderer button", function(state) ShootButtonSettings.Enabled = state; ShootButton.Visible = state end)
+Toggle(SheriffPage, "Auto Grab Gun", function(state) AutoGrabSettings.Enabled = state end)
 
-ClearBtn.Activated:Connect(function()
-	currentDumpText = ""
-	OutputLabel.Text = ""
-	Scroll.CanvasPosition = Vector2.new(0, 0)
-	setStatus("Cleared")
+Label(MurdererPage, "MURDERER COMBAT")
+Toggle(MurdererPage, "Kill all button", function(state)
+MurdererCombatSettings.KillAllButtonEnabled = state
+KillAllActionButton.Visible = state
+if not state and StopManualKillAll then
+StopManualKillAll()
+end
 end)
 
-local isMin = false
-MinBtn.Activated:Connect(function()
-	isMin = not isMin
-	QueryBox.Visible = not isMin
-	Scroll.Visible = not isMin
-	CopyUiBtn.Visible = not isMin
-	ScanQueryBtn.Visible = not isMin
-	DumpScriptsBtn.Visible = not isMin
-	ClearBtn.Visible = not isMin
-	MainFrame.Size = isMin and UDim2.new(0.55, 0, 0, 34) or UDim2.new(0.94, 0, 0.58, 0)
-	MinBtn.Text = isMin and "Max" or "Min"
+Label(TrollPage, "TROLL ACTIONS")
+Toggle(TrollPage, ":)", function(state)
+TrollSettings.SmileEnabled = state
+if not state and not TrollSettings.EvilSmileEnabled and RestoreStaticModelState then
+RestoreStaticModelState()
+end
+end)
+Toggle(TrollPage, ">:)", function(state)
+TrollSettings.EvilSmileEnabled = state
+if not state and not TrollSettings.SmileEnabled and RestoreStaticModelState then
+RestoreStaticModelState()
+end
 end)
 
-CloseBtn.Activated:Connect(function()
-	ScreenGui:Destroy()
+-- Auto-updating target selection accordion (never resets automatically)
+local TrollTargetContainer, TrollTargetHead
+local RefreshTrollTargetList
+do
+local baseHeight = 48
+local itemHeight = 34
+local spacing = 6
+local defaultItems = 1
+local expandedHeight = baseHeight + (defaultItems * itemHeight) + ((defaultItems - 1) * spacing) + 16
+
+TrollTargetContainer = New("Frame", { 	Size = UDim2.new(1, -6, 0, baseHeight), 	BackgroundColor3 = Color3.fromRGB(34, 34, 39), 	BackgroundTransparency = 0, 	BorderSizePixel = 0, 	ClipsDescendants = true }, TrollPage) Corner(TrollTargetContainer, 10) TrollTargetHead = New("TextButton", { 	Size = UDim2.new(1, 0, 0, baseHeight), 	BackgroundTransparency = 1, 	Text = "Select Target: Auto (Murderer) ▼", 	TextColor3 = Color3.new(1, 1, 1), 	TextSize = 15, 	Font = Enum.Font.GothamBold }, TrollTargetContainer) local listFrame = New("Frame", { 	Position = UDim2.fromOffset(12, baseHeight), 	Size = UDim2.new(1, -24, 0, 0), 	BackgroundTransparency = 1 }, TrollTargetContainer) New("UIListLayout", { 	Padding = UDim.new(0, spacing), 	SortOrder = Enum.SortOrder.LayoutOrder }, listFrame) local open = false table.insert(AccordionRecords, {Container = TrollTargetContainer, Head = TrollTargetHead}) local function GetHeaderArrow() 	return open and " ▲" or " ▼" end local function UpdateHeaderText() 	local name = TrollSettings.TargetPlayer and TrollSettings.TargetPlayer.Name or "Auto (Murderer)" 	TrollTargetHead.Text = "Select Target: " .. name .. GetHeaderArrow() end RefreshTrollTargetList = function() 	if not Alive then return end 	for _, child in ipairs(listFrame:GetChildren()) do 		if child:IsA("TextButton") then 			child:Destroy() 		end 	end 	local playersList = Players:GetPlayers() 	local count = 0 	local autoBtn = New("TextButton", { 		Size = UDim2.new(1, 0, 0, itemHeight), 		BackgroundColor3 = Color3.fromRGB(44, 44, 50), 		BackgroundTransparency = 0, 		Text = "Auto (Murderer)", 		TextColor3 = Color3.new(1, 1, 1), 		TextSize = 14, 		Font = Enum.Font.GothamMedium, 		BorderSizePixel = 0 	}, listFrame) 	Corner(autoBtn, 8) 	Connect(autoBtn.Activated, function() 		TrollSettings.TargetPlayer = nil 		UpdateHeaderText() 	end) 	count = count + 1 	for _, p in ipairs(playersList) do 		if p ~= Player then 			local pBtn = New("TextButton", { 				Size = UDim2.new(1, 0, 0, itemHeight), 				BackgroundColor3 = Color3.fromRGB(44, 44, 50), 				BackgroundTransparency = 0, 				Text = p.Name, 				TextColor3 = Color3.new(1, 1, 1), 				TextSize = 14, 				Font = Enum.Font.GothamMedium, 				BorderSizePixel = 0 			}, listFrame) 			Corner(pBtn, 8) 			Connect(pBtn.Activated, function() 				TrollSettings.TargetPlayer = p 				UpdateHeaderText() 			end) 			count = count + 1 		end 	end 	expandedHeight = baseHeight + (count * itemHeight) + ((count - 1) * spacing) + 16 	listFrame.Size = UDim2.new(1, -24, 0, expandedHeight - baseHeight - 12) 	if open then 		TrollTargetContainer.Size = UDim2.new(1, -6, 0, expandedHeight) 		DelayTracked(0, function() 			if not Alive then return end 			TrollPage.CanvasSize = UDim2.new(0, 0, 0, TrollLayout.AbsoluteContentSize.Y + 16) 		end) 	end end RefreshTrollTargetList() Connect(Players.PlayerAdded, function() 	RefreshTrollTargetList() end) Connect(Players.PlayerRemoving, function() 	RefreshTrollTargetList() end) Connect(TrollTargetHead.Activated, function() 	open = not open 	if open then RefreshTrollTargetList() end 	local targetHeight = open and expandedHeight or baseHeight 	TweenService:Create(TrollTargetContainer, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { 		Size = UDim2.new(1, -6, 0, targetHeight) 	}):Play() 	UpdateHeaderText() 	DelayTracked(0, function() 		if not Alive then return end 		TrollPage.CanvasSize = UDim2.new(0, 0, 0, TrollLayout.AbsoluteContentSize.Y + 16) 	end) end) 
+
+end
+
+local function CreateTrollSpeedSlider(labelText, initialValue, onChanged)
+local sliderLabel = Label(TrollPage, labelText .. ": " .. initialValue)
+
+local sliderFrame = New("Frame", { 	Size = UDim2.new(1, -6, 0, 10), 	BackgroundColor3 = Color3.fromRGB(55, 55, 60), 	BackgroundTransparency = 0, 	BorderSizePixel = 0, 	ClipsDescendants = false }, TrollPage) Corner(sliderFrame, 10) local initPercent = (initialValue - MIN_SPEED) / (MAX_SPEED - MIN_SPEED) local fillFrame = New("Frame", { 	Size = UDim2.new(initPercent, 0, 1, 0), 	BackgroundColor3 = Accent, 	BackgroundTransparency = 0, 	BorderSizePixel = 0, 	ZIndex = 2 }, sliderFrame) Corner(fillFrame, 10) local knobFrame = New("Frame", { 	Size = UDim2.fromOffset(20, 20), 	AnchorPoint = Vector2.new(0.5, 0.5), 	Position = UDim2.new(initPercent, 0, 0.5, 0), 	BackgroundColor3 = Color3.fromRGB(255, 255, 255), 	BackgroundTransparency = 0, 	BorderSizePixel = 0, 	ZIndex = 4 }, sliderFrame) Corner(knobFrame, 50) local hitButton = New("TextButton", { 	Size = UDim2.new(1, 0, 0, 34), 	Position = UDim2.new(0, 0, 0.5, -17), 	BackgroundTransparency = 1, 	Text = "", 	Active = true, 	ZIndex = 5 }, sliderFrame) local dragging = false local function UpdateValue(x) 	local width = sliderFrame.AbsoluteSize.X 	if width <= 0 then return end 	local percent = math.clamp((x - sliderFrame.AbsolutePosition.X) / width, 0, 1) 	local val = math.clamp(math.floor(MIN_SPEED + (percent * (MAX_SPEED - MIN_SPEED))), MIN_SPEED, MAX_SPEED) 	TweenService:Create(fillFrame, TweenInfo.new(0.08), {Size = UDim2.new(percent, 0, 1, 0)}):Play() 	TweenService:Create(knobFrame, TweenInfo.new(0.08), {Position = UDim2.new(percent, 0, 0.5, 0)}):Play() 	sliderLabel.Text = labelText .. ": " .. val 	if onChanged then 		onChanged(val) 	end end Connect(hitButton.InputBegan, function(input) 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 		dragging = true 		UpdateValue(input.Position.X) 	end end) Connect(UIS.InputChanged, function(input) 	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then 		UpdateValue(input.Position.X) 	end end) Connect(UIS.InputEnded, function(input) 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 		dragging = false 	end end) return fillFrame 
+
+end
+
+local TrollSliderFill = CreateTrollSpeedSlider(":) Speed", BASE_SPEED, function(val)
+TrollSettings.Speed = val
 end)
+
+local EvilTrollSliderFill = CreateTrollSpeedSlider(">:) Speed", BASE_SPEED, function(val)
+TrollSettings.EvilSpeed = val
+end)
+
+Label(SettingsPage, "GENERAL SETTINGS")
+local TransparencyLabel = Label(SettingsPage, "Window Transparency: 0%")
+
+local Slider = New("Frame", {
+Size = UDim2.new(1, -10, 0, 10),
+BackgroundColor3 = Color3.fromRGB(55, 55, 60),
+BackgroundTransparency = 0,
+BorderSizePixel = 0,
+ClipsDescendants = false
+}, SettingsPage)
+Corner(Slider, 10)
+
+local SliderFill = New("Frame", {
+Size = UDim2.new(0, 0, 1, 0),
+BackgroundColor3 = Accent,
+BackgroundTransparency = 0,
+BorderSizePixel = 0,
+ZIndex = 2
+}, Slider)
+Corner(SliderFill, 10)
+
+local SliderKnob = New("Frame", {
+Size = UDim2.fromOffset(20, 20),
+AnchorPoint = Vector2.new(0.5, 0.5),
+Position = UDim2.new(0, 0, 0.5, 0),
+BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+BackgroundTransparency = 0,
+BorderSizePixel = 0,
+ZIndex = 4
+}, Slider)
+Corner(SliderKnob, 50)
+
+local SliderButton = New("TextButton", {
+Size = UDim2.new(1, 0, 0, 34),
+Position = UDim2.new(0, 0, 0.5, -17),
+BackgroundTransparency = 1,
+Text = "",
+Active = true,
+ZIndex = 5
+}, Slider)
+
+local draggingSlider = false
+local transparencyValue = 0
+
+local function ApplyTransparency()
+local transparency = transparencyValue / 100
+Main.BackgroundTransparency = transparency
+Body.BackgroundTransparency = transparency
+Sidebar.BackgroundTransparency = transparency
+Header.BackgroundTransparency = 0
+HeaderCover.BackgroundTransparency = 0
+MainStroke.Transparency = 0
+end
+
+local function ApplyNormalTheme()
+local background = Color3.fromRGB(24, 24, 28)
+Main.BackgroundColor3 = background
+Body.BackgroundColor3 = background
+Header.BackgroundColor3 = Color3.fromRGB(17, 17, 20)
+HeaderCover.BackgroundColor3 = Header.BackgroundColor3
+Sidebar.BackgroundColor3 = Color3.fromRGB(19, 19, 23)
+end
+
+local function UpdateTransparency(x)
+local width = Slider.AbsoluteSize.X
+if width <= 0 then return end
+local percent = math.clamp((x - Slider.AbsolutePosition.X) / width, 0, 1)
+transparencyValue = math.floor(percent * 80)
+TweenService:Create(SliderFill, TweenInfo.new(0.08), {Size = UDim2.new(percent, 0, 1, 0)}):Play()
+TweenService:Create(SliderKnob, TweenInfo.new(0.08), {Position = UDim2.new(percent, 0, 0.5, 0)}):Play()
+TransparencyLabel.Text = "Window Transparency: " .. transparencyValue .. "%"
+ApplyTransparency()
+end
+
+Connect(SliderButton.InputBegan, function(input)
+if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+draggingSlider = true
+UpdateTransparency(input.Position.X)
+end
+end)
+
+Connect(UIS.InputChanged, function(input)
+if draggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+UpdateTransparency(input.Position.X)
+end
+end)
+
+Connect(UIS.InputEnded, function(input)
+if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+draggingSlider = false
+end
+end)
+
+local function Accordion(parent, title, callback)
+local baseHeight = 48
+local itemHeight = 34
+local spacing = 6
+local totalItems = #ColorNames
+local expandedHeight = baseHeight + (totalItems * itemHeight) + ((totalItems - 1) * spacing) + 16
+
+local container = New("Frame", { 	Size = UDim2.new(1, -6, 0, baseHeight), 	BackgroundColor3 = Color3.fromRGB(34, 34, 39), 	BackgroundTransparency = 0, 	BorderSizePixel = 0, 	ClipsDescendants = true }, parent) Corner(container, 10) local head = New("TextButton", { 	Size = UDim2.new(1, 0, 0, baseHeight), 	BackgroundTransparency = 1, 	Text = title .. " ▼", 	TextColor3 = Color3.new(1, 1, 1), 	TextSize = 15, 	Font = Enum.Font.GothamBold }, container) local list = New("Frame", { 	Position = UDim2.fromOffset(12, baseHeight), 	Size = UDim2.new(1, -24, 0, expandedHeight - baseHeight - 12), 	BackgroundTransparency = 1 }, container) New("UIListLayout", { 	Padding = UDim.new(0, spacing), 	SortOrder = Enum.SortOrder.LayoutOrder }, list) local open = false table.insert(AccordionRecords, {Container = container, Head = head}) for _, colorName in ipairs(ColorNames) do 	local button = New("TextButton", { 		Size = UDim2.new(1, 0, 0, itemHeight), 		BackgroundColor3 = Color3.fromRGB(44, 44, 50), 		BackgroundTransparency = 0, 		Text = colorName, 		TextColor3 = Color3.new(1, 1, 1), 		TextSize = 14, 		Font = Enum.Font.GothamMedium, 		BorderSizePixel = 0 	}, list) 	Corner(button, 8) 	Connect(button.MouseEnter, function() 		TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(60, 60, 70)}):Play() 	end) 	Connect(button.MouseLeave, function() 		TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(44, 44, 50)}):Play() 	end) 	Connect(button.Activated, function() 		callback(colorName) 	end) end Connect(head.Activated, function() 	open = not open 	local targetHeight = open and expandedHeight or baseHeight 	TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { 		Size = UDim2.new(1, -6, 0, targetHeight) 	}):Play() 	head.Text = title .. (open and " ▲" or " ▼") 	DelayTracked(0, function() 		if not Alive then return end 		SettingsPage.CanvasSize = UDim2.new(0, 0, 0, SettingsLayout.AbsoluteContentSize.Y + 16) 	end) end) 
+
+end
+
+Accordion(SettingsPage, "Outline Color", function(colorName)
+if colorName == "Rainbow" then
+RainbowOutline = true
+else
+RainbowOutline = false
+OutlineColor = ColorValues[colorName]
+MainStroke.Color = OutlineColor
+end
+end)
+
+Accordion(SettingsPage, "Window Theme", function(colorName)
+if colorName == "Rainbow" then
+RainbowTheme = true
+else
+RainbowTheme = false
+Accent = ColorValues[colorName]
+ApplyNormalTheme()
+
+	local background = ThemeColors[colorName] 	Main.BackgroundColor3 = background 	Body.BackgroundColor3 = background 	FarmingTab.BackgroundColor3 = Accent 	EspTab.BackgroundColor3 = Color3.fromRGB(28, 28, 34) 	SheriffTab.BackgroundColor3 = Color3.fromRGB(28, 28, 34) 	MurdererTab.BackgroundColor3 = Color3.fromRGB(28, 28, 34) 	TrollTab.BackgroundColor3 = Color3.fromRGB(28, 28, 34) 	if FarmSpeedSliderFill then 		FarmSpeedSliderFill.BackgroundColor3 = Accent 	end 	TrollSliderFill.BackgroundColor3 = Accent 	EvilTrollSliderFill.BackgroundColor3 = Accent 	SliderFill.BackgroundColor3 = Accent 	for _, record in ipairs(ToggleRecords) do 		UpdateToggleAppearance(record) 	end 	for _, record in ipairs(AccordionRecords) do 		record.Head.TextColor3 = Color3.new(1, 1, 1) 	end 	MainStroke.Color = OutlineColor 	ApplyTransparency() end 
+
+end)
+
+local function ShowPage(pageName)
+FarmingPage.Visible = (pageName == "Farming")
+EspPage.Visible = (pageName == "ESP")
+SheriffPage.Visible = (pageName == "Sheriff")
+MurdererPage.Visible = (pageName == "Murderer")
+TrollPage.Visible = (pageName == "Troll")
+SettingsPage.Visible = (pageName == "Settings")
+
+Sidebar.Visible = true Content.Position = UDim2.fromOffset(130, 0) Content.Size = UDim2.new(1, -130, 1, 0) TweenService:Create(FarmingTab, TweenInfo.new(0.2), {BackgroundColor3 = (pageName == "Farming") and Accent or Color3.fromRGB(28, 28, 34)}):Play() TweenService:Create(EspTab, TweenInfo.new(0.2), {BackgroundColor3 = (pageName == "ESP") and Accent or Color3.fromRGB(28, 28, 34)}):Play() TweenService:Create(SheriffTab, TweenInfo.new(0.2), {BackgroundColor3 = (pageName == "Sheriff") and Accent or Color3.fromRGB(28, 28, 34)}):Play() TweenService:Create(MurdererTab, TweenInfo.new(0.2), {BackgroundColor3 = (pageName == "Murderer") and Accent or Color3.fromRGB(28, 28, 34)}):Play() TweenService:Create(TrollTab, TweenInfo.new(0.2), {BackgroundColor3 = (pageName == "Troll") and Accent or Color3.fromRGB(28, 28, 34)}):Play() 
+
+end
+
+Connect(FarmingTab.Activated, function() ShowPage("Farming") end)
+Connect(EspTab.Activated, function() ShowPage("ESP") end)
+Connect(SheriffTab.Activated, function() ShowPage("Sheriff") end)
+Connect(MurdererTab.Activated, function() ShowPage("Murderer") end)
+Connect(TrollTab.Activated, function() ShowPage("Troll") end)
+
+local settingsOpen = false
+Connect(SettingsButton.Activated, function()
+settingsOpen = not settingsOpen
+if settingsOpen then
+ShowPage("Settings")
+else
+ShowPage("Farming")
+end
+end)
+
+local minimized = false
+local function SetMinimized(state)
+minimized = state
+if minimized then
+Body.Visible = true
+TweenService:Create(Main, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+Size = UDim2.fromOffset(480, 54)
+}):Play()
+DelayTracked(0.25, function()
+if Alive and minimized then Body.Visible = false end
+end)
+else
+Body.Visible = true
+TweenService:Create(Main, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+Size = UDim2.fromOffset(480, 390)
+}):Play()
+end
+end
+
+Connect(MinimizeButton.Activated, function()
+SetMinimized(not minimized)
+end)
+
+local function PlayerHasKnife(p)
+if p.Character then
+for _, item in ipairs(p.Character:GetChildren()) do
+if item:IsA("Tool") and (item.Name == "Knife" or item:GetAttribute("IsKnife") == true) then
+return true
+end
+end
+end
+
+local backpack = p:FindFirstChildOfClass("Backpack") if backpack then 	for _, item in ipairs(backpack:GetChildren()) do 		if item:IsA("Tool") and (item.Name == "Knife" or item:GetAttribute("IsKnife") == true) then 			return true 		end 	end end return false 
+
+end
+
+local function GetGunState()
+local char = Player.Character
+if char then
+for _, item in ipairs(char:GetChildren()) do
+if item:IsA("Tool") and (item.Name == "Gun" or item:GetAttribute("IsGun") == true) then
+return "Equipped", item
+end
+end
+end
+
+local backpack = Player:FindFirstChildOfClass("Backpack") if backpack then 	for _, item in ipairs(backpack:GetChildren()) do 		if item:IsA("Tool") and (item.Name == "Gun" or item:GetAttribute("IsGun") == true) then 			return "Backpack", item 		end 	end end return "None", nil 
+
+end
+
+local function FindGunTool()
+if not Player.Character then return nil, false end
+for _, item in ipairs(Player.Character:GetChildren()) do
+if item:IsA("Tool") and (item.Name == "Gun" or item:GetAttribute("IsGun") == true) then
+return item, true
+end
+end
+
+local backpack = Player:FindFirstChildOfClass("Backpack") if backpack then 	for _, item in ipairs(backpack:GetChildren()) do 		if item:IsA("Tool") and (item.Name == "Gun" or item:GetAttribute("IsGun") == true) then 			return item, false 		end 	end end return nil, false 
+
+end
+
+local function HasGun(p)
+if p.Character then
+for _, item in ipairs(p.Character:GetChildren()) do
+if item:IsA("Tool") and (item.Name == "Gun" or item:GetAttribute("IsGun") == true) then
+return true
+end
+end
+end
+local backpack = p:FindFirstChildOfClass("Backpack")
+if backpack then
+for _, item in ipairs(backpack:GetChildren()) do
+if item:IsA("Tool") and (item.Name == "Gun" or item:GetAttribute("IsGun") == true) then
+return true
+end
+end
+end
+return false
+end
+
+local function IsHoldingKnife(p)
+if not p.Character then return false end
+for _, item in ipairs(p.Character:GetChildren()) do
+if item:IsA("Tool") and (item.Name == "Knife" or item:GetAttribute("IsKnife") == true) then
+return true
+end
+end
+return false
+end
+
+local function IsSheriffDead()
+for _, entry in pairs(RoundRolesCache) do
+if entry.Role == "Sheriff" and entry.Dead then
+return true
+end
+end
+return false
+end
+
+local function SyncHeroStates()
+for p, _ in pairs(HeroPlayers) do
+local entry = RoundRolesCache[p.Name]
+if not p.Parent or not entry or entry.Dead or (entry.Role ~= "Innocent" and entry.Role ~= "Hero") then
+HeroPlayers[p] = nil
+end
+end
+end
+
+GetPlayerRole = function(p)
+local entry = RoundRolesCache[p.Name]
+if entry and entry.Dead then
+HeroPlayers[p] = nil
+return nil
+end
+
+if entry and entry.Role then 	if entry.Role == "Sheriff" then 		return "Sheriff" 	elseif entry.Role == "Murderer" then 		return "Murderer" 	elseif entry.Role == "Hero" then 		return "Hero" 	elseif entry.Role == "Innocent" then 		if HeroPlayers[p] and IsSheriffDead() then 			return "Hero" 		end 		return "Innocent" 	end end return nil 
+
+end
+
+local function IsPlayerAliveInRound()
+local entry = RoundRolesCache[Player.Name]
+if not entry then
+return false
+end
+if entry.Dead == true then
+return false
+end
+return entry.Role ~= nil and entry.Role ~= ""
+end
+
+FindKnifeMurdererTarget = function()
+for _, p in ipairs(Players:GetPlayers()) do
+if p ~= Player and p.Character and PlayerHasKnife(p) then
+local hum = p.Character:FindFirstChildOfClass("Humanoid")
+if not hum or hum.Health > 0 then
+local targetPart = p.Character:FindFirstChild("HumanoidRootPart")
+or p.Character:FindFirstChild("Head")
+if targetPart and targetPart:IsA("BasePart") then
+return p, targetPart
+end
+end
+end
+end
+return nil, nil
+end
+
+local function FindMurdererShootTarget()
+for _, p in ipairs(Players:GetPlayers()) do
+if p ~= Player and p.Character and GetPlayerRole(p) == "Murderer" then
+local hum = p.Character:FindFirstChildOfClass("Humanoid")
+if not hum or hum.Health > 0 then
+local targetPart = p.Character:FindFirstChild("HumanoidRootPart")
+or p.Character:FindFirstChild("Head")
+or p.Character:FindFirstChild("UpperTorso")
+or p.Character:FindFirstChild("Torso")
+if targetPart and targetPart:IsA("BasePart") then
+return p, targetPart
+end
+end
+end
+end
+
+return FindKnifeMurdererTarget() 
+
+end
+
+local function FindMurdererFlingTarget()
+for _, p in ipairs(Players:GetPlayers()) do
+if p ~= Player and p.Character and GetPlayerRole(p) == "Murderer" then
+local hum = p.Character:FindFirstChildOfClass("Humanoid")
+if not hum or hum.Health > 0 then
+local targetPart = p.Character:FindFirstChild("HumanoidRootPart")
+or p.Character:FindFirstChild("Torso")
+or p.Character:FindFirstChild("UpperTorso")
+or p.Character:FindFirstChild("Head")
+if targetPart and targetPart:IsA("BasePart") then
+return p, targetPart
+end
+end
+end
+end
+
+local knifePlayer, knifePart = FindKnifeMurdererTarget() if knifePlayer and knifePart then 	return knifePlayer, knifePart end return nil, nil 
+
+end
+
+local function GetGunRaycastOrigin(gunTool, hrp)
+if gunTool then
+local attach = gunTool:FindFirstChild("GunRaycastAttachment", true)
+if attach and attach:IsA("Attachment") then
+return attach.WorldCFrame
+end
+end
+if hrp then
+return hrp.CFrame
+end
+return CFrame.identity
+end
+
+local lastEquipTick = 0
+local lastShootTick = 0
+
+UpdateAimbotState = function(allowEquip)
+if not Alive or not Crosshair then return nil, false end
+
+if not AimbotSettings.Enabled then 	Crosshair.Visible = false 	return nil, false end local gunLocation, gunTool = GetGunState() if gunLocation == "Equipped" then 	Crosshair.Visible = true 	return gunTool, true elseif gunLocation == "Backpack" then 	Crosshair.Visible = false 	if allowEquip and gunTool and Player.Character then 		local hum = Player.Character:FindFirstChildOfClass("Humanoid") 		if hum and hum.Health > 0 and (tick() - lastEquipTick >= 0.35) then 			lastEquipTick = tick() 			hum:EquipTool(gunTool) 		end 	end 	return gunTool, false else 	Crosshair.Visible = false 	return nil, false end 
+
+end
+
+local function GetSelectedTrollHead()
+local target = TrollSettings.TargetPlayer
+if not target then
+for _, p in ipairs(Players:GetPlayers()) do
+if p ~= Player and GetPlayerRole(p) == "Murderer" and p.Character then
+target = p
+break
+end
+end
+if not target then
+local knifeTarget = FindKnifeMurdererTarget()
+target = knifeTarget
+end
+end
+
+if target and target ~= Player and target.Parent and target.Character then 	local head = target.Character:FindFirstChild("Head") 	if head and head:IsA("BasePart") then 		return head 	end end return nil 
+
+end
+
+local staticModelActive = false
+local savedPartCollisions = {}
+local savedAnimateDisabled = nil
+local smilePhase = 0
+local evilPhase = 0
+
+local function ApplyStaticModelState(char, hum)
+if not char or not hum then return end
+
+if not staticModelActive then 	staticModelActive = true 	table.clear(savedPartCollisions) 	for _, part in ipairs(char:GetDescendants()) do 		if part:IsA("BasePart") then 			savedPartCollisions[part] = part.CanCollide 			part.CanCollide = false 		end 	end 	local animateScript = char:FindFirstChild("Animate") 	if animateScript and animateScript:IsA("LocalScript") then 		savedAnimateDisabled = animateScript.Disabled 		animateScript.Disabled = true 	end end hum.PlatformStand = true hum.AutoRotate = false hum.WalkSpeed = 0 hum.JumpPower = 0 hum.JumpHeight = 0 local animator = hum:FindFirstChildOfClass("Animator") if animator then 	for _, track in ipairs(animator:GetPlayingAnimationTracks()) do 		track:Stop(0) 	end end 
+
+end
+
+RestoreStaticModelState = function()
+if not staticModelActive then return end
+staticModelActive = false
+smilePhase = 0
+evilPhase = 0
+
+local char = Player.Character if char then 	for part, wasCollidable in pairs(savedPartCollisions) do 		if part and part.Parent then 			part.CanCollide = wasCollidable 		end 	end 	local animateScript = char:FindFirstChild("Animate") 	if animateScript and animateScript:IsA("LocalScript") and savedAnimateDisabled ~= nil then 		animateScript.Disabled = savedAnimateDisabled 	end 	local hum = char:FindFirstChildOfClass("Humanoid") 	if hum then 		hum.PlatformStand = false 		hum.AutoRotate = true 		hum.WalkSpeed = BASE_SPEED 	end end table.clear(savedPartCollisions) savedAnimateDisabled = nil 
+
+end
+
+local function GetCycleAngularSpeed(speedValue)
+local baseRate = 6.0
+if speedValue <= BASE_SPEED then
+local ratio = math.clamp(speedValue / BASE_SPEED, 0.05, 1)
+return baseRate * ratio
+else
+local bonus = (speedValue - BASE_SPEED) / (MAX_SPEED - BASE_SPEED)
+return baseRate * (1 + (bonus * 3.0))
+end
+end
+
+local function UpdateTrollModes(dt)
+local anyEnabled = TrollSettings.SmileEnabled or TrollSettings.EvilSmileEnabled
+if not anyEnabled or not Player.Character then
+if staticModelActive then
+RestoreStaticModelState()
+end
+return
+end
+
+local myHRP = Player.Character:FindFirstChild("HumanoidRootPart") local myHum = Player.Character:FindFirstChildOfClass("Humanoid") local targetHead = GetSelectedTrollHead() if not myHRP or not myHum or not targetHead then 	if staticModelActive then 		RestoreStaticModelState() 	end 	return end ApplyStaticModelState(Player.Character, myHum) local stepDt = math.clamp(dt or (1 / 60), 0, 0.1) local activeCFrame = nil if TrollSettings.EvilSmileEnabled then 	local evilAngularSpeed = GetCycleAngularSpeed(TrollSettings.EvilSpeed) 	evilPhase = (evilPhase + stepDt * evilAngularSpeed) % (math.pi * 2) 	local pullBackOffset = ((1 - math.cos(evilPhase)) * 0.5) * 1.0 	local backDirection = -targetHead.CFrame.LookVector 	local attachPos = targetHead.Position + (backDirection * (0.55 + pullBackOffset)) + Vector3.new(0, -0.5, 0) 	local lookTargetPos = Vector3.new(targetHead.Position.X, attachPos.Y, targetHead.Position.Z) 	activeCFrame = CFrame.lookAt(attachPos, lookTargetPos) elseif TrollSettings.SmileEnabled then 	local smileAngularSpeed = GetCycleAngularSpeed(TrollSettings.Speed) 	smilePhase = (smilePhase + stepDt * smileAngularSpeed) % (math.pi * 2) 	local pullOutOffset = ((1 - math.cos(smilePhase)) * 0.5) * 1.0 	local attachPos = targetHead.Position + (targetHead.CFrame.LookVector * (0.55 + pullOutOffset)) + Vector3.new(0, -0.5, 0) 	local lookTargetPos = Vector3.new(targetHead.Position.X, attachPos.Y, targetHead.Position.Z) 	activeCFrame = CFrame.lookAt(attachPos, lookTargetPos) end if activeCFrame then 	myHRP.AssemblyLinearVelocity = Vector3.zero 	myHRP.AssemblyAngularVelocity = Vector3.zero 	myHRP.CFrame = activeCFrame end 
+
+end
+
+-- Auto Farm Coin & Murderer Kill All: flight-only NoClip, nearest-first coin trajectory, round-role alive check, underground mode & FullBag/Manual actions
+local coinFlightActive = false
+local coinFlightCollisions = {}
+local coinFlightAnimateState = nil
+local lockedCoinVisual = nil
+local flingPhase = 0
+
+local lastKnifeEquipTick = 0
+local lastKnifeAttackTick = 0
+local killAllAnchorCFrame = nil
+local manualKillAllActive = false
+local manualKillAllAnchorCFrame = nil
+
+local function ClearLockedCoin()
+lockedCoinVisual = nil
+end
+
+local function StopCoinAnimations(hum)
+if not hum then return end
+local animator = hum:FindFirstChildOfClass("Animator")
+if animator then
+for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+track:Stop(0)
+end
+end
+end
+
+local function SetFlightNoClip(char, enabled)
+if not char then return end
+if enabled then
+if not coinFlightActive then
+coinFlightActive = true
+table.clear(coinFlightCollisions)
+for _, part in ipairs(char:GetDescendants()) do
+if part:IsA("BasePart") then
+coinFlightCollisions[part] = part.CanCollide
+part.CanCollide = false
+end
+end
+
+		local animateScript = char:FindFirstChild("Animate") 		if animateScript and animateScript:IsA("LocalScript") then 			coinFlightAnimateState = animateScript.Disabled 			animateScript.Disabled = true 		end 	end else 	if not coinFlightActive then return end 	coinFlightActive = false 	for part, wasCollidable in pairs(coinFlightCollisions) do 		if part and part.Parent then 			part.CanCollide = wasCollidable 		end 	end 	local animateScript = char:FindFirstChild("Animate") 	if animateScript and animateScript:IsA("LocalScript") and coinFlightAnimateState ~= nil then 		animateScript.Disabled = coinFlightAnimateState 	end 	table.clear(coinFlightCollisions) 	coinFlightAnimateState = nil end 
+
+end
+
+StopCoinFarmFlight = function()
+ClearLockedCoin()
+flingPhase = 0
+killAllAnchorCFrame = nil
+lastKnifeAttackTick = 0
+local char = Player.Character
+SetFlightNoClip(char, false)
+if char then
+local hum = char:FindFirstChildOfClass("Humanoid")
+if hum then
+hum.AutoRotate = true
+hum.PlatformStand = false
+hum.WalkSpeed = BASE_SPEED
+end
+end
+end
+
+StopManualKillAll = function()
+MurdererCombatSettings.KillAllTriggered = false
+manualKillAllActive = false
+manualKillAllAnchorCFrame = nil
+lastKnifeAttackTick = 0
+if not FarmingSettings.AutoFarmCoin and StopCoinFarmFlight then
+StopCoinFarmFlight()
+end
+end
+
+local function FindFullBagIcon()
+local mainGui = PlayerGui:FindFirstChild("MainGUI")
+if not mainGui then return nil end
+
+local gameFrame = mainGui:FindFirstChild("Game") local coinBags = gameFrame and gameFrame:FindFirstChild("CoinBags") if not coinBags then 	coinBags = mainGui:FindFirstChild("CoinBags", true) end if not coinBags then return nil end local coinFolder = coinBags:FindFirstChild("Coin") if coinFolder then 	local icon = coinFolder:FindFirstChild("FullBagIcon", true) 	if icon then return icon end end return coinBags:FindFirstChild("FullBagIcon", true) 
+
+end
+
+local function IsGuiObjectTrulyVisible(obj)
+if not obj or not obj.Parent then return false end
+if obj:IsA("GuiObject") and not obj.Visible then
+return false
+end
+
+local current = obj.Parent while current and current ~= PlayerGui do 	if current:IsA("ScreenGui") and not current.Enabled then 		return false 	end 	if current:IsA("GuiObject") and not current.Visible then 		return false 	end 	current = current.Parent end return true 
+
+end
+
+local function IsCoinBagFull()
+local fullBagIcon = FindFullBagIcon()
+if not fullBagIcon then
+return false
+end
+return IsGuiObjectTrulyVisible(fullBagIcon)
+end
+
+local function IsKnifeUsable(knifeTool)
+if not knifeTool or not knifeTool:IsA("Tool") or not knifeTool.Parent then
+return false
+end
+if knifeTool:GetAttribute("Disabled") == true then
+return false
+end
+return true
+end
+
+local function GetKnifeCooldown(knifeTool)
+local defaultCooldown = 0.25
+
+if knifeTool then 	for _, attrName in ipairs({ "Cooldown", "AttackCooldown", "KnifeCooldown", "StabCooldown", "SwingCooldown" }) do 		local attrVal = knifeTool:GetAttribute(attrName) 		if type(attrVal) == "number" and attrVal > 0 and attrVal <= 5 then 			defaultCooldown = attrVal 			break 		end 	end 	if defaultCooldown == 0.25 then 		for _, obj in ipairs(knifeTool:GetDescendants()) do 			if (obj:IsA("NumberValue") or obj:IsA("IntValue")) then 				local lowerName = string.lower(obj.Name) 				if string.find(lowerName, "cooldown") or string.find(lowerName, "delay") then 					if obj.Value > 0 and obj.Value <= 5 then 						defaultCooldown = obj.Value 						break 					end 				end 			end 		end 	end 	if knifeTool:GetAttribute("EquippedPerk") == "Sleight" then 		defaultCooldown = math.max(0.12, defaultCooldown * 0.7) 	end end return math.clamp(defaultCooldown, 0.08, 3) 
+
+end
+
+local function FindUsableKnifeTool()
+local backpack = Player:FindFirstChildOfClass("Backpack")
+if backpack then
+for _, item in ipairs(backpack:GetChildren()) do
+if item:IsA("Tool") and (item.Name == "Knife" or item:GetAttribute("IsKnife") == true) and IsKnifeUsable(item) then
+return item, false
+end
+end
+end
+
+if Player.Character then 	for _, item in ipairs(Player.Character:GetChildren()) do 		if item:IsA("Tool") and (item.Name == "Knife" or item:GetAttribute("IsKnife") == true) and IsKnifeUsable(item) then 			return item, true 		end 	end end return nil, false 
+
+end
+
+local function TriggerKnifeStab(knifeTool, targetPart)
+if not knifeTool or not targetPart or not IsKnifeUsable(knifeTool) then return end
+
+knifeTool:Activate() local eventsFolder = knifeTool:FindFirstChild("Events") local stabEvent = eventsFolder and eventsFolder:FindFirstChild("KnifeStabbed") 	or knifeTool:FindFirstChild("KnifeStabbed", true) if stabEvent and stabEvent:IsA("RemoteEvent") then 	pcall(function() 		stabEvent:FireServer() 	end) end local handleTouchedEvent = eventsFolder and eventsFolder:FindFirstChild("HandleTouched") 	or knifeTool:FindFirstChild("HandleTouched", true) if handleTouchedEvent and handleTouchedEvent:IsA("RemoteEvent") then 	pcall(function() 		handleTouchedEvent:FireServer(targetPart) 	end) end local handle = knifeTool:FindFirstChild("Handle") if handle and handle:IsA("BasePart") and typeof(firetouchinterest) == "function" then 	pcall(function() 		firetouchinterest(handle, targetPart, 0) 		firetouchinterest(handle, targetPart, 1) 	end) end 
+
+end
+
+local function CollectAliveTargets()
+local aliveTargets = {}
+
+for _, p in ipairs(Players:GetPlayers()) do 	if p ~= Player and p.Parent and p.Character then 		local entry = RoundRolesCache[p.Name] 		local isDeadInRound = entry and entry.Dead == true 		local invalidRoleInActiveRound = next(RoundRolesCache) ~= nil and (not entry or not entry.Role or entry.Role == "") 		if not isDeadInRound and not invalidRoleInActiveRound then 			local hum = p.Character:FindFirstChildOfClass("Humanoid") 			local hrp = p.Character:FindFirstChild("HumanoidRootPart") 			local part = hrp 				or p.Character:FindFirstChild("UpperTorso") 				or p.Character:FindFirstChild("Torso") 				or p.Character:FindFirstChild("Head") 			if hum and hum.Health > 0 and part and part:IsA("BasePart") then 				table.insert(aliveTargets, { 					Player = p, 					Humanoid = hum, 					HRP = hrp, 					Part = part 				}) 			end 		end 	end end return aliveTargets 
+
+end
+
+local function IsTargetStillAlive(entry)
+if not entry or not entry.Player or not entry.Player.Parent or not entry.Player.Character then
+return false
+end
+local roleEntry = RoundRolesCache[entry.Player.Name]
+if roleEntry and roleEntry.Dead == true then
+return false
+end
+if not entry.Humanoid or entry.Humanoid.Health <= 0 then
+return false
+end
+if not entry.Part or not entry.Part.Parent then
+return false
+end
+return true
+end
+
+local function ExecuteKnifeKillAllLoop(char, hrp, hum, anchorCFrame)
+local knifeTool, equipped = FindUsableKnifeTool()
+if not knifeTool then
+return false, false
+end
+
+local targets = CollectAliveTargets() if #targets == 0 then 	if anchorCFrame and hrp and hrp.Parent then 		hrp.CFrame = anchorCFrame 		hrp.AssemblyLinearVelocity = Vector3.zero 		hrp.AssemblyAngularVelocity = Vector3.zero 	end 	return false, true end SetFlightNoClip(char, true) hum.AutoRotate = false hum.PlatformStand = false StopCoinAnimations(hum) if not equipped then 	if tick() - lastKnifeEquipTick >= 0.08 then 		lastKnifeEquipTick = tick() 		hum:EquipTool(knifeTool) 	end 	return true, false end local knifeCooldown = GetKnifeCooldown(knifeTool) if tick() - lastKnifeAttackTick < knifeCooldown then 	return true, false end local strikePoint = anchorCFrame.Position + (anchorCFrame.LookVector * 1.8) hrp.CFrame = CFrame.lookAt(anchorCFrame.Position, strikePoint) hrp.AssemblyLinearVelocity = Vector3.zero hrp.AssemblyAngularVelocity = Vector3.zero local handle = knifeTool and knifeTool:FindFirstChild("Handle") if handle and handle:IsA("BasePart") and not handle.Anchored then 	handle.CFrame = CFrame.lookAt(strikePoint, strikePoint + anchorCFrame.LookVector) end local didAttackThisCycle = false for _, entry in ipairs(targets) do 	if IsTargetStillAlive(entry) and IsKnifeUsable(knifeTool) then 		local targetPart = entry.Part 		local targetRoot = entry.HRP or targetPart 		pcall(function() 			if targetRoot and targetRoot:IsA("BasePart") and not targetRoot.Anchored then 				targetRoot.CFrame = CFrame.new(strikePoint) 				targetRoot.AssemblyLinearVelocity = Vector3.zero 				targetRoot.AssemblyAngularVelocity = Vector3.zero 			end 		end) 		TriggerKnifeStab(knifeTool, targetPart) 		didAttackThisCycle = true 	end end if didAttackThisCycle then 	lastKnifeAttackTick = tick() end if #CollectAliveTargets() == 0 and anchorCFrame then 	hrp.CFrame = anchorCFrame 	hrp.AssemblyLinearVelocity = Vector3.zero 	hrp.AssemblyAngularVelocity = Vector3.zero 	return false, true end return true, false 
+
+end
+
+local function TryManualKillAll(char, hrp, hum)
+if not MurdererCombatSettings.KillAllButtonEnabled or not MurdererCombatSettings.KillAllTriggered then
+if manualKillAllActive then
+StopManualKillAll()
+end
+return false
+end
+
+local knifeTool = FindUsableKnifeTool() if not knifeTool then 	StopManualKillAll() 	return false end if not manualKillAllAnchorCFrame then 	manualKillAllAnchorCFrame = hrp.CFrame end manualKillAllActive = true local keepGoing, finishedAll = ExecuteKnifeKillAllLoop(char, hrp, hum, manualKillAllAnchorCFrame) if finishedAll or not keepGoing then 	StopManualKillAll() 	return false end return true 
+
+end
+
+local function TryKillAllWhenFullBag(char, hrp, hum)
+if not FarmingSettings.KillAllWhenFullBag then
+killAllAnchorCFrame = nil
+return false
+end
+
+local knifeTool = FindUsableKnifeTool() if not knifeTool then 	killAllAnchorCFrame = nil 	lastKnifeAttackTick = 0 	return false end if not killAllAnchorCFrame then 	killAllAnchorCFrame = hrp.CFrame end local keepGoing, finishedAll = ExecuteKnifeKillAllLoop(char, hrp, hum, killAllAnchorCFrame) if finishedAll or not keepGoing then 	killAllAnchorCFrame = nil 	return false end return true 
+
+end
+
+local function TryAutoShootMurdererWhenFullBag(char, hrp, hum)
+if not FarmingSettings.ShootMurdererWhenFullBag then
+return false
+end
+
+local _, targetPart = FindMurdererShootTarget() if not targetPart then 	return false end local gunTool, equipped = FindGunTool() if not gunTool then 	return false end if not equipped then 	if tick() - lastEquipTick >= 0.2 then 		lastEquipTick = tick() 		hum:EquipTool(gunTool) 	end 	return true end if tick() - lastShootTick < 0.35 then 	return true end lastShootTick = tick() local originCFrame = GetGunRaycastOrigin(gunTool, hrp) local targetCFrame = CFrame.new(targetPart.Position) local shootEvent = gunTool:FindFirstChild("Shoot", true) if shootEvent and shootEvent:IsA("RemoteEvent") then 	shootEvent:FireServer(originCFrame, targetCFrame) else 	gunTool:Activate() end return true 
+
+end
+
+local function UpdateFlingMurderer(char, hrp, hum, dt)
+local targetPlayer, targetPart = FindMurdererFlingTarget()
+if not targetPlayer or not targetPart then
+return false
+end
+
+local stepDt = math.clamp(dt or (1 / 60), 0, 0.1) flingPhase = (flingPhase + stepDt * 40) % (math.pi * 2) -- Включаем коллизию у своего персонажа для физического столкновения при флинге SetFlightNoClip(char, false) for _, part in ipairs(char:GetDescendants()) do 	if part:IsA("BasePart") then 		part.CanCollide = true 	end end hum.AutoRotate = false hum.PlatformStand = false StopCoinAnimations(hum) local targetHRP = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") local targetVel = targetHRP and targetHRP.AssemblyLinearVelocity or Vector3.zero local leadPos = targetPart.Position + (targetVel * 0.08) local offset = Vector3.new( 	math.cos(flingPhase) * 0.9, 	math.sin(flingPhase * 2) * 0.35, 	math.sin(flingPhase) * 0.9 ) hrp.CFrame = CFrame.lookAt(leadPos + offset, targetPart.Position) hrp.AssemblyAngularVelocity = Vector3.new(2500, 2500, 2500) hrp.AssemblyLinearVelocity = Vector3.new( 	math.cos(flingPhase) * 180, 	120, 	math.sin(flingPhase) * 180 ) return true 
+
+end
+
+local function IsValidCoinVisual(visual)
+return visual ~= nil
+and typeof(visual) == "Instance"
+and visual:IsA("BasePart")
+and visual.Parent ~= nil
+and visual:IsDescendantOf(Workspace)
+end
+
+local function FindCoinVisualPart(entry)
+if not entry or not entry.Parent or not entry:IsDescendantOf(Workspace) then
+return nil
+end
+
+if entry:IsA("BasePart") and entry.Name == "CoinVisual" then 	return entry end local visual = entry:FindFirstChild("CoinVisual", true) if visual and visual:IsA("BasePart") and visual.Parent and visual:IsDescendantOf(Workspace) then 	return visual end return nil 
+
+end
+
+local function GetSortedCoinVisuals(fromPos)
+local entries = {}
+local seen = {}
+
+local function AddVisual(visual) 	if IsValidCoinVisual(visual) and not seen[visual] then 		seen[visual] = true 		table.insert(entries, { 			Part = visual, 			Dist = (visual.Position - fromPos).Magnitude 		}) 	end end for _, obj in ipairs(Workspace:GetDescendants()) do 	if obj.Name == "CoinContainer" then 		for _, child in ipairs(obj:GetChildren()) do 			if child.Name == "Coin_Server" or child:FindFirstChild("CoinVisual", true) then 				AddVisual(FindCoinVisualPart(child)) 			end 		end 	elseif obj.Name == "Coin_Server" then 		AddVisual(FindCoinVisualPart(obj)) 	end end table.sort(entries, function(a, b) 	return a.Dist < b.Dist end) return entries 
+
+end
+
+local function UpdateCoinAutoFarm(dt)
+if not FarmingSettings.AutoFarmCoin or not Alive or not Player.Character then
+StopCoinFarmFlight()
+return
+end
+
+if TrollSettings.SmileEnabled or TrollSettings.EvilSmileEnabled then 	StopCoinFarmFlight() 	return end if not IsPlayerAliveInRound() then 	StopCoinFarmFlight() 	return end local char = Player.Character local hrp = char:FindFirstChild("HumanoidRootPart") local hum = char:FindFirstChildOfClass("Humanoid") if not hrp or not hum or hum.Health <= 0 then 	StopCoinFarmFlight() 	return end if IsCoinBagFull() then 	ClearLockedCoin() 	local didKillAll = TryKillAllWhenFullBag(char, hrp, hum) 	if didKillAll then 		return 	end 	local didShoot = TryAutoShootMurdererWhenFullBag(char, hrp, hum) 	if FarmingSettings.FlingMurdererWhenFullBag then 		if not didShoot and not UpdateFlingMurderer(char, hrp, hum, dt) then 			StopCoinFarmFlight() 		end 	elseif not didShoot then 		StopCoinFarmFlight() 	end 	return end flingPhase = 0 killAllAnchorCFrame = nil if not IsValidCoinVisual(lockedCoinVisual) then 	local sortedCoins = GetSortedCoinVisuals(hrp.Position) 	local targetEntry = sortedCoins[1] 	lockedCoinVisual = targetEntry and targetEntry.Part or nil end if not IsValidCoinVisual(lockedCoinVisual) then 	StopCoinFarmFlight() 	return end local stepDt = math.clamp(dt or (1 / 60), 0, 0.1) local currentPos = hrp.Position local baseCoinPos = lockedCoinVisual.Position local targetPos = FarmingSettings.UndergroundMode 	and (baseCoinPos + Vector3.new(0, UNDERGROUND_Y_OFFSET, 0)) 	or baseCoinPos local delta = targetPos - currentPos local distance = delta.Magnitude local flightSpeed = FarmingSettings.FarmSpeed or BASE_SPEED hum.WalkSpeed = flightSpeed local stepDist = flightSpeed * stepDt SetFlightNoClip(char, true) hum.AutoRotate = false hum.PlatformStand = false StopCoinAnimations(hum) local nextPos local touchRadius = FarmingSettings.UndergroundMode and 1.2 or 0.35 if distance <= touchRadius or distance <= stepDist then 	nextPos = FarmingSettings.UndergroundMode and baseCoinPos or targetPos 	ClearLockedCoin() else 	nextPos = currentPos + (delta.Unit * stepDist) end if FarmingSettings.UndergroundMode then 	local lookAhead = nextPos + Vector3.new(0, 1, 0) 	hrp.CFrame = CFrame.lookAt(nextPos, lookAhead) else 	local moveDir = baseCoinPos - nextPos 	if moveDir.Magnitude > 0.001 then 		hrp.CFrame = CFrame.lookAt(nextPos, nextPos + moveDir.Unit) 	else 		hrp.CFrame = CFrame.new(nextPos) 	end end hrp.AssemblyLinearVelocity = Vector3.zero hrp.AssemblyAngularVelocity = Vector3.zero 
+
+end
+
+local remotesFolder = ReplicatedStorage:FindFirstChild("Remotes")
+local gameplayFolder = remotesFolder and remotesFolder:FindFirstChild("Gameplay")
+
+local function IngestRolesTable(data, replaceAll)
+if type(data) ~= "table" then return end
+
+if replaceAll then 	table.clear(RoundRolesCache) 	table.clear(HeroPlayers) end for playerName, info in pairs(data) do 	if type(info) == "table" and info.Role then 		local roleStr = tostring(info.Role) 		local isDead = info.Dead == true 		RoundRolesCache[playerName] = { 			Role = roleStr, 			Dead = isDead 		} 		local p = Players:FindFirstChild(playerName) 		if p then 			if isDead or (roleStr ~= "Innocent" and roleStr ~= "Hero") then 				HeroPlayers[p] = nil 			elseif roleStr == "Hero" then 				HeroPlayers[p] = true 			end 		end 	end end for playerName in pairs(RoundRolesCache) do 	local p = Players:FindFirstChild(playerName) 	if not p then 		RoundRolesCache[playerName] = nil 	end end SyncHeroStates() if UpdateESP then 	UpdateESP() end 
+
+end
+
+if gameplayFolder then
+local loadingMapEvent = gameplayFolder:FindFirstChild("LoadingMap")
+if loadingMapEvent and loadingMapEvent:IsA("RemoteEvent") then
+Connect(loadingMapEvent.OnClientEvent, function()
+ResetForNewMap()
+end)
+end
+
+local fadeEvent = gameplayFolder:FindFirstChild("Fade") if fadeEvent and fadeEvent:IsA("RemoteEvent") then 	Connect(fadeEvent.OnClientEvent, function(data) 		IngestRolesTable(data, true) 	end) end local playerDataChangedEvent = gameplayFolder:FindFirstChild("PlayerDataChanged") if playerDataChangedEvent and playerDataChangedEvent:IsA("RemoteEvent") then 	Connect(playerDataChangedEvent.OnClientEvent, function(data) 		IngestRolesTable(data, false) 	end) end local roundStartEvent = gameplayFolder:FindFirstChild("RoundStart") if roundStartEvent and roundStartEvent:IsA("RemoteEvent") then 	Connect(roundStartEvent.OnClientEvent, function(_, data) 		IngestRolesTable(data, true) 	end) end 
+
+end
+
+SpawnTracked(function()
+while Alive do
+task.wait(0.5)
+local hasAnyGunDrop = false
+for _, obj in ipairs(Workspace:GetDescendants()) do
+if obj.Name == "GunDrop" and obj:IsA("BasePart") and obj.Parent then
+hasAnyGunDrop = true
+if not TrackedDrops[obj] then
+TrackedDrops[obj] = true
+Connect(obj.Touched, function(hit)
+if not Alive then return end
+local char = hit.Parent
+local hum = char and char:FindFirstChildOfClass("Humanoid")
+if hum and hum.Health > 0 then
+local p = Players:GetPlayerFromCharacter(char)
+local roleEntry = p and RoundRolesCache[p.Name]
+if p and roleEntry and roleEntry.Role == "Innocent" and not roleEntry.Dead then
+HeroPlayers[p] = true
+if UpdateESP then UpdateESP() end
+end
+end
+end)
+end
+end
+end
+
+	if not hasAnyGunDrop then 		table.clear(TrackedDrops) 	end 	SyncHeroStates() end 
+
+end)
+
+SpawnTracked(function()
+while Alive do
+local gunDrop = FindGunDrop()
+if not gunDrop then
+task.wait(0.2)
+else
+if AutoGrabSettings.Enabled and gunDrop.Parent and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+local myRole = GetPlayerRole(Player)
+if myRole == "Innocent" and not HasGun(Player) then
+local hrp = Player.Character.HumanoidRootPart
+local originalCFrame = hrp.CFrame
+
+				hrp.CFrame = gunDrop.CFrame + Vector3.new(0, 2, 0) 				DelayTracked(0.1, function() 					if Alive and hrp and hrp.Parent and originalCFrame then 						hrp.CFrame = originalCFrame 					end 				end) 				while Alive and gunDrop and gunDrop.Parent do 					task.wait(0.1) 				end 			end 		end 		task.wait(0.1) 	end end 
+
+end)
+
+local function ShootAtMurderer()
+if tick() - lastShootTick < 0.35 then return end
+
+if not Player.Character then return end local char = Player.Character local hrp = char:FindFirstChild("HumanoidRootPart") local hum = char:FindFirstChildOfClass("Humanoid") if not hrp or not hum or hum.Health <= 0 then return end local gunTool, equipped = FindGunTool() if not gunTool then return end if not equipped then 	if tick() - lastEquipTick >= 0.2 then 		lastEquipTick = tick() 		hum:EquipTool(gunTool) 	end 	task.wait(0.1) 	gunTool, equipped = FindGunTool() 	if not gunTool or not equipped then return end end local _, targetPart = FindKnifeMurdererTarget() if not targetPart then return end lastShootTick = tick() local exactTargetPos = targetPart.Position local originCFrame = GetGunRaycastOrigin(gunTool, hrp) local targetCFrame = CFrame.new(exactTargetPos) local shootEvent = gunTool:FindFirstChild("Shoot", true) if shootEvent and shootEvent:IsA("RemoteEvent") then 	shootEvent:FireServer(originCFrame, targetCFrame) else 	gunTool:Activate() end 
+
+end
+
+MakeDraggableActionButton(KillAllActionButton, function()
+if not MurdererCombatSettings.KillAllButtonEnabled then return end
+MurdererCombatSettings.KillAllTriggered = true
+end)
+
+MakeDraggableActionButton(ShootButton, function()
+ShootAtMurderer()
+end)
+
+UpdateESP = function()
+if not Alive then return end
+
+for _, p in ipairs(Players:GetPlayers()) do 	if p ~= Player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then 		local roleType = GetPlayerRole(p) 		local isEnabledForRole = 			(roleType == "Murderer" and ESP_Settings.Murderer) or 			(roleType == "Hero" and ESP_Settings.Hero) or 			(roleType == "Sheriff" and ESP_Settings.Sheriff) or 			(roleType == "Innocent" and ESP_Settings.Innocent) 		if isEnabledForRole and roleType then 			if not ActiveESPObjects[p] or ActiveESPObjects[p].Role ~= roleType or ActiveESPObjects[p].Highlight.Parent ~= p.Character then 				RemoveESP(p) 				local highlight = Instance.new("Highlight") 				highlight.Adornee = p.Character 				highlight.Parent = p.Character 				highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop 				highlight.OutlineColor = Color3.new(1, 1, 1) 				highlight.OutlineTransparency = 0 				highlight.FillTransparency = 0.55 				local billboard = Instance.new("BillboardGui") 				billboard.Size = UDim2.fromOffset(260, 30) 				billboard.StudsOffset = Vector3.new(0, 3, 0) 				billboard.AlwaysOnTop = true 				billboard.Adornee = p.Character:FindFirstChild("Head") or p.Character.HumanoidRootPart 				billboard.Parent = p.Character 				local label = Instance.new("TextLabel") 				label.Size = UDim2.new(1, 0, 1, 0) 				label.BackgroundTransparency = 1 				label.TextSize = 15 				label.Font = Enum.Font.GothamBold 				label.TextStrokeTransparency = 0.2 				label.Parent = billboard 				ActiveESPObjects[p] = { 					Highlight = highlight, 					Billboard = billboard, 					Label = label, 					Role = roleType 				} 			end 			local espData = ActiveESPObjects[p] 			espData.Highlight.OutlineColor = Color3.new(1, 1, 1) 			if roleType == "Murderer" then 				local espColor = Colors.Red 				espData.Highlight.FillColor = espColor 				espData.Label.Text = IsHoldingKnife(p) and "[Murderer equips knife]" or "[Murderer]" 				espData.Label.TextColor3 = espColor 			elseif roleType == "Sheriff" then 				local espColor = Colors.Blue 				espData.Highlight.FillColor = espColor 				espData.Label.Text = "[Sheriff]" 				espData.Label.TextColor3 = espColor 			elseif roleType == "Hero" then 				local espColor = Colors.Yellow 				espData.Highlight.FillColor = espColor 				espData.Label.Text = "[Hero]" 				espData.Label.TextColor3 = espColor 			elseif roleType == "Innocent" then 				local espColor = Colors.Green 				espData.Highlight.FillColor = espColor 				espData.Label.Text = "[Innocent]" 				espData.Label.TextColor3 = espColor 			end 		else 			RemoveESP(p) 		end 	else 		RemoveESP(p) 	end end 
+
+end
+
+SpawnTracked(function()
+while Alive do
+task.wait(0.15)
+UpdateESP()
+end
+end)
+
+Connect(RunService.Heartbeat, function(dt)
+if not Alive then return end
+UpdateTrollModes(dt)
+
+local didManualKillAll = false if MurdererCombatSettings.KillAllButtonEnabled and MurdererCombatSettings.KillAllTriggered and Player.Character then 	local char = Player.Character 	local hrp = char:FindFirstChild("HumanoidRootPart") 	local hum = char:FindFirstChildOfClass("Humanoid") 	if hrp and hum and hum.Health > 0 then 		didManualKillAll = TryManualKillAll(char, hrp, hum) 	end end if not didManualKillAll then 	UpdateCoinAutoFarm(dt) end 
+
+end)
+
+Connect(RunService.RenderStepped, function(dt)
+if not Alive then return end
+
+UpdateTrollModes(dt) local rainbow = Color3.fromHSV((tick() * 0.25) % 1, 0.85, 1) if RainbowOutline then 	MainStroke.Color = rainbow end if RainbowTheme then 	local darkRainbow = rainbow:Lerp(Color3.fromRGB(15, 15, 20), 0.45) 	local darkerRainbow = rainbow:Lerp(Color3.fromRGB(10, 10, 15), 0.65) 	Main.BackgroundColor3 = darkRainbow 	Body.BackgroundColor3 = darkRainbow 	Header.BackgroundColor3 = rainbow 	HeaderCover.BackgroundColor3 = rainbow 	Sidebar.BackgroundColor3 = darkerRainbow 	FarmingTab.BackgroundColor3 = rainbow 	EspTab.BackgroundColor3 = rainbow 	SheriffTab.BackgroundColor3 = rainbow 	MurdererTab.BackgroundColor3 = rainbow 	TrollTab.BackgroundColor3 = rainbow 	if FarmSpeedSliderFill then 		FarmSpeedSliderFill.BackgroundColor3 = rainbow 	end 	TrollSliderFill.BackgroundColor3 = rainbow 	EvilTrollSliderFill.BackgroundColor3 = rainbow 	SliderFill.BackgroundColor3 = rainbow 	MinimizeButton.BackgroundColor3 = darkerRainbow 	SettingsButton.BackgroundColor3 = darkerRainbow 	CloseButton.BackgroundColor3 = darkerRainbow 	for _, record in ipairs(ToggleRecords) do 		record.Row.BackgroundColor3 = darkRainbow 		if record.Enabled then 			record.Button.BackgroundColor3 = rainbow 		else 			record.Button.BackgroundColor3 = Color3.fromRGB(0, 0, 0) 		end 		record.Stroke.Color = Color3.fromRGB(0, 0, 0) 		record.Stroke.Transparency = 0 	end 	for _, record in ipairs(AccordionRecords) do 		record.Container.BackgroundColor3 = darkRainbow 	end end local currentCamera = Workspace.CurrentCamera local _, hasGunInHand = UpdateAimbotState(true) if AimbotSettings.Enabled and hasGunInHand and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") and currentCamera then 	local _, targetPart = FindKnifeMurdererTarget() 	if targetPart then 		currentCamera.CFrame = CFrame.new(currentCamera.CFrame.Position, targetPart.Position) 	end end 
+
+end)
+
+local dragging = false
+local dragStart
+local startPosition
+local dragInput
+
+Connect(Header.InputBegan, function(input)
+if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+dragging = true
+dragStart = input.Position
+startPosition = Main.Position
+dragInput = input
+end
+end)
+
+Connect(UIS.InputChanged, function(input)
+if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+local delta = input.Position - dragStart
+Main.Position = UDim2.new(
+startPosition.X.Scale, startPosition.X.Offset + delta.X,
+startPosition.Y.Scale, startPosition.Y.Offset + delta.Y
+)
+end
+end)
+
+Connect(UIS.InputEnded, function(input)
+if input == dragInput or input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+dragging = false
+dragInput = nil
+end
+end)
+
+local function SetupPlayer(p)
+Connect(p.CharacterRemoving, function()
+if p == Player then
+if StopManualKillAll then StopManualKillAll() end
+if StopCoinFarmFlight then StopCoinFarmFlight() end
+end
+RemoveESP(p)
+HeroPlayers[p] = nil
+end)
+Connect(p.CharacterAdded, function()
+if p == Player then
+if StopManualKillAll then StopManualKillAll() end
+if StopCoinFarmFlight then StopCoinFarmFlight() end
+end
+RemoveESP(p)
+HeroPlayers[p] = nil
+DelayTracked(0.1, function()
+if Alive and UpdateESP then UpdateESP() end
+end)
+end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do SetupPlayer(p) end
+Connect(Players.PlayerAdded, function(p) SetupPlayer(p) end)
+Connect(Players.PlayerRemoving, function(p)
+RemoveESP(p)
+RoundRolesCache[p.Name] = nil
+HeroPlayers[p] = nil
+end)
+
+Connect(CloseButton.Activated, function() Cleanup() end)
+
+ApplyTransparency()
+ApplyNormalTheme()
+
