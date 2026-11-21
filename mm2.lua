@@ -1,4 +1,5 @@
 -- Scan (Search by list, dump full trees + scripts inside them & contents)
+-- Fixed: 200,000 char Text limit crash + full clipboard export
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,6 +24,8 @@ local SEARCH_QUERIES = {
 	"Claime",
 	"Box",
 }
+
+local MAX_DISPLAY_CHARS = 180000
 
 local function getScanRoots()
 	local roots = {
@@ -464,10 +467,21 @@ local function buildUI()
 	copyBtn.Parent = body
 	Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
 
+	local fullBufferText = ""
+
 	local function setOutput(str)
-		outBox.Text = str
-		local lineCount = select(2, string.gsub(str, "\n", "\n")) + 1
-		local estWrappedLines = math.ceil(#str / 55)
+		fullBufferText = str or ""
+		local displayStr = fullBufferText
+		if #displayStr > MAX_DISPLAY_CHARS then
+			displayStr = string.sub(displayStr, 1, MAX_DISPLAY_CHARS)
+				.. "\n\n... [Текст обрезан для отображения в окне (всего символов: "
+				.. #fullBufferText
+				.. ", лимит UI: 200000). Нажми «Скопировать в буфер», чтобы скопировать ПОЛНЫЙ текст.]"
+		end
+
+		outBox.Text = displayStr
+		local lineCount = select(2, string.gsub(displayStr, "\n", "\n")) + 1
+		local estWrappedLines = math.ceil(#displayStr / 55)
 		local totalLines = math.max(lineCount, estWrappedLines)
 		local height = math.max(220, totalLines * 15 + 32)
 		outBox.Size = UDim2.new(1, -12, 0, height)
@@ -506,7 +520,8 @@ local function buildUI()
 	end)
 
 	copyBtn.MouseButton1Click:Connect(function()
-		local ok = copyToClipboard(outBox.Text)
+		local textToCopy = (fullBufferText ~= "" and fullBufferText) or outBox.Text
+		local ok = copyToClipboard(textToCopy)
 		copyBtn.Text = ok and "Скопировано!" or "Буфер недоступен"
 		copyBtn.BackgroundColor3 = ok and Color3.fromRGB(30, 155, 85) or Color3.fromRGB(165, 45, 55)
 		task.delay(1.2, function()
