@@ -7,9 +7,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local CONFIG = {
 	DefaultQuery = "NewItem",
-	MaxMatches = 20,
-	MaxDepth = 99,
-	MaxLines = 600,
+	YieldEveryNodes = 250, -- каждые N узлов отдаём кадр, чтобы телефон не фризил
 	SearchInPlayerGui = true,
 	SearchInReplicatedStorage = true,
 	SearchInWorkspace = false,
@@ -32,33 +30,29 @@ local function getGuiParent()
 	return playerGui
 end
 
-local function buildSubtreeLines(root, maxDepth, maxLines, outLines)
-	local count = 0
-	local function walk(node, depth, prefix)
-		if #outLines >= maxLines or depth > maxDepth then
-			return
+local function appendFullSubtree(root, outLines, counter)
+	local children = root:GetChildren()
+	for i, child in ipairs(children) do
+		counter.children += 1
+		counter.step += 1
+		if counter.step % CONFIG.YieldEveryNodes == 0 then
+			task.wait()
 		end
-		local children = node:GetChildren()
-		for i, child in ipairs(children) do
-			if #outLines >= maxLines then
-				table.insert(outLines, prefix .. "└── ... [лимит строк]")
-				return
-			end
-			count += 1
-			local isLast = (i == #children)
-			local connector = isLast and "└── " or "├── "
-			local nextPrefix = prefix .. (isLast and "    " or "│   ")
 
-			table.insert(outLines, string.format("%s%s%s [%s]", prefix, connector, child.Name, child.ClassName))
-			walk(child, depth + 1, nextPrefix)
-		end
+		local isLast = (i == #children)
+		local connector = isLast and "└── " or "├── "
+		local nextPrefix = counter.prefix .. (isLast and "    " or "│   ")
+
+		table.insert(outLines, string.format("%s%s%s [%s]", counter.prefix, connector, child.Name, child.ClassName))
+
+		local prevPrefix = counter.prefix
+		counter.prefix = nextPrefix
+		appendFullSubtree(child, outLines, counter)
+		counter.prefix = prevPrefix
 	end
-
-	walk(root, 1, "")
-	return count
 end
 
-local function searchAndBuildReport(query)
+local function searchAndBuildFullReport(query)
 	local trimmed = string.gsub(query or "", "^%s*(.-)%s*$", "%1")
 	if trimmed == "" then
 		return "Введи название или часть слова в поле поиска."
@@ -77,20 +71,19 @@ local function searchAndBuildReport(query)
 	end
 
 	local matches = {}
+	local scanStep = 0
 	for _, root in ipairs(roots) do
 		for _, desc in ipairs(root:GetDescendants()) do
-			-- Пропускаем собственный интерфейс сканера
+			scanStep += 1
+			if scanStep % CONFIG.YieldEveryNodes == 0 then
+				task.wait()
+			end
+
 			if desc.Name ~= "TreeSearchUI" and not desc:FindFirstAncestor("TreeSearchUI") then
 				if string.find(string.lower(desc.Name), needle, 1, true) then
 					table.insert(matches, desc)
-					if #matches >= CONFIG.MaxMatches then
-						break
-					end
 				end
 			end
-		end
-		if #matches >= CONFIG.MaxMatches then
-			break
 		end
 	end
 
@@ -99,22 +92,19 @@ local function searchAndBuildReport(query)
 	end
 
 	local lines = {
-		string.format("ЗАПРОС: %s | НАЙДЕНО: %d%s",
-			trimmed,
-			#matches,
-			#matches >= CONFIG.MaxMatches and (" (лимит " .. CONFIG.MaxMatches .. ")") or ""
-		),
-		string.rep("=", 42),
+		string.format("ЗАПРОС: %s | НАЙДЕНО: %d (БЕЗ ЛИМИТОВ)", trimmed, #matches),
+		string.rep("=", 44),
 	}
 
 	for idx, match in ipairs(matches) do
-		if #lines >= CONFIG.MaxLines then
-			table.insert(lines, "... [достигнут лимит строк вывода]")
-			break
-		end
 		table.insert(lines, string.format("\n[%d] %s [%s]", idx, match:GetFullName(), match.ClassName))
-		local childCount = buildSubtreeLines(match, CONFIG.MaxDepth, CONFIG.MaxLines, lines)
-		table.insert(lines, string.format("    Потомков в ветке: %d", childCount))
+		local counter = {
+			children = 0,
+			step = 0,
+			prefix = "",
+		}
+		appendFullSubtree(match, lines, counter)
+		table.insert(lines, string.format("    Всего потомков в ветке: %d", counter.children))
 	end
 
 	return table.concat(lines, "\n")
@@ -143,9 +133,7 @@ mainFrame.Active = true
 mainFrame.Draggable = true
 mainFrame.Parent = screenGui
 
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 10)
-uiCorner.Parent = mainFrame
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
 
 local uiStroke = Instance.new("UIStroke")
 uiStroke.Color = Color3.fromRGB(255, 195, 0)
@@ -157,23 +145,19 @@ sizeConstraint.MaxSize = Vector2.new(460, 680)
 sizeConstraint.MinSize = Vector2.new(260, 280)
 sizeConstraint.Parent = mainFrame
 
--- Верхняя панель управления
 local topBar = Instance.new("Frame")
 topBar.Name = "TopBar"
 topBar.Size = UDim2.new(1, 0, 0, 38)
 topBar.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
 topBar.BorderSizePixel = 0
 topBar.Parent = mainFrame
-
-local topCorner = Instance.new("UICorner")
-topCorner.CornerRadius = UDim.new(0, 10)
-topCorner.Parent = topBar
+Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
 
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, -84, 1, 0)
 titleLabel.Position = UDim2.new(0, 12, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "TREE SEARCH"
+titleLabel.Text = "TREE SEARCH (FULL)"
 titleLabel.TextColor3 = Color3.fromRGB(255, 210, 40)
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Font = Enum.Font.GothamBold
@@ -202,7 +186,6 @@ closeBtn.TextSize = 13
 closeBtn.Parent = topBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 
--- Тело окна
 local bodyFrame = Instance.new("Frame")
 bodyFrame.Name = "Body"
 bodyFrame.Size = UDim2.new(1, -16, 1, -48)
@@ -272,7 +255,7 @@ local outputLabel = Instance.new("TextLabel")
 outputLabel.Size = UDim2.new(0, 0, 0, 0)
 outputLabel.AutomaticSize = Enum.AutomaticSize.XY
 outputLabel.BackgroundTransparency = 1
-outputLabel.Text = "Нажми «Найти» для поиска по дереву."
+outputLabel.Text = "Нажми «Найти» для полного поиска."
 outputLabel.TextColor3 = Color3.fromRGB(215, 220, 230)
 outputLabel.TextXAlignment = Enum.TextXAlignment.Left
 outputLabel.TextYAlignment = Enum.TextYAlignment.Top
@@ -289,11 +272,25 @@ pad.PaddingRight = UDim.new(0, 12)
 pad.Parent = outputLabel
 
 local currentReport = ""
+local isBusy = false
 
 local function runSearch()
-	currentReport = searchAndBuildReport(searchBox.Text)
+	if isBusy then
+		return
+	end
+	isBusy = true
+	findBtn.Text = "..."
+	outputLabel.Text = "Сканирую полное дерево..."
+
+	local ok, result = pcall(function()
+		return searchAndBuildFullReport(searchBox.Text)
+	end)
+
+	currentReport = ok and result or ("Ошибка сканирования: " .. tostring(result))
 	outputLabel.Text = currentReport
 	scrollFrame.CanvasPosition = Vector2.new(0, 0)
+	findBtn.Text = "Найти"
+	isBusy = false
 end
 
 findBtn.MouseButton1Click:Connect(runSearch)
@@ -321,6 +318,9 @@ copyBtn.MouseButton1Click:Connect(function()
 end)
 
 clearBtn.MouseButton1Click:Connect(function()
+	if isBusy then
+		return
+	end
 	searchBox.Text = ""
 	currentReport = ""
 	outputLabel.Text = ""
@@ -339,5 +339,4 @@ closeBtn.MouseButton1Click:Connect(function()
 	screenGui:Destroy()
 end)
 
--- Первый поиск при запуске
 runSearch()
