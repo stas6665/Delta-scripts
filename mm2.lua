@@ -1,4 +1,4 @@
--- Combined Client Scanner + Output Window with "Copy All" button (includes Box tree)
+-- Auto-scan on startup + Output Window + Copy All button
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -19,7 +19,7 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "ScannerOutputGui"
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.DisplayOrder = 150
+screenGui.DisplayOrder = 999
 screenGui.Parent = playerGui
 
 local function addCorner(parent: Instance, radius: number)
@@ -37,24 +37,22 @@ local function addStroke(parent: Instance, color: Color3, thickness: number)
 	return stroke
 end
 
--- Основное окно
 local mainWin = Instance.new("Frame")
 mainWin.Name = "OutputWindow"
 mainWin.AnchorPoint = Vector2.new(0.5, 0.5)
 mainWin.Position = UDim2.fromScale(0.5, 0.5)
 mainWin.Size = UDim2.fromOffset(330, 260)
 mainWin.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
-mainWin.ZIndex = 160
+mainWin.ZIndex = 1000
 mainWin.Parent = screenGui
 addCorner(mainWin, 8)
 addStroke(mainWin, Color3.fromRGB(95, 165, 255), 1.5)
 
--- Верхняя панель
 local topBar = Instance.new("Frame")
 topBar.Name = "TopBar"
 topBar.Size = UDim2.new(1, 0, 0, 28)
 topBar.BackgroundColor3 = Color3.fromRGB(26, 30, 40)
-topBar.ZIndex = 161
+topBar.ZIndex = 1001
 topBar.Parent = mainWin
 addCorner(topBar, 8)
 
@@ -67,7 +65,7 @@ titleLbl.TextSize = 13
 titleLbl.TextXAlignment = Enum.TextXAlignment.Left
 titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
 titleLbl.Text = "UI Tree Scanner"
-titleLbl.ZIndex = 162
+titleLbl.ZIndex = 1002
 titleLbl.Parent = topBar
 
 local scanBtn = Instance.new("TextButton")
@@ -79,7 +77,7 @@ scanBtn.Font = Enum.Font.GothamBold
 scanBtn.TextSize = 11
 scanBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 scanBtn.Text = "R"
-scanBtn.ZIndex = 162
+scanBtn.ZIndex = 1002
 scanBtn.Parent = topBar
 addCorner(scanBtn, 5)
 
@@ -92,7 +90,7 @@ minBtn.Font = Enum.Font.GothamBold
 minBtn.TextSize = 13
 minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 minBtn.Text = "-"
-minBtn.ZIndex = 162
+minBtn.ZIndex = 1002
 minBtn.Parent = topBar
 addCorner(minBtn, 5)
 
@@ -105,7 +103,7 @@ clearBtn.Font = Enum.Font.GothamBold
 clearBtn.TextSize = 11
 clearBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 clearBtn.Text = "C"
-clearBtn.ZIndex = 162
+clearBtn.ZIndex = 1002
 clearBtn.Parent = topBar
 addCorner(clearBtn, 5)
 
@@ -118,11 +116,11 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 12
 closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeBtn.Text = "X"
-closeBtn.ZIndex = 162
+closeBtn.ZIndex = 1002
 closeBtn.Parent = topBar
 addCorner(closeBtn, 5)
 
--- Перетаскивание за верхнюю панель (тач + мышь)
+-- Перетаскивание (тач + мышь)
 local dragging = false
 local dragStart: Vector3? = nil
 local winStart: UDim2? = nil
@@ -158,13 +156,12 @@ UserInputService.InputEnded:Connect(function(input: InputObject)
 	end
 end)
 
--- Тело окна
 local body = Instance.new("Frame")
 body.Name = "Body"
 body.Size = UDim2.new(1, -16, 1, -36)
 body.Position = UDim2.fromOffset(8, 32)
 body.BackgroundTransparency = 1
-body.ZIndex = 161
+body.ZIndex = 1001
 body.Parent = mainWin
 
 local scroll = Instance.new("ScrollingFrame")
@@ -174,31 +171,27 @@ scroll.Position = UDim2.fromOffset(0, 0)
 scroll.BackgroundColor3 = Color3.fromRGB(22, 25, 34)
 scroll.BorderSizePixel = 0
 scroll.ScrollBarThickness = 5
-scroll.CanvasSize = UDim2.fromOffset(0, 0)
-scroll.AutomaticCanvasSize = Enum.AutomaticSize.XY
-scroll.ZIndex = 162
+scroll.CanvasSize = UDim2.fromOffset(600, 400)
+scroll.ZIndex = 1002
 scroll.Parent = body
 addCorner(scroll, 6)
 addStroke(scroll, Color3.fromRGB(48, 56, 76), 1)
 
-local outputBox = Instance.new("TextBox")
-outputBox.Name = "OutputTextBox"
-outputBox.Size = UDim2.new(1, -12, 0, 0)
-outputBox.Position = UDim2.fromOffset(6, 6)
-outputBox.AutomaticSize = Enum.AutomaticSize.XY
-outputBox.BackgroundTransparency = 1
-outputBox.ClearTextOnFocus = false
-outputBox.MultiLine = true
-outputBox.TextEditable = false
-outputBox.Font = Enum.Font.Code
-outputBox.TextSize = 11
-outputBox.TextXAlignment = Enum.TextXAlignment.Left
-outputBox.TextYAlignment = Enum.TextYAlignment.Top
-outputBox.TextWrapped = false
-outputBox.TextColor3 = Color3.fromRGB(225, 232, 245)
-outputBox.Text = ""
-outputBox.ZIndex = 163
-outputBox.Parent = scroll
+local outputLabel = Instance.new("TextLabel")
+outputLabel.Name = "OutputLabel"
+outputLabel.Size = UDim2.new(0, 1200, 0, 2000)
+outputLabel.Position = UDim2.fromOffset(6, 6)
+outputLabel.BackgroundTransparency = 1
+outputLabel.Font = Enum.Font.Code
+outputLabel.TextSize = 11
+outputLabel.TextXAlignment = Enum.TextXAlignment.Left
+outputLabel.TextYAlignment = Enum.TextYAlignment.Top
+outputLabel.TextWrapped = false
+outputLabel.RichText = false
+outputLabel.TextColor3 = Color3.fromRGB(225, 232, 245)
+outputLabel.Text = "Сканирование..."
+outputLabel.ZIndex = 1003
+outputLabel.Parent = scroll
 
 local copyBtn = Instance.new("TextButton")
 copyBtn.Name = "CopyAllButton"
@@ -209,11 +202,10 @@ copyBtn.Font = Enum.Font.GothamBold
 copyBtn.TextSize = 13
 copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 copyBtn.Text = "Копировать всё"
-copyBtn.ZIndex = 162
+copyBtn.ZIndex = 1002
 copyBtn.Parent = body
 addCorner(copyBtn, 6)
 
--- Сканер Inventory, Claim, Christmas, Halloween / Hellowen, Box
 local keywords = {
 	"inventory",
 	"claim",
@@ -238,7 +230,7 @@ local function formatNodeInfo(inst: Instance, matched: { string }?): string
 	local parentName = inst.Parent and inst.Parent.Name or "nil"
 	local info = string.format("%s [%s] (Parent: %s)", inst.Name, inst.ClassName, parentName)
 	if inst:IsA("GuiObject") then
-		info ..= string.format(" | Visible=%s, Active=%s", tostring(inst.Visible), tostring(inst.Active))
+		info ..= string.format(" | Visible=%s", tostring(inst.Visible))
 	elseif inst:IsA("LayerCollector") then
 		info ..= string.format(" | Enabled=%s", tostring(inst.Enabled))
 	end
@@ -257,6 +249,27 @@ local function dumpSubtree(root: Instance, lines: { string }, prefix: string, ma
 		table.insert(lines, string.format("%s|-- %s", prefix, formatNodeInfo(child, m)))
 		dumpSubtree(child, lines, prefix .. "|   ", maxDepth, currentDepth + 1)
 	end
+end
+
+local function updateCanvasForText(text: string)
+	local lineCount = 1
+	for _ in string.gmatch(text, "\n") do
+		lineCount += 1
+	end
+
+	local maxLen = 20
+	for line in string.gmatch(text, "[^\n]+") do
+		if #line > maxLen then
+			maxLen = #line
+		end
+	end
+
+	local width = math.max(scroll.AbsoluteSize.X, maxLen * 7 + 24)
+	local height = math.max(scroll.AbsoluteSize.Y, lineCount * 15 + 24)
+
+	outputLabel.Size = UDim2.fromOffset(width, height)
+	scroll.CanvasSize = UDim2.fromOffset(width + 12, height + 12)
+	scroll.CanvasPosition = Vector2.zero
 end
 
 local function runScan()
@@ -309,15 +322,16 @@ local function runScan()
 	end
 
 	local result = table.concat(lines, "\n")
-	outputBox.Text = result
-	scroll.CanvasPosition = Vector2.zero
+	outputLabel.Text = result
+	updateCanvasForText(result)
 	print(result)
 end
 
 copyBtn.MouseButton1Click:Connect(function()
+	local textToCopy = outputLabel.Text
 	local copied = false
 	if typeof(setclipboard) == "function" then
-		copied = pcall(setclipboard, outputBox.Text)
+		copied = pcall(setclipboard, textToCopy)
 	end
 
 	if copied then
@@ -339,8 +353,8 @@ end)
 scanBtn.MouseButton1Click:Connect(runScan)
 
 clearBtn.MouseButton1Click:Connect(function()
-	outputBox.Text = ""
-	scroll.CanvasPosition = Vector2.zero
+	outputLabel.Text = ""
+	updateCanvasForText("")
 end)
 
 local minimized = false
@@ -355,4 +369,10 @@ closeBtn.MouseButton1Click:Connect(function()
 	screenGui:Destroy()
 end)
 
+-- Автосканирование сразу при запуске и повторно через 1 сек после догрузки UI
 runScan()
+task.delay(1, function()
+	if screenGui and screenGui.Parent then
+		runScan()
+	end
+end)
