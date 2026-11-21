@@ -3,7 +3,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Lighting = game:GetService("Lighting")
-local Debris = game:GetService("Debris")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
@@ -33,6 +32,7 @@ local ANCIENT_DARK = Color3.fromRGB(65, 15, 145)
 
 local isClaimed = false
 local isEquipped = false
+local itemCount = 0
 local holdTrack = nil
 local currentCardNameLabel = nil
 local currentCardRoot = nil
@@ -42,16 +42,158 @@ local hiddenPartsState = setmetatable({}, { __mode = "k" })
 local hookedButtons = setmetatable({}, { __mode = "k" })
 local hookedCardSignals = setmetatable({}, { __mode = "k" })
 
-local gsEntry = (syncDb.Weapons and syncDb.Weapons[TARGET_KEY]) or {
-	ItemName = "Gingerscope",
-	ItemType = "Gun",
-	Rarity = "Ancient",
-	Event = "Christmas",
-	Year = 2023,
-	ItemID = TARGET_ID,
-}
-gsEntry.Rarity = "Ancient"
-gsEntry.Event = "Christmas"
+local function findEntryByItemIdOrKey(targetId, fallbackKey)
+	local idStr = tostring(targetId)
+	if syncDb and typeof(syncDb.Weapons) == "table" then
+		for key, entry in pairs(syncDb.Weapons) do
+			if typeof(entry) == "table" and tostring(entry.ItemID or "") == idStr then
+				return tostring(key), entry
+			end
+		end
+		if syncDb.Weapons[fallbackKey] then
+			return fallbackKey, syncDb.Weapons[fallbackKey]
+		end
+	end
+
+	return fallbackKey, {
+		ItemName = fallbackKey,
+		ItemType = "Gun",
+		Rarity = "Ancient",
+		Event = "Christmas",
+		Year = 2023,
+		ItemID = targetId,
+	}
+end
+
+local resolvedDefaultKey, gsEntry = findEntryByItemIdOrKey(TARGET_ID, TARGET_KEY)
+TARGET_KEY = resolvedDefaultKey
+gsEntry.Rarity = gsEntry.Rarity or "Ancient"
+gsEntry.Event = gsEntry.Event or "Christmas"
+
+local function isChristmasName(str)
+	local lower = string.lower(tostring(str or ""))
+	return string.find(lower, "christmas", 1, true) ~= nil
+		or string.find(lower, "chrismas", 1, true) ~= nil
+		or string.find(lower, "xmas", 1, true) ~= nil
+end
+
+local function getItemIdValue(obj)
+	if not obj then return "" end
+	local attr = obj:GetAttribute("ItemID")
+	if attr ~= nil then
+		return tostring(attr)
+	end
+	local valObj = obj:FindFirstChild("ItemID")
+	if valObj and valObj:IsA("ValueBase") then
+		return tostring(valObj.Value)
+	end
+	return ""
+end
+
+local function getWholeModelAsset(obj)
+	if not obj then return nil end
+	local parentTool = obj:FindFirstAncestorOfClass("Tool")
+	if parentTool then
+		return parentTool
+	end
+	local parentModel = obj:FindFirstAncestorOfClass("Model")
+	if parentModel and parentModel ~= workspace and parentModel ~= ReplicatedStorage then
+		return parentModel
+	end
+	if obj:IsA("Model") or obj:IsA("Tool") or obj:IsA("MeshPart") or obj:IsA("BasePart") then
+		return obj
+	end
+	return nil
+end
+
+local function findWholeAssetByItemId(targetId, itemKey)
+	local idStr = tostring(targetId)
+	local keyLower = string.lower(tostring(itemKey or TARGET_KEY))
+	local found = {
+		Item = nil,
+		Sound = nil,
+		Anim = nil,
+		Beam = nil,
+		Image = (typeof(gsEntry) == "table" and gsEntry.Image) or ASSET_ID_URI,
+	}
+
+	-- 1. Приоритет: точное совпадение по ItemID -> берём целую модель/тул с текстурой
+	for _, root in ipairs({ ReplicatedStorage, workspace }) do
+		for _, obj in ipairs(root:GetDescendants()) do
+			if getItemIdValue(obj) == idStr then
+				local whole = getWholeModelAsset(obj)
+				if whole and not found.Item then
+					found.Item = whole
+				end
+				if obj:IsA("Sound") and not found.Sound then
+					found.Sound = obj
+				elseif obj:IsA("Animation") and not found.Anim then
+					found.Anim = obj
+				elseif obj:IsA("Beam") and not found.Beam then
+					found.Beam = obj
+				end
+			end
+		end
+	end
+
+	-- 2. Запасной поиск по имени ключа (например Gingerscope), если ItemID висит выше/в таблице
+	if not found.Item and keyLower ~= "" then
+		for _, root in ipairs({ ReplicatedStorage, workspace }) do
+			for _, obj in ipairs(root:GetDescendants()) do
+				if obj.Name:lower():find(keyLower, 1, true) then
+					local whole = getWholeModelAsset(obj)
+					if whole and not found.Item then
+						found.Item = whole
+					elseif obj:IsA("Sound") and not found.Sound then
+						found.Sound = obj
+					elseif obj:IsA("Animation") and not found.Anim then
+						found.Anim = obj
+					elseif obj:IsA("Beam") and not found.Beam then
+						found.Beam = obj
+					end
+				end
+			end
+		end
+	end
+
+	return found
+end
+
+local assets = findWholeAssetByItemId(TARGET_ID, TARGET_KEY)
+
+local function resolveWeaponData(rawName)
+	local clean = tostring(rawName or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if clean == "" then
+		clean = TARGET_KEY
+	end
+
+	if syncDb and typeof(syncDb.Weapons) == "table" then
+		-- Если ввели сам ItemID цифрами
+		for key, entry in pairs(syncDb.Weapons) do
+			if typeof(entry) == "table" and tostring(entry.ItemID or "") == clean then
+				return tostring(key), entry
+			end
+		end
+		if syncDb.Weapons[clean] then
+			return clean, syncDb.Weapons[clean]
+		end
+		for key, entry in pairs(syncDb.Weapons) do
+			if tostring(key):lower() == clean:lower() or (typeof(entry) == "table" and tostring(entry.ItemName or ""):lower() == clean:lower()) then
+				return tostring(key), entry
+			end
+		end
+	end
+
+	return clean, {
+		ItemName = clean,
+		ItemType = "Gun",
+		Rarity = "Ancient",
+		Event = "Christmas",
+		Year = gsEntry.Year or 2023,
+		ItemID = TARGET_ID,
+		Image = gsEntry.Image or ASSET_ID_URI,
+	}
+end
 
 local function centerNewItemWindow()
 	if newItemFrame:IsA("GuiObject") then
@@ -65,75 +207,14 @@ local function centerNewItemWindow()
 	end
 end
 
-local function hasTargetId(obj)
-	local idStr = tostring(TARGET_ID)
-	if tostring(obj:GetAttribute("ItemID") or "") == idStr then
-		return true
-	end
-	if obj:IsA("MeshPart") or obj:IsA("SpecialMesh") then
-		if tostring(obj.MeshId):find(idStr) then
-			return true
-		end
-	end
-	if obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
-		if tostring(obj.Image):find(idStr) then
-			return true
-		end
-	end
-	return false
-end
-
-local function findGingerscopeAssets()
-	local found = {
-		Item = nil,
-		Sound = nil,
-		Anim = nil,
-		Beam = nil,
-		Image = gsEntry.Image or ASSET_ID_URI,
-	}
-
-	for _, root in ipairs({ ReplicatedStorage, workspace }) do
-		for _, obj in ipairs(root:GetDescendants()) do
-			if hasTargetId(obj) or obj.Name:lower():find("gingerscope") then
-				if not found.Item and (obj:IsA("MeshPart") or obj:IsA("Model") or obj:IsA("Tool") or obj:IsA("BasePart")) then
-					found.Item = obj
-				elseif not found.Sound and obj:IsA("Sound") then
-					found.Sound = obj
-				elseif not found.Anim and obj:IsA("Animation") then
-					found.Anim = obj
-				elseif not found.Beam and obj:IsA("Beam") then
-					found.Beam = obj
-				end
-			end
-		end
-	end
-
-	return found
-end
-
-local assets = findGingerscopeAssets()
-
-local function findMuzzleAttachment(rootObj)
-	if not rootObj then return nil end
-	for _, obj in ipairs(rootObj:GetDescendants()) do
-		if obj:IsA("Attachment") then
-			local n = obj.Name:lower()
-			if n:find("muzzle") or n:find("shoot") or n:find("fire") or n:find("tip") or n:find("barrel") or n:find("beam") then
-				return obj
-			end
-		end
-	end
-	return rootObj:FindFirstChildWhichIsA("Attachment", true)
-end
-
 local function isPistolTool(tool)
 	if not tool or not tool:IsA("Tool") then return false end
 	if tool.Name == "GS_Gingerscope_Tool" then return false end
 	local n = tool.Name:lower()
-	if n:find("knife") or n:find("blade") or n:find("dagger") or n:find("scythe") or n:find("axe") or n:find("sword") then
+	if n:find("knife", 1, true) or n:find("blade", 1, true) or n:find("dagger", 1, true) or n:find("scythe", 1, true) or n:find("axe", 1, true) or n:find("sword", 1, true) then
 		return false
 	end
-	if n:find("gun") or n:find("pistol") or n:find("revolver") or n:find("gingerscope") or n:find("blaster") or n:find("raygun") then
+	if n:find("gun", 1, true) or n:find("pistol", 1, true) or n:find("revolver", 1, true) or n:find("gingerscope", 1, true) or n:find("blaster", 1, true) or n:find("raygun", 1, true) then
 		return true
 	end
 	local itemType = tostring(tool:GetAttribute("ItemType") or tool:GetAttribute("Type") or ""):lower()
@@ -166,38 +247,72 @@ local function collectPistolHandles()
 	return handles
 end
 
+-- Клонируем цельную модель с текстурой по ItemID; если модель не найдена — возвращаем nil (без резервного куба)
 local function createUnifiedItemClone()
-	if assets.Item then
-		local clone = assets.Item:Clone()
-		for _, desc in ipairs(clone:GetDescendants()) do
-			if desc:IsA("BasePart") then
-				desc.LocalTransparencyModifier = 0
-				desc.Transparency = 0
-				desc.Anchored = false
-				desc.CanCollide = false
-				desc.Massless = true
-			end
-		end
-		if clone:IsA("BasePart") then
-			clone.Name = "GS_Gingerscope_Handle"
-			clone.LocalTransparencyModifier = 0
-			clone.Transparency = 0
-			clone.Anchored = false
-			clone.CanCollide = false
-			clone.Massless = true
-		end
-		return clone
+	if not assets.Item then
+		assets = findWholeAssetByItemId(gsEntry.ItemID or TARGET_ID, TARGET_KEY)
+	end
+	if not assets.Item then
+		return nil
 	end
 
-	local itemPart = Instance.new("MeshPart")
-	itemPart.Name = "GS_Gingerscope_Handle"
-	itemPart.MeshId = ASSET_ID_URI
-	itemPart.Size = Vector3.new(0.3, 1.0, 2.2)
-	itemPart.Anchored = false
-	itemPart.CanCollide = false
-	itemPart.Massless = true
-	itemPart.LocalTransparencyModifier = 0
-	return itemPart
+	local ok, clone = pcall(function()
+		return assets.Item:Clone()
+	end)
+	if not ok or not clone then
+		return nil
+	end
+
+	-- Если клонировался Tool, извлекаем его содержимое в цельную Model, чтобы сохранить все детали и текстуры
+	if clone:IsA("Tool") then
+		local modelWrap = Instance.new("Model")
+		modelWrap.Name = "GS_Gingerscope_Handle"
+		for _, child in ipairs(clone:GetChildren()) do
+			if not child:IsA("LuaSourceContainer") then
+				child.Parent = modelWrap
+			end
+		end
+		clone:Destroy()
+		clone = modelWrap
+	end
+
+	local parts = {}
+	for _, desc in ipairs(clone:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.LocalTransparencyModifier = 0
+			desc.Transparency = 0
+			desc.Anchored = false
+			desc.CanCollide = false
+			desc.Massless = true
+			table.insert(parts, desc)
+		end
+	end
+
+	if clone:IsA("BasePart") then
+		clone.Name = "GS_Gingerscope_Handle"
+		clone.LocalTransparencyModifier = 0
+		clone.Transparency = 0
+		clone.Anchored = false
+		clone.CanCollide = false
+		clone.Massless = true
+	elseif clone:IsA("Model") then
+		clone.Name = "GS_Gingerscope_Handle"
+		local primary = clone.PrimaryPart or clone:FindFirstChild("Handle", true) or parts[1]
+		if primary then
+			clone.PrimaryPart = primary
+			-- Скрепляем все детали цельной модели с PrimaryPart, чтобы текстурированная модель не рассыпалась
+			for _, part in ipairs(parts) do
+				if part ~= primary then
+					local weld = Instance.new("WeldConstraint")
+					weld.Part0 = primary
+					weld.Part1 = part
+					weld.Parent = part
+				end
+			end
+		end
+	end
+
+	return clone
 end
 
 local function hideToolOriginalParts(tool, keepHandle)
@@ -233,6 +348,10 @@ local function attachReplacementToHandle(handle, tool)
 	end
 
 	local clone = createUnifiedItemClone()
+	if not clone then
+		return nil
+	end
+
 	clone.Name = "GS_Gingerscope_Handle"
 
 	local primary = nil
@@ -261,6 +380,8 @@ local function attachReplacementToHandle(handle, tool)
 	if primary then
 		attachedByHandle[handle] = clone
 		hideToolOriginalParts(tool, handle)
+	else
+		clone:Destroy()
 	end
 
 	return primary
@@ -344,24 +465,30 @@ local function updateGunDisplay()
 
 	for _, container in ipairs({ workspace, playerGui }) do
 		for _, d in ipairs(container:GetDescendants()) do
-			if d.Name:lower():find("gundisplay") and isOwnedByLocalPlayer(d) then
+			if d.Name:lower():find("gundisplay", 1, true) and isOwnedByLocalPlayer(d) then
 				if d:IsA("BasePart") or d:IsA("Model") then
 					local anchor = d:IsA("Model") and (d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")) or d
 					if anchor then
 						local itemClone = createUnifiedItemClone()
-						itemClone.Name = "GS_GunDisplay_Handle"
-						if itemClone:IsA("BasePart") then
-							itemClone.Anchored = true
-							itemClone.CFrame = anchor.CFrame * CFrame.new(0, 1.5, 0)
-							itemClone.Parent = d
-						elseif itemClone:IsA("Model") then
-							local p = itemClone.PrimaryPart or itemClone:FindFirstChildWhichIsA("BasePart", true)
-							if p then
-								itemClone.PrimaryPart = p
-								itemClone:PivotTo(anchor.CFrame * CFrame.new(0, 1.5, 0))
-								p.Anchored = true
+						if itemClone then
+							itemClone.Name = "GS_GunDisplay_Handle"
+							if itemClone:IsA("BasePart") then
+								itemClone.Anchored = true
+								itemClone.CFrame = anchor.CFrame * CFrame.new(0, 1.5, 0)
+								itemClone.Parent = d
+							elseif itemClone:IsA("Model") then
+								local p = itemClone.PrimaryPart or itemClone:FindFirstChildWhichIsA("BasePart", true)
+								if p then
+									itemClone.PrimaryPart = p
+									itemClone:PivotTo(anchor.CFrame * CFrame.new(0, 1.5, 0))
+									for _, part in ipairs(itemClone:GetDescendants()) do
+										if part:IsA("BasePart") then
+											part.Anchored = true
+										end
+									end
+								end
+								itemClone.Parent = d
 							end
-							itemClone.Parent = d
 						end
 					end
 				elseif d:IsA("GuiObject") then
@@ -435,113 +562,71 @@ local function syncPistolReplacements()
 	updateGunDisplay()
 end
 
-local function getActiveMuzzleParent()
-	local char = player.Character
-	if char then
-		for _, entry in ipairs(collectPistolHandles()) do
-			if entry.tool and entry.tool.Parent == char then
-				return attachedByHandle[entry.handle] or entry.handle
-			end
-		end
+local function updateCardAmountVisual(card)
+	if not card then return end
+	local countText = tostring(math.max(0, math.floor(itemCount)))
+
+	local cont = card:FindFirstChild("Container")
+	local nativeAmount = cont and cont:FindFirstChild("Amount")
+	if nativeAmount and nativeAmount:IsA("TextLabel") then
+		nativeAmount.Text = (itemCount > 1) and ("x" .. countText) or ""
+		nativeAmount.Visible = itemCount > 1
 	end
-	return workspace
+
+	local badge = card:FindFirstChild("GS_CountBadge")
+	if not badge then
+		badge = Instance.new("TextLabel")
+		badge.Name = "GS_CountBadge"
+		badge.Size = UDim2.new(0, 44, 0, 18)
+		badge.Position = UDim2.new(1, -48, 1, -22)
+		badge.BackgroundColor3 = Color3.fromRGB(20, 16, 32)
+		badge.BackgroundTransparency = 0.15
+		badge.BorderSizePixel = 0
+		badge.TextColor3 = Color3.fromRGB(255, 240, 150)
+		badge.Font = Enum.Font.GothamBold
+		badge.TextSize = 11
+		badge.ZIndex = 20
+		badge.Parent = card
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 5)
+		corner.Parent = badge
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = ANCIENT_COLOR
+		stroke.Thickness = 1.2
+		stroke.Parent = badge
+	end
+
+	if badge:IsA("TextLabel") then
+		badge.Text = countText
+		badge.Visible = itemCount > 0
+	end
 end
 
-local function fireBeam(inputPos)
-	if not isEquipped then return end
-	local char = player.Character
-	local hrp = char and char:FindFirstChild("HumanoidRootPart")
-	local cam = workspace.CurrentCamera
-	if not hrp or not cam then return end
+local setEquipped
+local addGingerscopeToInventoryUI
 
-	local muzzleParent = getActiveMuzzleParent()
+local function consumeOneOnUnequip()
+	if itemCount <= 0 then return end
+	itemCount -= 1
 
-	if assets.Sound then
-		local snd = assets.Sound:Clone()
-		snd.Parent = muzzleParent
-		snd:Play()
-		Debris:AddItem(snd, 4)
-	else
-		local snd = Instance.new("Sound")
-		snd.SoundId = "rbxassetid://131961136"
-		snd.Volume = 0.7
-		snd.Parent = muzzleParent
-		snd:Play()
-		Debris:AddItem(snd, 2)
-	end
-
-	local screenPos = inputPos or UserInputService:GetMouseLocation()
-	local ray = cam:ViewportPointToRay(screenPos.X, screenPos.Y)
-	local hit = workspace:Raycast(ray.Origin, ray.Direction * 250)
-	local endPos = hit and hit.Position or (ray.Origin + ray.Direction * 120)
-
-	local endPart = Instance.new("Part")
-	endPart.Name = "GS_BeamEndPart"
-	endPart.Anchored = true
-	endPart.CanCollide = false
-	endPart.Transparency = 1
-	endPart.Size = Vector3.new(0.1, 0.1, 0.1)
-	endPart.CFrame = CFrame.new(endPos)
-	endPart.Parent = workspace
-
-	local att1 = Instance.new("Attachment")
-	att1.Name = "GS_BeamAtt1"
-	att1.Parent = endPart
-
-	local att0 = findMuzzleAttachment(muzzleParent) or findMuzzleAttachment(assets.Item)
-	local tempStartPart = nil
-
-	if not att0 then
-		if muzzleParent and muzzleParent:IsA("BasePart") then
-			att0 = Instance.new("Attachment")
-			att0.Name = "GS_BeamAtt0"
-			att0.Position = Vector3.new(0, 0, -0.7)
-			att0.Parent = muzzleParent
-		else
-			tempStartPart = Instance.new("Part")
-			tempStartPart.Name = "GS_BeamStartPart"
-			tempStartPart.Anchored = true
-			tempStartPart.CanCollide = false
-			tempStartPart.Transparency = 1
-			tempStartPart.Size = Vector3.new(0.1, 0.1, 0.1)
-			tempStartPart.CFrame = CFrame.new(hrp.Position + hrp.CFrame.LookVector * 2 + Vector3.new(0, 0.6, 0))
-			tempStartPart.Parent = workspace
-
-			att0 = Instance.new("Attachment")
-			att0.Name = "GS_BeamAtt0"
-			att0.Parent = tempStartPart
+	if itemCount <= 0 then
+		itemCount = 0
+		isClaimed = false
+		if currentCardRoot and currentCardRoot.Parent then
+			currentCardRoot:Destroy()
 		end
-	end
-
-	local beam
-	if assets.Beam then
-		beam = assets.Beam:Clone()
-	else
-		beam = Instance.new("Beam")
-		beam.Width0 = 0.16
-		beam.Width1 = 0.04
-		beam.FaceCamera = true
-	end
-
-	beam.Attachment0 = att0
-	beam.Attachment1 = att1
-	beam.Enabled = true
-	beam.Parent = att0.Parent
-
-	Debris:AddItem(beam, 0.22)
-	Debris:AddItem(att1, 0.22)
-	Debris:AddItem(endPart, 0.22)
-	if att0.Name == "GS_BeamAtt0" then
-		Debris:AddItem(att0, 0.22)
-	end
-	if tempStartPart then
-		Debris:AddItem(tempStartPart, 0.22)
+		currentCardRoot = nil
+	elseif currentCardRoot and currentCardRoot.Parent then
+		updateCardAmountVisual(currentCardRoot)
 	end
 end
 
 local invSlotGui = Instance.new("ScreenGui")
 invSlotGui.Name = "GS_InventorySlot_UI"
 invSlotGui.ResetOnSpawn = false
+invSlotGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 invSlotGui.Parent = playerGui
 
 local slotBtn = Instance.new("TextButton")
@@ -554,6 +639,225 @@ slotBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 slotBtn.Font = Enum.Font.GothamBold
 slotBtn.TextSize = 12
 slotBtn.Parent = invSlotGui
+
+-- Кнопка Spawn для открытия окошка
+local openSpawnBtn = Instance.new("TextButton")
+openSpawnBtn.Name = "GS_OpenSpawnButton"
+openSpawnBtn.Size = UDim2.fromOffset(96, 36)
+openSpawnBtn.Position = UDim2.new(1, -108, 1, -54)
+openSpawnBtn.BackgroundColor3 = ANCIENT_COLOR
+openSpawnBtn.BorderSizePixel = 0
+openSpawnBtn.Text = "Spawn"
+openSpawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+openSpawnBtn.Font = Enum.Font.GothamBold
+openSpawnBtn.TextSize = 14
+openSpawnBtn.ZIndex = 30
+openSpawnBtn.Parent = invSlotGui
+
+local openSpawnCorner = Instance.new("UICorner")
+openSpawnCorner.CornerRadius = UDim.new(0, 8)
+openSpawnCorner.Parent = openSpawnBtn
+
+-- Перетаскиваемое окошко Spawn
+local spawnWindow = Instance.new("Frame")
+spawnWindow.Name = "GS_SpawnWindow"
+spawnWindow.Size = UDim2.fromOffset(244, 178)
+spawnWindow.Position = UDim2.new(0.5, -122, 0.5, -89)
+spawnWindow.AnchorPoint = Vector2.new(0, 0)
+spawnWindow.BackgroundColor3 = Color3.fromRGB(22, 20, 30)
+spawnWindow.BorderSizePixel = 0
+spawnWindow.Visible = false
+spawnWindow.ZIndex = 40
+spawnWindow.Parent = invSlotGui
+
+local spawnCorner = Instance.new("UICorner")
+spawnCorner.CornerRadius = UDim.new(0, 10)
+spawnCorner.Parent = spawnWindow
+
+local spawnStroke = Instance.new("UIStroke")
+spawnStroke.Color = ANCIENT_COLOR
+spawnStroke.Thickness = 2
+spawnStroke.Parent = spawnWindow
+
+local spawnHeader = Instance.new("TextLabel")
+spawnHeader.Name = "DragHeader"
+spawnHeader.Size = UDim2.new(1, -38, 0, 30)
+spawnHeader.Position = UDim2.fromOffset(10, 4)
+spawnHeader.BackgroundTransparency = 1
+spawnHeader.Text = "Spawn"
+spawnHeader.TextXAlignment = Enum.TextXAlignment.Left
+spawnHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+spawnHeader.Font = Enum.Font.GothamBold
+spawnHeader.TextSize = 14
+spawnHeader.ZIndex = 41
+spawnHeader.Parent = spawnWindow
+
+local closeSpawnBtn = Instance.new("TextButton")
+closeSpawnBtn.Size = UDim2.fromOffset(24, 24)
+closeSpawnBtn.Position = UDim2.new(1, -30, 0, 7)
+closeSpawnBtn.BackgroundColor3 = Color3.fromRGB(55, 24, 34)
+closeSpawnBtn.BorderSizePixel = 0
+closeSpawnBtn.Text = "X"
+closeSpawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeSpawnBtn.Font = Enum.Font.GothamBold
+closeSpawnBtn.TextSize = 12
+closeSpawnBtn.ZIndex = 42
+closeSpawnBtn.Parent = spawnWindow
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 6)
+closeCorner.Parent = closeSpawnBtn
+
+local weaponInput = Instance.new("TextBox")
+weaponInput.Name = "WeaponNameBox"
+weaponInput.Size = UDim2.new(1, -20, 0, 34)
+weaponInput.Position = UDim2.fromOffset(10, 38)
+weaponInput.BackgroundColor3 = Color3.fromRGB(36, 33, 48)
+weaponInput.BorderSizePixel = 0
+weaponInput.Text = TARGET_KEY
+weaponInput.PlaceholderText = "Название (Gingerscope)"
+weaponInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+weaponInput.PlaceholderColor3 = Color3.fromRGB(150, 145, 170)
+weaponInput.Font = Enum.Font.GothamMedium
+weaponInput.TextSize = 13
+weaponInput.ClearTextOnFocus = false
+weaponInput.ZIndex = 41
+weaponInput.Parent = spawnWindow
+
+local weaponCorner = Instance.new("UICorner")
+weaponCorner.CornerRadius = UDim.new(0, 6)
+weaponCorner.Parent = weaponInput
+
+local amountInput = Instance.new("TextBox")
+amountInput.Name = "AmountBox"
+amountInput.Size = UDim2.new(1, -20, 0, 34)
+amountInput.Position = UDim2.fromOffset(10, 80)
+amountInput.BackgroundColor3 = Color3.fromRGB(36, 33, 48)
+amountInput.BorderSizePixel = 0
+amountInput.Text = "10"
+amountInput.PlaceholderText = "Количество (например 100)"
+amountInput.TextColor3 = Color3.fromRGB(255, 240, 150)
+amountInput.PlaceholderColor3 = Color3.fromRGB(150, 145, 170)
+amountInput.Font = Enum.Font.GothamBold
+amountInput.TextSize = 13
+amountInput.ClearTextOnFocus = false
+amountInput.ZIndex = 41
+amountInput.Parent = spawnWindow
+
+local amountCorner = Instance.new("UICorner")
+amountCorner.CornerRadius = UDim.new(0, 6)
+amountCorner.Parent = amountInput
+
+local confirmSpawnBtn = Instance.new("TextButton")
+confirmSpawnBtn.Name = "SpawnActionButton"
+confirmSpawnBtn.Size = UDim2.new(1, -20, 0, 36)
+confirmSpawnBtn.Position = UDim2.fromOffset(10, 124)
+confirmSpawnBtn.BackgroundColor3 = Color3.fromRGB(95, 35, 205)
+confirmSpawnBtn.BorderSizePixel = 0
+confirmSpawnBtn.Text = "Spawn"
+confirmSpawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+confirmSpawnBtn.Font = Enum.Font.GothamBold
+confirmSpawnBtn.TextSize = 14
+confirmSpawnBtn.ZIndex = 41
+confirmSpawnBtn.Parent = spawnWindow
+
+local confirmCorner = Instance.new("UICorner")
+confirmCorner.CornerRadius = UDim.new(0, 7)
+confirmCorner.Parent = confirmSpawnBtn
+
+-- Плавное перетаскивание окна пальцем (Touch) или мышью (MouseButton1)
+do
+	local dragging = false
+	local dragInput = nil
+	local dragStart = Vector2.zero
+	local startPos = UDim2.new(0, 0, 0, 0)
+
+	local function beginDrag(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragInput = input
+			dragStart = input.Position
+			startPos = spawnWindow.Position
+
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					if dragInput == input then
+						dragging = false
+						dragInput = nil
+					end
+				end
+			end)
+		end
+	end
+
+	spawnWindow.InputBegan:Connect(beginDrag)
+	spawnHeader.InputBegan:Connect(beginDrag)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and input == dragInput then
+			if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+				local delta = input.Position - dragStart
+				spawnWindow.Position = UDim2.new(
+					startPos.X.Scale,
+					startPos.X.Offset + delta.X,
+					startPos.Y.Scale,
+					startPos.Y.Offset + delta.Y
+				)
+			end
+		end
+	end)
+end
+
+openSpawnBtn.Activated:Connect(function()
+	spawnWindow.Visible = not spawnWindow.Visible
+end)
+
+closeSpawnBtn.Activated:Connect(function()
+	spawnWindow.Visible = false
+end)
+
+local function spawnWeaponAmount(rawWeaponName, rawAmount)
+	local qty = tonumber(rawAmount)
+	if not qty or qty <= 0 then
+		qty = 1
+	end
+	qty = math.floor(qty)
+
+	local resolvedName, resolvedEntry = resolveWeaponData(rawWeaponName)
+	TARGET_KEY = resolvedName
+	gsEntry = resolvedEntry
+	if typeof(gsEntry) == "table" then
+		gsEntry.ItemName = gsEntry.ItemName or resolvedName
+		gsEntry.Rarity = gsEntry.Rarity or "Ancient"
+		gsEntry.Event = gsEntry.Event or "Christmas"
+		if gsEntry.ItemID then
+			TARGET_ID = gsEntry.ItemID
+		end
+		if gsEntry.Image and tostring(gsEntry.Image) ~= "" then
+			assets.Image = tostring(gsEntry.Image)
+		end
+	end
+
+	assets = findWholeAssetByItemId(gsEntry.ItemID or TARGET_ID, TARGET_KEY)
+
+	isClaimed = true
+	itemCount += qty
+
+	local addedToUi = addGingerscopeToInventoryUI()
+	if currentCardRoot and currentCardRoot.Parent then
+		updateCardAmountVisual(currentCardRoot)
+	end
+	if not addedToUi then
+		slotBtn.Visible = true
+	end
+
+	syncPistolReplacements()
+end
+
+confirmSpawnBtn.Activated:Connect(function()
+	spawnWeaponAmount(weaponInput.Text, amountInput.Text)
+	spawnWindow.Visible = false
+end)
 
 local function findLayoutContainer(node)
 	if not node then return nil end
@@ -582,7 +886,7 @@ local function findChristmasContainer()
 	for _, root in ipairs({ mainGui, playerGui }) do
 		for _, desc in ipairs(root:GetDescendants()) do
 			local n = desc.Name:lower()
-			if (n:find("christmas") or n:find("xmas")) and not n:find("halloween") then
+			if isChristmasName(n) and not n:find("halloween", 1, true) then
 				local cont = findLayoutContainer(desc)
 				if cont then
 					return cont
@@ -595,7 +899,7 @@ local function findChristmasContainer()
 		for _, desc in ipairs(root:GetDescendants()) do
 			if desc:IsA("TextLabel") then
 				local t = desc.Text:lower()
-				if t:find("christmas") or t:find("рождество") then
+				if isChristmasName(t) or t:find("рождество", 1, true) then
 					local parent = desc.Parent
 					if parent then
 						for _, sib in ipairs(parent:GetChildren()) do
@@ -656,9 +960,72 @@ local function isEventTabSelected()
 	return true
 end
 
+local function enforceFxBadge(card)
+	if not card then return end
+	local tagsFolder = card:FindFirstChild("Tags")
+	local foundFx = false
+
+	if tagsFolder then
+		for _, tag in ipairs(tagsFolder:GetChildren()) do
+			if tag:IsA("GuiObject") then
+				local tagLower = tag.Name:lower()
+				local isFx = (tagLower == "fx" or tagLower:find("fx", 1, true) ~= nil)
+				local isChristmas = isChristmasName(tagLower)
+				local showTag = isFx or isChristmas
+				tag.Visible = showTag
+				if isFx then
+					foundFx = true
+				end
+				if showTag then
+					for _, sub in ipairs(tag:GetDescendants()) do
+						if sub:IsA("GuiObject") then
+							sub.Visible = true
+						end
+						if sub:IsA("TextLabel") then
+							if sub.Name:lower():find("year", 1, true) then
+								sub.Text = tostring(gsEntry.Year or 2023)
+							elseif isFx and (sub.Name:lower():find("tag", 1, true) or sub.Name:lower():find("label", 1, true) or sub.Text == "") then
+								sub.Text = "FX"
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if not foundFx then
+		local existingBadge = card:FindFirstChild("GS_FX_Badge")
+		if not existingBadge then
+			local badge = Instance.new("TextLabel")
+			badge.Name = "GS_FX_Badge"
+			badge.Size = UDim2.fromOffset(32, 16)
+			badge.Position = UDim2.new(1, -36, 0, 4)
+			badge.BackgroundColor3 = Color3.fromRGB(145, 55, 255)
+			badge.BorderSizePixel = 0
+			badge.Text = "FX"
+			badge.TextColor3 = Color3.fromRGB(255, 255, 255)
+			badge.Font = Enum.Font.GothamBold
+			badge.TextSize = 10
+			badge.ZIndex = 15
+			badge.Parent = card
+
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(0, 4)
+			corner.Parent = badge
+		elseif existingBadge:IsA("GuiObject") then
+			existingBadge.Visible = true
+		end
+	end
+end
+
 local function syncCardVisibility()
-	if not isClaimed then return end
-	local container = currentCardContainer or findChristmasContainer()
+	if not isClaimed or itemCount <= 0 then return end
+	local container = findChristmasContainer()
+	if container then
+		currentCardContainer = container
+	end
+
 	if not currentCardRoot or not currentCardRoot.Parent then
 		if container then
 			addGingerscopeToInventoryUI()
@@ -666,11 +1033,14 @@ local function syncCardVisibility()
 		return
 	end
 
-	if container and currentCardRoot.Parent ~= container then
+	if currentCardContainer and currentCardRoot.Parent ~= currentCardContainer then
 		pcall(function()
-			currentCardRoot.Parent = container
+			currentCardRoot.Parent = currentCardContainer
 		end)
 	end
+
+	enforceFxBadge(currentCardRoot)
+	updateCardAmountVisual(currentCardRoot)
 
 	local shouldBeVisible = isEventTabSelected()
 	if currentCardRoot:IsA("GuiObject") and currentCardRoot.Visible ~= shouldBeVisible then
@@ -706,7 +1076,7 @@ local function updateEquippedGunSlot()
 		end
 		if equipService and equipService.EquipItem then
 			pcall(function()
-				equipService:EquipItem("Weapons", TARGET_KEY)
+				equipService:EquipItem("Weapons", tostring(gsEntry.ItemName or TARGET_KEY))
 			end)
 		end
 	else
@@ -732,13 +1102,19 @@ local function refreshEquipVisuals()
 			stroke.Color = isEquipped and Color3.fromRGB(255, 255, 255) or ANCIENT_COLOR
 			stroke.Thickness = isEquipped and 2.5 or 1.5
 		end
+		enforceFxBadge(currentCardRoot)
+		updateCardAmountVisual(currentCardRoot)
 	end
 	slotBtn.BackgroundColor3 = isEquipped and Color3.fromRGB(65, 130, 220) or Color3.fromRGB(32, 32, 40)
 	slotBtn.Text = baseName
 end
 
-local function setEquipped(state)
+setEquipped = function(state)
+	local wasEquipped = isEquipped
 	isEquipped = state
+	if wasEquipped and not state then
+		consumeOneOnUnequip()
+	end
 	refreshEquipVisuals()
 	updateEquippedGunSlot()
 	syncPistolReplacements()
@@ -746,7 +1122,7 @@ local function setEquipped(state)
 end
 
 local function toggleGingerscopeEquip()
-	if not isClaimed then return end
+	if not isClaimed or itemCount <= 0 then return end
 	setEquipped(not isEquipped)
 end
 
@@ -848,22 +1224,25 @@ local function attachCardGuards(card)
 	hookedCardSignals[card] = true
 
 	card:GetPropertyChangedSignal("Visible"):Connect(function()
-		if not isClaimed or card ~= currentCardRoot then return end
+		if not isClaimed or itemCount <= 0 or card ~= currentCardRoot then return end
 		local expected = isEventTabSelected()
 		if card:IsA("GuiObject") and card.Visible ~= expected then
 			task.defer(function()
 				if currentCardRoot == card and card.Parent then
 					card.Visible = isEventTabSelected()
+					enforceFxBadge(card)
+					updateCardAmountVisual(card)
 				end
 			end)
 		end
 	end)
 
 	card:GetPropertyChangedSignal("Parent"):Connect(function()
-		if not isClaimed or card ~= currentCardRoot then return end
+		if not isClaimed or itemCount <= 0 or card ~= currentCardRoot then return end
 		if not card.Parent then
 			task.defer(function()
-				if isClaimed and currentCardRoot == card and not card.Parent then
+				if isClaimed and itemCount > 0 and currentCardRoot == card and not card.Parent then
+					currentCardRoot = nil
 					addGingerscopeToInventoryUI()
 				end
 			end)
@@ -871,9 +1250,11 @@ local function attachCardGuards(card)
 			local container = currentCardContainer or findChristmasContainer()
 			if container and card.Parent ~= container then
 				task.defer(function()
-					if isClaimed and currentCardRoot == card and container.Parent then
+					if isClaimed and itemCount > 0 and currentCardRoot == card and container.Parent then
 						card.Parent = container
 						card.Visible = isEventTabSelected()
+						enforceFxBadge(card)
+						updateCardAmountVisual(card)
 					end
 				end)
 			end
@@ -881,7 +1262,11 @@ local function attachCardGuards(card)
 	end)
 end
 
-function addGingerscopeToInventoryUI()
+addGingerscopeToInventoryUI = function()
+	if itemCount <= 0 then
+		return false
+	end
+
 	local targetContainer = findChristmasContainer()
 	local template = findInventoryCardTemplate()
 	if not targetContainer or not template then
@@ -890,17 +1275,9 @@ function addGingerscopeToInventoryUI()
 
 	currentCardContainer = targetContainer
 
-	-- Если живая карточка уже есть в нужном контейнере, просто обновляем её и не пересоздаём зря
-	if currentCardRoot and currentCardRoot.Parent == targetContainer then
-		currentCardRoot.Visible = isEventTabSelected()
-		refreshEquipVisuals()
-		attachCardGuards(currentCardRoot)
-		return true
-	end
-
 	for _, root in ipairs({ mainGui, playerGui }) do
 		for _, obj in ipairs(root:GetDescendants()) do
-			if obj.Name == "GS_InventoryCard" and obj ~= currentCardRoot then
+			if obj.Name == "GS_InventoryCard" then
 				obj:Destroy()
 			end
 		end
@@ -927,35 +1304,9 @@ function addGingerscopeToInventoryUI()
 		icon.Visible = true
 	end
 
-	local amountLbl = cont and cont:FindFirstChild("Amount")
-	if amountLbl and amountLbl:IsA("TextLabel") then
-		amountLbl.Text = ""
-		amountLbl.Visible = false
-	end
-
-	local tagsFolder = card:FindFirstChild("Tags")
-	if tagsFolder then
-		for _, tag in ipairs(tagsFolder:GetChildren()) do
-			if tag:IsA("GuiObject") then
-				local showTag = (tag.Name == "FX" or tag.Name == "Christmas")
-				tag.Visible = showTag
-				if showTag then
-					for _, sub in ipairs(tag:GetDescendants()) do
-						if sub:IsA("GuiObject") then
-							sub.Visible = true
-						end
-						if sub:IsA("TextLabel") and sub.Name:lower():find("year") then
-							sub.Text = tostring(gsEntry.Year or 2023)
-						elseif sub:IsA("TextLabel") and sub.Name:lower():find("tagname") then
-							sub.Text = "FX"
-						end
-					end
-				end
-			end
-		end
-	end
-
+	enforceFxBadge(card)
 	applyAncientCardStyle(card)
+	updateCardAmountVisual(card)
 	refreshEquipVisuals()
 	attachCardGuards(card)
 
@@ -1032,6 +1383,7 @@ end
 claimBtn.Activated:Connect(function()
 	if isClaimed then return end
 	isClaimed = true
+	itemCount = math.max(itemCount, 1)
 
 	local container = newItemFrame:FindFirstChild("Container")
 	local innerItem = container and container:FindFirstChild("NewItem")
@@ -1064,22 +1416,20 @@ mainGui.DescendantAdded:Connect(function(desc)
 	if desc:IsA("GuiButton") then
 		bindOtherItemButton(desc)
 	end
-	if isClaimed and (desc:IsA("UIGridLayout") or desc:IsA("UIListLayout")) then
+	if isClaimed and itemCount > 0 and (desc:IsA("UIGridLayout") or desc:IsA("UIListLayout")) then
 		task.defer(function()
 			syncCardVisibility()
 		end)
 	end
 end)
 
--- Следим за открытием/скрытием инвентаря и переключением вкладок даже после долгого закрытия
 task.spawn(function()
 	local inv2 = gameGui:FindFirstChild("Inventory2")
 	if inv2 and inv2:IsA("GuiObject") then
 		inv2:GetPropertyChangedSignal("Visible"):Connect(function()
-			if isClaimed then
+			if isClaimed and itemCount > 0 then
 				task.defer(function()
 					addGingerscopeToInventoryUI()
-					syncCardVisibility()
 				end)
 			end
 		end)
@@ -1132,19 +1482,12 @@ RunService.Heartbeat:Connect(function(dt)
 	if isEquipped then
 		syncPistolReplacements()
 	end
-	if isClaimed then
+	if isClaimed and itemCount > 0 then
 		lastCardGuardTick += dt
 		if lastCardGuardTick >= 1 then
 			lastCardGuardTick = 0
 			syncCardVisibility()
 		end
-	end
-end)
-
-UserInputService.InputBegan:Connect(function(input, gp)
-	if gp or not isEquipped then return end
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		fireBeam(input.Position)
 	end
 end)
 
