@@ -1,379 +1,305 @@
--- Compact Auto-Scanner + Safe Chunked Output Window + Copy All button
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-
-if not RunService:IsClient() then
-	return
-end
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local existingGui = playerGui:FindFirstChild("ScannerOutputGui")
-if existingGui then
-	existingGui:Destroy()
+local MAX_CHARS = 160000
+local TRUNCATE_NOTICE = "\n\n[ОСТАНОВЛЕНО: лимит 160000 символов]"
+
+local oldGui = playerGui:FindFirstChild("MM2SafeScannerUI")
+if oldGui then
+	oldGui:Destroy()
 end
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "ScannerOutputGui"
+screenGui.Name = "MM2SafeScannerUI"
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.DisplayOrder = 999
 screenGui.Parent = playerGui
 
-local function addCorner(parent: Instance, radius: number)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = parent
-	return corner
-end
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 324, 0, 340)
+mainFrame.Position = UDim2.new(0.5, -162, 0.5, -170)
+mainFrame.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
 
-local function addStroke(parent: Instance, color: Color3, thickness: number)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Thickness = thickness
-	stroke.Parent = parent
-	return stroke
-end
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = mainFrame
 
-local mainWin = Instance.new("Frame")
-mainWin.Name = "OutputWindow"
-mainWin.AnchorPoint = Vector2.new(0.5, 0.5)
-mainWin.Position = UDim2.fromScale(0.5, 0.5)
-mainWin.Size = UDim2.fromOffset(330, 260)
-mainWin.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
-mainWin.ZIndex = 1000
-mainWin.Parent = screenGui
-addCorner(mainWin, 8)
-addStroke(mainWin, Color3.fromRGB(95, 165, 255), 1.5)
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(95, 165, 255)
+mainStroke.Thickness = 1.5
+mainStroke.Parent = mainFrame
 
 local topBar = Instance.new("Frame")
-topBar.Name = "TopBar"
-topBar.Size = UDim2.new(1, 0, 0, 28)
-topBar.BackgroundColor3 = Color3.fromRGB(26, 30, 40)
-topBar.ZIndex = 1001
-topBar.Parent = mainWin
-addCorner(topBar, 8)
+topBar.Size = UDim2.new(1, 0, 0, 34)
+topBar.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+topBar.BorderSizePixel = 0
+topBar.Parent = mainFrame
 
-local titleLbl = Instance.new("TextLabel")
-titleLbl.Size = UDim2.new(1, -104, 1, 0)
-titleLbl.Position = UDim2.fromOffset(10, 0)
-titleLbl.BackgroundTransparency = 1
-titleLbl.Font = Enum.Font.GothamBold
-titleLbl.TextSize = 13
-titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLbl.Text = "UI Tree Scanner"
-titleLbl.ZIndex = 1002
-titleLbl.Parent = topBar
+local topCorner = Instance.new("UICorner")
+topCorner.CornerRadius = UDim.new(0, 10)
+topCorner.Parent = topBar
 
-local scanBtn = Instance.new("TextButton")
-scanBtn.Name = "RescanButton"
-scanBtn.Size = UDim2.fromOffset(22, 20)
-scanBtn.Position = UDim2.new(1, -96, 0.5, -10)
-scanBtn.BackgroundColor3 = Color3.fromRGB(52, 140, 92)
-scanBtn.Font = Enum.Font.GothamBold
-scanBtn.TextSize = 11
-scanBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-scanBtn.Text = "R"
-scanBtn.ZIndex = 1002
-scanBtn.Parent = topBar
-addCorner(scanBtn, 5)
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -80, 1, 0)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "MM2 Scanner (Auto + 160k)"
+title.TextColor3 = Color3.fromRGB(240, 240, 250)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 13
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = topBar
 
 local minBtn = Instance.new("TextButton")
-minBtn.Name = "MinimizeButton"
-minBtn.Size = UDim2.fromOffset(22, 20)
-minBtn.Position = UDim2.new(1, -72, 0.5, -10)
-minBtn.BackgroundColor3 = Color3.fromRGB(45, 52, 68)
-minBtn.Font = Enum.Font.GothamBold
-minBtn.TextSize = 13
-minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minBtn.Size = UDim2.new(0, 28, 0, 24)
+minBtn.Position = UDim2.new(1, -64, 0.5, -12)
+minBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 46)
 minBtn.Text = "-"
-minBtn.ZIndex = 1002
+minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 15
 minBtn.Parent = topBar
-addCorner(minBtn, 5)
-
-local clearBtn = Instance.new("TextButton")
-clearBtn.Name = "ClearButton"
-clearBtn.Size = UDim2.fromOffset(22, 20)
-clearBtn.Position = UDim2.new(1, -48, 0.5, -10)
-clearBtn.BackgroundColor3 = Color3.fromRGB(70, 55, 110)
-clearBtn.Font = Enum.Font.GothamBold
-clearBtn.TextSize = 11
-clearBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-clearBtn.Text = "C"
-clearBtn.ZIndex = 1002
-clearBtn.Parent = topBar
-addCorner(clearBtn, 5)
 
 local closeBtn = Instance.new("TextButton")
-closeBtn.Name = "CloseButton"
-closeBtn.Size = UDim2.fromOffset(22, 20)
-closeBtn.Position = UDim2.new(1, -24, 0.5, -10)
-closeBtn.BackgroundColor3 = Color3.fromRGB(175, 52, 52)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 12
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Size = UDim2.new(0, 28, 0, 24)
+closeBtn.Position = UDim2.new(1, -32, 0.5, -12)
+closeBtn.BackgroundColor3 = Color3.fromRGB(190, 45, 65)
 closeBtn.Text = "X"
-closeBtn.ZIndex = 1002
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 13
 closeBtn.Parent = topBar
-addCorner(closeBtn, 5)
-
-local dragging = false
-local dragStart: Vector3? = nil
-local winStart: UDim2? = nil
-
-topBar.InputBegan:Connect(function(input: InputObject)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		dragging = true
-		dragStart = input.Position
-		winStart = mainWin.Position
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input: InputObject)
-	if not dragging or not dragStart or not winStart then
-		return
-	end
-	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-		local delta = input.Position - dragStart
-		mainWin.Position = UDim2.new(
-			winStart.X.Scale,
-			winStart.X.Offset + delta.X,
-			winStart.Y.Scale,
-			winStart.Y.Offset + delta.Y
-		)
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input: InputObject)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		dragging = false
-		dragStart = nil
-		winStart = nil
-	end
-end)
 
 local body = Instance.new("Frame")
-body.Name = "Body"
-body.Size = UDim2.new(1, -16, 1, -36)
-body.Position = UDim2.fromOffset(8, 32)
+body.Size = UDim2.new(1, -16, 1, -42)
+body.Position = UDim2.new(0, 8, 0, 38)
 body.BackgroundTransparency = 1
-body.ZIndex = 1001
-body.Parent = mainWin
+body.Parent = mainFrame
 
-local scroll = Instance.new("ScrollingFrame")
-scroll.Name = "OutputScroll"
-scroll.Size = UDim2.new(1, 0, 1, -38)
-scroll.Position = UDim2.fromOffset(0, 0)
-scroll.BackgroundColor3 = Color3.fromRGB(22, 25, 34)
-scroll.BorderSizePixel = 0
-scroll.ScrollBarThickness = 5
-scroll.CanvasSize = UDim2.fromOffset(600, 400)
-scroll.ZIndex = 1002
-scroll.Parent = body
-addCorner(scroll, 6)
-addStroke(scroll, Color3.fromRGB(48, 56, 76), 1)
+local filterBox = Instance.new("TextBox")
+filterBox.Size = UDim2.new(1, 0, 0, 30)
+filterBox.BackgroundColor3 = Color3.fromRGB(26, 26, 34)
+filterBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+filterBox.PlaceholderText = "Фильтр (claim, newitem, count, christmas)"
+filterBox.PlaceholderColor3 = Color3.fromRGB(130, 130, 150)
+filterBox.Text = ""
+filterBox.ClearTextOnFocus = false
+filterBox.Font = Enum.Font.Gotham
+filterBox.TextSize = 11
+filterBox.Parent = body
 
-local listLayout = Instance.new("UIListLayout")
-listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Padding = UDim.new(0, 4)
-listLayout.Parent = scroll
+local scanBtn = Instance.new("TextButton")
+scanBtn.Size = UDim2.new(0.48, 0, 0, 32)
+scanBtn.Position = UDim2.new(0, 0, 0, 36)
+scanBtn.BackgroundColor3 = Color3.fromRGB(45, 125, 225)
+scanBtn.Text = "Сканировать"
+scanBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+scanBtn.Font = Enum.Font.GothamBold
+scanBtn.TextSize = 12
+scanBtn.Parent = body
 
 local copyBtn = Instance.new("TextButton")
-copyBtn.Name = "CopyAllButton"
-copyBtn.Size = UDim2.new(1, 0, 0, 32)
-copyBtn.Position = UDim2.new(0, 0, 1, -32)
-copyBtn.BackgroundColor3 = Color3.fromRGB(58, 130, 225)
-copyBtn.Font = Enum.Font.GothamBold
-copyBtn.TextSize = 13
-copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+copyBtn.Size = UDim2.new(0.48, 0, 0, 32)
+copyBtn.Position = UDim2.new(0.52, 0, 0, 36)
+copyBtn.BackgroundColor3 = Color3.fromRGB(45, 165, 95)
 copyBtn.Text = "Копировать всё"
-copyBtn.ZIndex = 1002
+copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+copyBtn.Font = Enum.Font.GothamBold
+copyBtn.TextSize = 12
 copyBtn.Parent = body
-addCorner(copyBtn, 6)
 
-local keywords = {
-	"inventory",
-	"claim",
-	"christmas",
-	"halloween",
-	"hellowen",
-	"box",
+local infoBtn = Instance.new("TextButton")
+infoBtn.Size = UDim2.new(1, 0, 0, 22)
+infoBtn.Position = UDim2.new(0, 0, 0, 72)
+infoBtn.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
+infoBtn.Text = "Прозрачность: 0% | Символов: 0 / 160000"
+infoBtn.TextColor3 = Color3.fromRGB(215, 215, 230)
+infoBtn.Font = Enum.Font.Gotham
+infoBtn.TextSize = 10
+infoBtn.Parent = body
+
+local outputBox = Instance.new("TextBox")
+outputBox.Size = UDim2.new(1, 0, 1, -100)
+outputBox.Position = UDim2.new(0, 0, 0, 98)
+outputBox.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+outputBox.TextColor3 = Color3.fromRGB(220, 235, 255)
+outputBox.Text = "Запускаю поиск..."
+outputBox.TextXAlignment = Enum.TextXAlignment.Left
+outputBox.TextYAlignment = Enum.TextYAlignment.Top
+outputBox.TextWrapped = true
+outputBox.MultiLine = true
+outputBox.ClearTextOnFocus = false
+outputBox.Font = Enum.Font.Code
+outputBox.TextSize = 10
+outputBox.Parent = body
+
+local KEYWORDS = {
+	"claim", "newitem", "new_item", "count", "amount", "qty",
+	"quantity", "stack", "christmas", "halloween", "rarity", "event"
 }
 
-local SAFE_CHUNK_SIZE = 150000
-local lastFullReport = ""
+local function matchesQuery(inst, queryLower)
+	local nameLower = string.lower(inst.Name)
+	local textLower = (inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox"))
+		and string.lower(inst.Text) or ""
 
-local function getMatchedKeywords(name: string): { string }
-	local lower = string.lower(name)
-	local matched = {}
-	for _, kw in ipairs(keywords) do
-		if string.find(lower, kw, 1, true) then
-			table.insert(matched, kw)
+	if queryLower ~= "" then
+		return string.find(nameLower, queryLower, 1, true) ~= nil
+			or (textLower ~= "" and string.find(textLower, queryLower, 1, true) ~= nil)
+	end
+
+	for _, kw in ipairs(KEYWORDS) do
+		if string.find(nameLower, kw, 1, true) ~= nil
+			or (textLower ~= "" and string.find(textLower, kw, 1, true) ~= nil)
+		then
+			return true
 		end
 	end
-	return matched
+	return false
 end
 
-local function formatNodeInfo(inst: Instance, matched: { string }?): string
-	local parentName = inst.Parent and inst.Parent.Name or "nil"
-	local info = string.format("%s [%s] (Parent: %s)", inst.Name, inst.ClassName, parentName)
-	if inst:IsA("GuiObject") then
-		info ..= string.format(" | Vis=%s", tostring(inst.Visible))
-	elseif inst:IsA("LayerCollector") then
-		info ..= string.format(" | En=%s", tostring(inst.Enabled))
+local function capTo160k(str)
+	if typeof(str) ~= "string" then
+		return ""
 	end
-	if matched and #matched > 0 then
-		info ..= " | [" .. table.concat(matched, ",") .. "]"
+	if #str <= MAX_CHARS then
+		return str
 	end
-	return info
+	local keepLen = math.max(0, MAX_CHARS - #TRUNCATE_NOTICE)
+	return string.sub(str, 1, keepLen) .. TRUNCATE_NOTICE
 end
 
-local function clearChunks()
-	for _, child in ipairs(scroll:GetChildren()) do
-		if child:IsA("TextLabel") then
-			child:Destroy()
-		end
-	end
-end
+local currentAlphaPercent = 0
+local lastReport = ""
+local isScanning = false
 
-local function renderTextSafely(fullText: string)
-	clearChunks()
-	lastFullReport = fullText
-
-	if fullText == "" then
-		scroll.CanvasSize = UDim2.fromOffset(scroll.AbsoluteSize.X, scroll.AbsoluteSize.Y)
-		return
-	end
-
-	local maxLineLen = 20
-	for line in string.gmatch(fullText, "[^\n]+") do
-		if #line > maxLineLen then
-			maxLineLen = #line
-		end
-	end
-
-	local chunkWidth = math.max(scroll.AbsoluteSize.X - 12, maxLineLen * 7 + 24)
-	local totalHeight = 12
-	local chunkIndex = 1
-	local pos = 1
-	local len = #fullText
-
-	while pos <= len do
-		local endPos = math.min(pos + SAFE_CHUNK_SIZE - 1, len)
-		local chunkText = string.sub(fullText, pos, endPos)
-
-		local lineCount = 1
-		for _ in string.gmatch(chunkText, "\n") do
-			lineCount += 1
-		end
-		local chunkHeight = math.max(24, lineCount * 15 + 10)
-
-		local lbl = Instance.new("TextLabel")
-		lbl.Name = "Chunk_" .. tostring(chunkIndex)
-		lbl.LayoutOrder = chunkIndex
-		lbl.Size = UDim2.fromOffset(chunkWidth, chunkHeight)
-		lbl.BackgroundTransparency = 1
-		lbl.Font = Enum.Font.Code
-		lbl.TextSize = 11
-		lbl.TextXAlignment = Enum.TextXAlignment.Left
-		lbl.TextYAlignment = Enum.TextYAlignment.Top
-		lbl.TextWrapped = false
-		lbl.RichText = false
-		lbl.TextColor3 = Color3.fromRGB(225, 232, 245)
-		lbl.Text = chunkText
-		lbl.ZIndex = 1003
-		lbl.Parent = scroll
-
-		totalHeight += chunkHeight + 4
-		chunkIndex += 1
-		pos = endPos + 1
-	end
-
-	scroll.CanvasSize = UDim2.fromOffset(chunkWidth + 16, math.max(scroll.AbsoluteSize.Y, totalHeight))
-	scroll.CanvasPosition = Vector2.zero
+local function updateInfoBar(charCount)
+	infoBtn.Text = string.format("Прозрачность: %d%% | Символов: %d / %d", currentAlphaPercent, charCount, MAX_CHARS)
 end
 
 local function runScan()
-	local lines = { "=== PlayerGui Tree & Path Scan ===" }
-	local foundAny = false
+	if isScanning then
+		return
+	end
+	isScanning = true
+	scanBtn.Text = "Поиск..."
 
-	table.insert(lines, "\n--- 1. MATCHES & PATHS ---")
-	for _, gui in ipairs(playerGui:GetChildren()) do
-		if gui ~= screenGui then
-			for _, desc in ipairs(gui:GetDescendants()) do
-				local matches = getMatchedKeywords(desc.Name)
-				if #matches > 0 then
-					foundAny = true
-					local childNames = {}
-					local children = desc:GetChildren()
-					for i = 1, math.min(#children, 8) do
-						table.insert(childNames, children[i].Name .. "[" .. children[i].ClassName .. "]")
-					end
-					if #children > 8 then
-						table.insert(childNames, "+" .. tostring(#children - 8) .. " more")
-					end
+	local ok, err = pcall(function()
+		local queryLower = string.lower(filterBox.Text:match("^%s*(.-)%s*$") or "")
+		local chunks = {}
+		local currentLen = 0
+		local foundCount = 0
+		local stoppedByLimit = false
 
-					table.insert(lines, "[MATCH] " .. desc:GetFullName())
-					table.insert(lines, "  Info: " .. formatNodeInfo(desc, matches))
-					if #childNames > 0 then
-						table.insert(lines, "  Children (" .. tostring(#children) .. "): " .. table.concat(childNames, ", "))
+		local header = "=== РЕЗУЛЬТАТ СКАНИРОВАНИЯ ===\n"
+		table.insert(chunks, header)
+		currentLen += #header
+
+		local roots = {
+			{ label = "PlayerGui", root = playerGui },
+			{ label = "ReplicatedStorage", root = ReplicatedStorage },
+		}
+
+		for _, entry in ipairs(roots) do
+			if stoppedByLimit then
+				break
+			end
+
+			local descendants = entry.root:GetDescendants()
+			for i, desc in ipairs(descendants) do
+				-- Небольшая пауза каждые 1500 объектов, чтобы телефон не подвисал
+				if i % 1500 == 0 then
+					task.wait()
+				end
+
+				if desc.Name ~= "MM2SafeScannerUI" and not desc:IsDescendantOf(screenGui) then
+					if matchesQuery(desc, queryLower) then
+						foundCount += 1
+
+						local extra = ""
+						if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
+							extra = ' | Text="' .. tostring(desc.Text) .. '" | Vis=' .. tostring(desc.Visible)
+						elseif desc:IsA("GuiObject") then
+							extra = " | Vis=" .. tostring(desc.Visible)
+						end
+
+						local line = string.format("[%s] %s (%s)%s\n", entry.label, desc:GetFullName(), desc.ClassName, extra)
+
+						if currentLen + #line + #TRUNCATE_NOTICE > MAX_CHARS then
+							local remaining = MAX_CHARS - currentLen - #TRUNCATE_NOTICE
+							if remaining > 0 then
+								table.insert(chunks, string.sub(line, 1, remaining))
+								currentLen += remaining
+							end
+							table.insert(chunks, TRUNCATE_NOTICE)
+							currentLen += #TRUNCATE_NOTICE
+							stoppedByLimit = true
+							break
+						else
+							table.insert(chunks, line)
+							currentLen += #line
+						end
 					end
 				end
 			end
 		end
-	end
 
-	if not foundAny then
-		table.insert(lines, "Совпадений не найдено.")
-	end
-
-	table.insert(lines, "\n--- 2. ALL SCREENGUIS ---")
-	for _, gui in ipairs(playerGui:GetChildren()) do
-		if gui ~= screenGui then
-			table.insert(lines, "* " .. formatNodeInfo(gui))
+		if foundCount == 0 then
+			lastReport = capTo160k("Ничего не найдено по текущему фильтру.")
+		else
+			local summaryPrefix = "Найдено совпадений: " .. tostring(foundCount) .. "\n"
+			lastReport = capTo160k(summaryPrefix .. table.concat(chunks, ""))
 		end
+
+		outputBox.Text = lastReport
+		updateInfoBar(#lastReport)
+	end)
+
+	if not ok then
+		lastReport = capTo160k("Ошибка при сканировании: " .. tostring(err))
+		outputBox.Text = lastReport
+		updateInfoBar(#lastReport)
 	end
 
-	local result = table.concat(lines, "\n")
-	renderTextSafely(result)
+	isScanning = false
+	scanBtn.Text = "Сканировать"
 end
 
-copyBtn.MouseButton1Click:Connect(function()
+local function safeCopyAll()
+	local textToCopy = capTo160k(lastReport ~= "" and lastReport or outputBox.Text)
+	if textToCopy == "" then
+		textToCopy = "Пусто"
+	end
+
 	local copied = false
 	if typeof(setclipboard) == "function" then
-		copied = pcall(setclipboard, lastFullReport)
+		local ok = pcall(setclipboard, textToCopy)
+		copied = ok
+	elseif typeof(toclipboard) == "function" then
+		local ok = pcall(toclipboard, textToCopy)
+		copied = ok
 	end
 
-	if copied then
-		copyBtn.Text = "Скопировано!"
-		copyBtn.BackgroundColor3 = Color3.fromRGB(52, 155, 92)
-	else
-		copyBtn.Text = "Нет setclipboard"
-		copyBtn.BackgroundColor3 = Color3.fromRGB(185, 120, 40)
-	end
-
+	copyBtn.Text = copied and "Скопировано!" or "Не удалось"
 	task.delay(1.2, function()
 		if copyBtn and copyBtn.Parent then
 			copyBtn.Text = "Копировать всё"
-			copyBtn.BackgroundColor3 = Color3.fromRGB(58, 130, 225)
 		end
 	end)
-end)
-
-scanBtn.MouseButton1Click:Connect(runScan)
-
-clearBtn.MouseButton1Click:Connect(function()
-	renderTextSafely("")
-end)
+end
 
 local minimized = false
 minBtn.MouseButton1Click:Connect(function()
 	minimized = not minimized
 	body.Visible = not minimized
-	mainWin.Size = minimized and UDim2.fromOffset(330, 28) or UDim2.fromOffset(330, 260)
+	mainFrame.Size = minimized and UDim2.new(0, 324, 0, 34) or UDim2.new(0, 324, 0, 340)
 	minBtn.Text = minimized and "+" or "-"
 end)
 
@@ -381,9 +307,19 @@ closeBtn.MouseButton1Click:Connect(function()
 	screenGui:Destroy()
 end)
 
-runScan()
-task.delay(1, function()
-	if screenGui and screenGui.Parent then
-		runScan()
-	end
+infoBtn.MouseButton1Click:Connect(function()
+	currentAlphaPercent = (currentAlphaPercent + 20) % 80
+	mainFrame.BackgroundTransparency = currentAlphaPercent / 100
+	updateInfoBar(#lastReport)
+end)
+
+scanBtn.MouseButton1Click:Connect(function()
+	task.spawn(runScan)
+end)
+
+copyBtn.MouseButton1Click:Connect(safeCopyAll)
+
+-- Автозапуск поиска сразу при запуске скрипта
+task.defer(function()
+	task.spawn(runScan)
 end)
