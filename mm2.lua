@@ -1,287 +1,189 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local MAX_TOTAL_CHARS = 190000
-local TRUNCATE_NOTICE = "\n... [ОСТАНОВЛЕНО: достигнут лимит 190 000 символов] ..."
-
-local FALLBACK_KEYWORDS = {
-	"inventory",
-	"christmas",
-	"halloween",
-	"fx",
-	"box",
-	"item",
-	"newitem",
+local CONFIG = {
+	DefaultQuery = "NewItem",
+	MaxMatches = 20,
+	MaxDepth = 99,
+	MaxLines = 600,
+	SearchInPlayerGui = true,
+	SearchInReplicatedStorage = true,
+	SearchInWorkspace = false,
 }
 
-local MAX_DEPTH = 4
-local MAX_NODES_PER_TREE = 45
-local CHUNK_SIZE = 3500
-
-local oldGui = playerGui:FindFirstChild("TreeScannerQueryUI")
-if oldGui then
-	oldGui:Destroy()
+local function getGuiParent()
+	local ok, res = pcall(function()
+		return CoreGui
+	end)
+	if ok and res then
+		local test = Instance.new("Folder")
+		local canUseCore = pcall(function()
+			test.Parent = res
+			test:Destroy()
+		end)
+		if canUseCore then
+			return res
+		end
+	end
+	return playerGui
 end
 
-local function parseQueryInput(rawText)
-	local list = {}
-	if typeof(rawText) == "string" then
-		for token in string.gmatch(rawText, "[^,%s;|]+") do
-			local cleaned = string.lower(token)
-			if cleaned ~= "" then
-				table.insert(list, cleaned)
+local function buildSubtreeLines(root, maxDepth, maxLines, outLines)
+	local count = 0
+	local function walk(node, depth, prefix)
+		if #outLines >= maxLines or depth > maxDepth then
+			return
+		end
+		local children = node:GetChildren()
+		for i, child in ipairs(children) do
+			if #outLines >= maxLines then
+				table.insert(outLines, prefix .. "└── ... [лимит строк]")
+				return
 			end
+			count += 1
+			local isLast = (i == #children)
+			local connector = isLast and "└── " or "├── "
+			local nextPrefix = prefix .. (isLast and "    " or "│   ")
+
+			table.insert(outLines, string.format("%s%s%s [%s]", prefix, connector, child.Name, child.ClassName))
+			walk(child, depth + 1, nextPrefix)
 		end
 	end
-	if #list == 0 then
-		for _, kw in ipairs(FALLBACK_KEYWORDS) do
-			table.insert(list, kw)
-		end
-	end
-	return list
+
+	walk(root, 1, "")
+	return count
 end
 
-local function matchesAnyKeyword(nameStr, keywords)
-	if typeof(nameStr) ~= "string" or nameStr == "" then
-		return false
-	end
-	local lower = string.lower(nameStr)
-	for _, kw in ipairs(keywords) do
-		if string.find(lower, kw, 1, true) ~= nil then
-			return true
-		end
-	end
-	return false
-end
-
-local function formatNodeDetails(obj)
-	local info = {
-		"[" .. obj.ClassName .. "]",
-		obj:GetFullName(),
-	}
-
-	if obj:IsA("GuiObject") then
-		table.insert(info, "Visible=" .. tostring(obj.Visible))
+local function searchAndBuildReport(query)
+	local trimmed = string.gsub(query or "", "^%s*(.-)%s*$", "%1")
+	if trimmed == "" then
+		return "Введи название или часть слова в поле поиска."
 	end
 
-	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-		local cleanText = tostring(obj.Text):gsub("\r", " "):gsub("\n", "\\n")
-		if #cleanText > 50 then
-			cleanText = string.sub(cleanText, 1, 47) .. "..."
-		end
-		table.insert(info, 'Text="' .. cleanText .. '"')
-	elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
-		if obj.Image ~= "" then
-			table.insert(info, "Image=" .. tostring(obj.Image))
-		end
-	end
-
-	return table.concat(info, " | ")
-end
-
-local function collectRootMatches(rootContainer, keywords)
+	local needle = string.lower(trimmed)
 	local roots = {}
-	for _, desc in ipairs(rootContainer:GetDescendants()) do
-		if matchesAnyKeyword(desc.Name, keywords) then
-			local hasMatchedAncestor = false
-			local parent = desc.Parent
-			while parent and parent ~= rootContainer do
-				if matchesAnyKeyword(parent.Name, keywords) then
-					hasMatchedAncestor = true
-					break
-				end
-				parent = parent.Parent
-			end
-
-			if not hasMatchedAncestor then
-				table.insert(roots, desc)
-			end
-		end
+	if CONFIG.SearchInPlayerGui then
+		table.insert(roots, playerGui)
 	end
-	return roots
-end
-
-local function clampToLimit(text)
-	if #text <= MAX_TOTAL_CHARS then
-		return text
+	if CONFIG.SearchInReplicatedStorage then
+		table.insert(roots, ReplicatedStorage)
 	end
-	local keepLen = math.max(0, MAX_TOTAL_CHARS - #TRUNCATE_NOTICE)
-	local cut = string.sub(text, 1, keepLen) .. TRUNCATE_NOTICE
-	if #cut > MAX_TOTAL_CHARS then
-		cut = string.sub(cut, 1, MAX_TOTAL_CHARS)
-	end
-	return cut
-end
-
-local function buildQueryTreeReport(keywords)
-	local allLines = {}
-	local currentLen = 0
-	local limitReached = false
-	local includedTrees = 0
-
-	local function tryAppendLine(line)
-		if limitReached then
-			return false
-		end
-		local sepLen = (#allLines > 0) and 1 or 0
-		local needed = sepLen + #line
-		local reserve = #TRUNCATE_NOTICE
-		if currentLen + needed + reserve > MAX_TOTAL_CHARS then
-			limitReached = true
-			return false
-		end
-		table.insert(allLines, line)
-		currentLen += needed
-		return true
+	if CONFIG.SearchInWorkspace then
+		table.insert(roots, workspace)
 	end
 
-	local targets = {
-		{ label = "PlayerGui", container = playerGui },
-		{ label = "ReplicatedStorage", container = ReplicatedStorage },
-	}
-
-	local totalRoots = 0
-	local collectedByTarget = {}
-
-	for _, target in ipairs(targets) do
-		local roots = collectRootMatches(target.container, keywords)
-		totalRoots += #roots
-		table.insert(collectedByTarget, {
-			label = target.label,
-			roots = roots,
-		})
-	end
-
-	tryAppendLine("ЗАПРОСЫ: " .. table.concat(keywords, ", "))
-	tryAppendLine("НАЙДЕНО ВЕТОК ВСЕГО: " .. tostring(totalRoots))
-
-	for _, entry in ipairs(collectedByTarget) do
-		if limitReached then
-			break
-		end
-
-		if not tryAppendLine("") then break end
-		if not tryAppendLine(">>> РАЗДЕЛ: " .. entry.label .. " (веток: " .. tostring(#entry.roots) .. ") <<<") then break end
-
-		for _, rootObj in ipairs(entry.roots) do
-			if limitReached then
-				break
-			end
-
-			local treeLines = {}
-			table.insert(treeLines, "==================================================")
-			table.insert(treeLines, "КОРЕНЬ: " .. rootObj:GetFullName())
-			table.insert(treeLines, "==================================================")
-
-			local baseDepth = #string.split(rootObj:GetFullName(), ".")
-			local nodeCount = 0
-
-			local function walk(current)
-				if MAX_NODES_PER_TREE > 0 and nodeCount >= MAX_NODES_PER_TREE then
-					return
-				end
-
-				local currentDepth = #string.split(current:GetFullName(), ".") - baseDepth
-				if MAX_DEPTH > 0 and currentDepth > MAX_DEPTH then
-					return
-				end
-
-				nodeCount += 1
-				local indent = string.rep("  ", currentDepth)
-				table.insert(treeLines, indent .. "├─ " .. formatNodeDetails(current))
-
-				for _, child in ipairs(current:GetChildren()) do
-					walk(child)
-					if MAX_NODES_PER_TREE > 0 and nodeCount >= MAX_NODES_PER_TREE then
+	local matches = {}
+	for _, root in ipairs(roots) do
+		for _, desc in ipairs(root:GetDescendants()) do
+			-- Пропускаем собственный интерфейс сканера
+			if desc.Name ~= "TreeSearchUI" and not desc:FindFirstAncestor("TreeSearchUI") then
+				if string.find(string.lower(desc.Name), needle, 1, true) then
+					table.insert(matches, desc)
+					if #matches >= CONFIG.MaxMatches then
 						break
 					end
 				end
 			end
-
-			walk(rootObj)
-
-			local treeBlock = table.concat(treeLines, "\n")
-			local sepLen = (#allLines > 0) and 1 or 0
-			if currentLen + sepLen + #treeBlock + #TRUNCATE_NOTICE > MAX_TOTAL_CHARS then
-				limitReached = true
-				break
-			end
-
-			for _, l in ipairs(treeLines) do
-				if not tryAppendLine(l) then
-					break
-				end
-			end
-			includedTrees += 1
+		end
+		if #matches >= CONFIG.MaxMatches then
+			break
 		end
 	end
 
-	local fullReport = table.concat(allLines, "\n")
-	if limitReached then
-		fullReport = clampToLimit(fullReport .. TRUNCATE_NOTICE)
-	else
-		fullReport = clampToLimit(fullReport)
+	if #matches == 0 then
+		return string.format("По запросу «%s» ничего не найдено.", trimmed)
 	end
 
-	return fullReport, totalRoots, includedTrees, limitReached
+	local lines = {
+		string.format("ЗАПРОС: %s | НАЙДЕНО: %d%s",
+			trimmed,
+			#matches,
+			#matches >= CONFIG.MaxMatches and (" (лимит " .. CONFIG.MaxMatches .. ")") or ""
+		),
+		string.rep("=", 42),
+	}
+
+	for idx, match in ipairs(matches) do
+		if #lines >= CONFIG.MaxLines then
+			table.insert(lines, "... [достигнут лимит строк вывода]")
+			break
+		end
+		table.insert(lines, string.format("\n[%d] %s [%s]", idx, match:GetFullName(), match.ClassName))
+		local childCount = buildSubtreeLines(match, CONFIG.MaxDepth, CONFIG.MaxLines, lines)
+		table.insert(lines, string.format("    Потомков в ветке: %d", childCount))
+	end
+
+	return table.concat(lines, "\n")
 end
 
-local function copyReportToClipboard(reportText)
-	if typeof(setclipboard) == "function" then
-		local ok = pcall(setclipboard, reportText)
-		return ok, ok and "Скопировано в буфер" or "Ошибка setclipboard"
-	elseif typeof(toclipboard) == "function" then
-		local ok = pcall(toclipboard, reportText)
-		return ok, ok and "Скопировано в буфер" or "Ошибка toclipboard"
-	end
-	return false, "Буфер обмена недоступен"
+-- Построение компактного тёмного UI для телефона
+local parentGui = getGuiParent()
+local existing = parentGui:FindFirstChild("TreeSearchUI")
+if existing then
+	existing:Destroy()
 end
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "TreeScannerQueryUI"
+screenGui.Name = "TreeSearchUI"
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.Parent = playerGui
+screenGui.Parent = parentGui
 
-local mainWindow = Instance.new("Frame")
-mainWindow.Size = UDim2.new(0, 315, 0, 265)
-mainWindow.Position = UDim2.new(0.5, -157, 0.5, -132)
-mainWindow.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
-mainWindow.BorderSizePixel = 0
-mainWindow.Active = true
-mainWindow.Draggable = true
-mainWindow.Parent = screenGui
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "Main"
+mainFrame.Size = UDim2.new(0.92, 0, 0.74, 0)
+mainFrame.Position = UDim2.new(0.04, 0, 0.13, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
 
-Instance.new("UICorner", mainWindow).CornerRadius = UDim.new(0, 12)
-local mainStroke = Instance.new("UIStroke", mainWindow)
-mainStroke.Color = Color3.fromRGB(165, 65, 255)
-mainStroke.Thickness = 1.6
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 10)
+uiCorner.Parent = mainFrame
 
+local uiStroke = Instance.new("UIStroke")
+uiStroke.Color = Color3.fromRGB(255, 195, 0)
+uiStroke.Thickness = 1.5
+uiStroke.Parent = mainFrame
+
+local sizeConstraint = Instance.new("UISizeConstraint")
+sizeConstraint.MaxSize = Vector2.new(460, 680)
+sizeConstraint.MinSize = Vector2.new(260, 280)
+sizeConstraint.Parent = mainFrame
+
+-- Верхняя панель управления
 local topBar = Instance.new("Frame")
-topBar.Size = UDim2.new(1, 0, 0, 36)
+topBar.Name = "TopBar"
+topBar.Size = UDim2.new(1, 0, 0, 38)
 topBar.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
 topBar.BorderSizePixel = 0
-topBar.Parent = mainWindow
-Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 12)
+topBar.Parent = mainFrame
+
+local topCorner = Instance.new("UICorner")
+topCorner.CornerRadius = UDim.new(0, 10)
+topCorner.Parent = topBar
 
 local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, -82, 1, 0)
+titleLabel.Size = UDim2.new(1, -84, 1, 0)
 titleLabel.Position = UDim2.new(0, 12, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "Tree scanner"
-titleLabel.TextColor3 = Color3.fromRGB(245, 245, 255)
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 15
+titleLabel.Text = "TREE SEARCH"
+titleLabel.TextColor3 = Color3.fromRGB(255, 210, 40)
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 14
 titleLabel.Parent = topBar
 
 local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.new(0, 30, 0, 26)
-minBtn.Position = UDim2.new(1, -68, 0.5, -13)
-minBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 46)
+minBtn.Size = UDim2.new(0, 32, 0, 26)
+minBtn.Position = UDim2.new(1, -72, 0.5, -13)
+minBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 44)
 minBtn.Text = "-"
 minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 minBtn.Font = Enum.Font.GothamBold
@@ -290,148 +192,146 @@ minBtn.Parent = topBar
 Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 6)
 
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 30, 0, 26)
-closeBtn.Position = UDim2.new(1, -34, 0.5, -13)
-closeBtn.BackgroundColor3 = Color3.fromRGB(190, 45, 65)
+closeBtn.Size = UDim2.new(0, 32, 0, 26)
+closeBtn.Position = UDim2.new(1, -36, 0.5, -13)
+closeBtn.BackgroundColor3 = Color3.fromRGB(165, 38, 38)
 closeBtn.Text = "X"
 closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 14
+closeBtn.TextSize = 13
 closeBtn.Parent = topBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 
-local content = Instance.new("Frame")
-content.Size = UDim2.new(1, -20, 1, -44)
-content.Position = UDim2.new(0, 10, 0, 40)
-content.BackgroundTransparency = 1
-content.Parent = mainWindow
+-- Тело окна
+local bodyFrame = Instance.new("Frame")
+bodyFrame.Name = "Body"
+bodyFrame.Size = UDim2.new(1, -16, 1, -48)
+bodyFrame.Position = UDim2.new(0, 8, 0, 44)
+bodyFrame.BackgroundTransparency = 1
+bodyFrame.Parent = mainFrame
 
-local queryInput = Instance.new("TextBox")
-queryInput.Size = UDim2.new(1, 0, 0, 34)
-queryInput.BackgroundColor3 = Color3.fromRGB(26, 26, 34)
-queryInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-queryInput.PlaceholderText = "Введи: MainGUI, Inventory, NewItem, FX, Box..."
-queryInput.PlaceholderColor3 = Color3.fromRGB(135, 135, 155)
-queryInput.Text = "MainGUI, Inventory, NewItem, FX, Box"
-queryInput.ClearTextOnFocus = false
-queryInput.Font = Enum.Font.Gotham
-queryInput.TextSize = 12
-queryInput.Parent = content
-Instance.new("UICorner", queryInput).CornerRadius = UDim.new(0, 8)
+local searchBox = Instance.new("TextBox")
+searchBox.Size = UDim2.new(1, -88, 0, 36)
+searchBox.Position = UDim2.new(0, 0, 0, 0)
+searchBox.BackgroundColor3 = Color3.fromRGB(26, 26, 34)
+searchBox.Text = CONFIG.DefaultQuery
+searchBox.PlaceholderText = "Введи имя объекта..."
+searchBox.PlaceholderColor3 = Color3.fromRGB(130, 130, 145)
+searchBox.TextColor3 = Color3.fromRGB(245, 245, 250)
+searchBox.ClearTextOnFocus = false
+searchBox.Font = Enum.Font.Code
+searchBox.TextSize = 13
+searchBox.Parent = bodyFrame
+Instance.new("UICorner", searchBox).CornerRadius = UDim.new(0, 7)
 
-local scanBtn = Instance.new("TextButton")
-scanBtn.Size = UDim2.new(1, 0, 0, 36)
-scanBtn.Position = UDim2.new(0, 0, 0, 40)
-scanBtn.BackgroundColor3 = Color3.fromRGB(130, 45, 235)
-scanBtn.Text = "Найти дерево"
-scanBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-scanBtn.Font = Enum.Font.GothamBold
-scanBtn.TextSize = 14
-scanBtn.Parent = content
-Instance.new("UICorner", scanBtn).CornerRadius = UDim.new(0, 8)
+local findBtn = Instance.new("TextButton")
+findBtn.Size = UDim2.new(0, 82, 0, 36)
+findBtn.Position = UDim2.new(1, -82, 0, 0)
+findBtn.BackgroundColor3 = Color3.fromRGB(255, 195, 0)
+findBtn.Text = "Найти"
+findBtn.TextColor3 = Color3.fromRGB(15, 15, 18)
+findBtn.Font = Enum.Font.GothamBold
+findBtn.TextSize = 13
+findBtn.Parent = bodyFrame
+Instance.new("UICorner", findBtn).CornerRadius = UDim.new(0, 7)
 
 local copyBtn = Instance.new("TextButton")
-copyBtn.Size = UDim2.new(1, 0, 0, 36)
-copyBtn.Position = UDim2.new(0, 0, 0, 82)
-copyBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 46)
-copyBtn.Text = "Скопировать в буфер"
-copyBtn.TextColor3 = Color3.fromRGB(165, 165, 185)
+copyBtn.Size = UDim2.new(0.5, -4, 0, 30)
+copyBtn.Position = UDim2.new(0, 0, 0, 42)
+copyBtn.BackgroundColor3 = Color3.fromRGB(34, 34, 44)
+copyBtn.Text = "Копировать"
+copyBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
 copyBtn.Font = Enum.Font.GothamBold
-copyBtn.TextSize = 14
-copyBtn.AutoButtonColor = false
-copyBtn.Parent = content
-Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 8)
+copyBtn.TextSize = 12
+copyBtn.Parent = bodyFrame
+Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
 
-local alphaBtn = Instance.new("TextButton")
-alphaBtn.Size = UDim2.new(1, 0, 0, 22)
-alphaBtn.Position = UDim2.new(0, 0, 0, 124)
-alphaBtn.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
-alphaBtn.Text = "Прозрачность окна: 0%"
-alphaBtn.TextColor3 = Color3.fromRGB(220, 220, 235)
-alphaBtn.Font = Enum.Font.GothamMedium
-alphaBtn.TextSize = 11
-alphaBtn.Parent = content
-Instance.new("UICorner", alphaBtn).CornerRadius = UDim.new(0, 6)
+local clearBtn = Instance.new("TextButton")
+clearBtn.Size = UDim2.new(0.5, -4, 0, 30)
+clearBtn.Position = UDim2.new(0.5, 4, 0, 42)
+clearBtn.BackgroundColor3 = Color3.fromRGB(34, 34, 44)
+clearBtn.Text = "Очистить"
+clearBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
+clearBtn.Font = Enum.Font.GothamBold
+clearBtn.TextSize = 12
+clearBtn.Parent = bodyFrame
+Instance.new("UICorner", clearBtn).CornerRadius = UDim.new(0, 6)
 
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, 0, 0, 44)
-statusLabel.Position = UDim2.new(0, 0, 1, -44)
-statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "Введи имена и нажми «Найти дерево»"
-statusLabel.TextColor3 = Color3.fromRGB(190, 190, 210)
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.TextSize = 11
-statusLabel.TextWrapped = true
-statusLabel.Parent = content
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, 0, 1, -80)
+scrollFrame.Position = UDim2.new(0, 0, 0, 80)
+scrollFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 13)
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 5
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.XY
+scrollFrame.Parent = bodyFrame
+Instance.new("UICorner", scrollFrame).CornerRadius = UDim.new(0, 8)
 
-local lastReport = nil
-local isScanning = false
+local outputLabel = Instance.new("TextLabel")
+outputLabel.Size = UDim2.new(0, 0, 0, 0)
+outputLabel.AutomaticSize = Enum.AutomaticSize.XY
+outputLabel.BackgroundTransparency = 1
+outputLabel.Text = "Нажми «Найти» для поиска по дереву."
+outputLabel.TextColor3 = Color3.fromRGB(215, 220, 230)
+outputLabel.TextXAlignment = Enum.TextXAlignment.Left
+outputLabel.TextYAlignment = Enum.TextYAlignment.Top
+outputLabel.RichText = false
+outputLabel.Font = Enum.Font.Code
+outputLabel.TextSize = 12
+outputLabel.Parent = scrollFrame
 
-local function setCopyButtonReady(ready)
-	if ready then
-		copyBtn.BackgroundColor3 = Color3.fromRGB(45, 155, 95)
-		copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		copyBtn.AutoButtonColor = true
-	else
-		copyBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 46)
-		copyBtn.TextColor3 = Color3.fromRGB(165, 165, 185)
-		copyBtn.AutoButtonColor = false
-	end
+local pad = Instance.new("UIPadding")
+pad.PaddingTop = UDim.new(0, 8)
+pad.PaddingBottom = UDim.new(0, 8)
+pad.PaddingLeft = UDim.new(0, 8)
+pad.PaddingRight = UDim.new(0, 12)
+pad.Parent = outputLabel
+
+local currentReport = ""
+
+local function runSearch()
+	currentReport = searchAndBuildReport(searchBox.Text)
+	outputLabel.Text = currentReport
+	scrollFrame.CanvasPosition = Vector2.new(0, 0)
 end
 
-scanBtn.MouseButton1Click:Connect(function()
-	if isScanning then
-		return
+findBtn.MouseButton1Click:Connect(runSearch)
+searchBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		runSearch()
 	end
-	isScanning = true
-	scanBtn.Text = "Поиск..."
-	statusLabel.Text = "Сканирую до 190 000 символов..."
-	setCopyButtonReady(false)
-	lastReport = nil
-
-	local keywords = parseQueryInput(queryInput.Text)
-
-	task.defer(function()
-		local report, totalRoots, includedTrees, limitHit = buildQueryTreeReport(keywords)
-		lastReport = report
-		setCopyButtonReady(true)
-
-		for i = 1, #report, CHUNK_SIZE do
-			print(string.sub(report, i, i + CHUNK_SIZE - 1))
-		end
-
-		local suffix = limitHit and " [лимит]" or ""
-		statusLabel.Text = string.format(
-			"Веток: %d (в отчёте: %d) | %d/%d%s",
-			totalRoots,
-			includedTrees,
-			#report,
-			MAX_TOTAL_CHARS,
-			suffix
-		)
-
-		scanBtn.Text = "Найти дерево"
-		isScanning = false
-	end)
 end)
 
 copyBtn.MouseButton1Click:Connect(function()
-	if not lastReport or #lastReport == 0 then
-		statusLabel.Text = "Сначала нажми «Найти дерево»"
+	if currentReport == "" then
 		return
 	end
+	if setclipboard then
+		local ok = pcall(setclipboard, currentReport)
+		copyBtn.Text = ok and "Скопировано!" or "Нет доступа"
+	else
+		copyBtn.Text = "Нет setclipboard"
+	end
+	task.delay(1.2, function()
+		if copyBtn.Parent then
+			copyBtn.Text = "Копировать"
+		end
+	end)
+end)
 
-	local ok, msg = copyReportToClipboard(lastReport)
-	statusLabel.Text = ok
-		and string.format("%s (%d симв.)", msg, #lastReport)
-		or msg
+clearBtn.MouseButton1Click:Connect(function()
+	searchBox.Text = ""
+	currentReport = ""
+	outputLabel.Text = ""
+	scrollFrame.CanvasPosition = Vector2.new(0, 0)
 end)
 
 local minimized = false
 minBtn.MouseButton1Click:Connect(function()
 	minimized = not minimized
-	content.Visible = not minimized
-	mainWindow.Size = minimized and UDim2.new(0, 315, 0, 36) or UDim2.new(0, 315, 0, 265)
+	bodyFrame.Visible = not minimized
+	mainFrame.Size = minimized and UDim2.new(0.92, 0, 0, 38) or UDim2.new(0.92, 0, 0.74, 0)
 	minBtn.Text = minimized and "+" or "-"
 end)
 
@@ -439,9 +339,5 @@ closeBtn.MouseButton1Click:Connect(function()
 	screenGui:Destroy()
 end)
 
-local alphaPercent = 0
-alphaBtn.MouseButton1Click:Connect(function()
-	alphaPercent = (alphaPercent + 20) % 80
-	mainWindow.BackgroundTransparency = alphaPercent / 100
-	alphaBtn.Text = "Прозрачность окна: " .. tostring(alphaPercent) .. "%"
-end)
+-- Первый поиск при запуске
+runSearch()
