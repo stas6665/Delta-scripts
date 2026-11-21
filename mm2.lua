@@ -1,15 +1,19 @@
--- Scan (Tree & Scripts Dumper)
+-- Scan (Search by list, dump full trees + scripts inside them & contents)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
 local StarterGui = game:GetService("StarterGui")
 local StarterPlayer = game:GetService("StarterPlayer")
 local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
+local Chat = game:GetService("Chat")
 local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 
-local TREE_TARGETS = {
+local SEARCH_QUERIES = {
 	"Inventory",
 	"Item",
 	"NewItem",
@@ -17,20 +21,27 @@ local TREE_TARGETS = {
 	"MainGUI",
 	"PlayerGui",
 	"Claime",
+	"Box",
 }
 
-local SCAN_ROOTS = {
-	ReplicatedStorage,
-	StarterGui,
-	StarterPlayer,
-	Workspace,
-}
-
-if LocalPlayer then
-	local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	if pg then
-		table.insert(SCAN_ROOTS, 1, pg)
+local function getScanRoots()
+	local roots = {
+		ReplicatedStorage,
+		ReplicatedFirst,
+		StarterGui,
+		StarterPlayer,
+		Workspace,
+		Lighting,
+		SoundService,
+		Chat,
+	}
+	if LocalPlayer then
+		local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+		if pg then
+			table.insert(roots, 1, pg)
+		end
 	end
+	return roots
 end
 
 local function getFullPath(inst)
@@ -43,6 +54,8 @@ local function getFullPath(inst)
 	end
 	if curr == game then
 		table.insert(parts, 1, "game")
+	elseif #parts == 0 then
+		return "[nil] " .. inst.Name
 	end
 	return table.concat(parts, ".")
 end
@@ -53,159 +66,261 @@ end
 
 local function copyToClipboard(text)
 	if typeof(setclipboard) == "function" then
-		pcall(setclipboard, text)
-		return true
-	elseif typeof(toclipboard) == "function" then
-		pcall(toclipboard, text)
-		return true
+		local ok = pcall(setclipboard, text)
+		if ok then return true end
+	end
+	if typeof(toclipboard) == "function" then
+		local ok = pcall(toclipboard, text)
+		if ok then return true end
 	end
 	return false
 end
 
-local function dumpTreeLines(rootInst, maxDepth, maxLines)
-	maxDepth = maxDepth or 3
-	maxLines = maxLines or 45
-	local out = {}
-	local count = 0
+local function serializeValue(val, depth, seenTables)
+	depth = depth or 0
+	seenTables = seenTables or {}
+	local t = typeof(val)
 
-	local function walk(node, depth, indent)
-		if count >= maxLines then return end
-		if depth > maxDepth then
-			count += 1
-			table.insert(out, indent .. "  ... (глубже)")
-			return
+	if t == "string" then
+		return string.format("%q", val)
+	elseif t == "number" or t == "boolean" then
+		return tostring(val)
+	elseif t == "nil" then
+		return "nil"
+	elseif t == "Instance" then
+		return getFullPath(val) .. " [" .. val.ClassName .. "]"
+	elseif t == "table" then
+		if depth >= 3 then
+			return "{ ... (глубина) }"
 		end
-		local children = node:GetChildren()
-		for i, ch in ipairs(children) do
-			if count >= maxLines then
-				table.insert(out, indent .. "  ... (лимит)")
-				return
-			end
-			local branch = (i == #children) and "└─ " or "├─ "
-			local clsTag = ""
-			if ch:IsA("ModuleScript") then
-				clsTag = " [ModuleScript]"
-			elseif ch:IsA("LocalScript") then
-				clsTag = " [LocalScript]"
-			elseif ch:IsA("Script") then
-				clsTag = " [Script]"
-			end
+		if seenTables[val] then
+			return "{ ... (цикл) }"
+		end
+		seenTables[val] = true
+
+		local parts = {}
+		local count = 0
+		for k, v in pairs(val) do
 			count += 1
-			table.insert(out, indent .. branch .. ch.Name .. clsTag)
-			walk(ch, depth + 1, indent .. ((i == #children) and "   " or "│  "))
+			if count > 40 then
+				table.insert(parts, "  ... (ещё ключи)")
+				break
+			end
+			local keyStr = (type(k) == "string") and k or ("[" .. tostring(k) .. "]")
+			table.insert(parts, string.rep("  ", depth + 1) .. keyStr .. " = " .. serializeValue(v, depth + 1, seenTables))
+		end
+		seenTables[val] = nil
+
+		if #parts == 0 then
+			return "{}"
+		end
+		return "{\n" .. table.concat(parts, "\n") .. "\n" .. string.rep("  ", depth) .. "}"
+	end
+
+	return tostring(val) .. " (" .. t .. ")"
+end
+
+local function getScriptContent(scr)
+	if typeof(decompile) == "function" then
+		local ok, res = pcall(decompile, scr)
+		if ok and type(res) == "string" and #res > 0 then
+			return res
 		end
 	end
 
-	table.insert(out, "+ Дерево: " .. getFullPath(rootInst) .. " [" .. rootInst.ClassName .. "]")
-	walk(rootInst, 1, "")
+	local okSrc, src = pcall(function()
+		return scr.Source
+	end)
+	if okSrc and type(src) == "string" and #src > 0 then
+		return src
+	end
+
+	if scr:IsA("ModuleScript") and typeof(require) == "function" then
+		local okReq, modData = pcall(require, scr)
+		if okReq then
+			return "-- [Returned from require]\n" .. serializeValue(modData, 0, {})
+		end
+	end
+
+	return "-- [Внутренность скрипта недоступна в текущем контексте]"
+end
+
+local function formatScriptBlock(scr, index, prefix)
+	local bodyText = getScriptContent(scr)
+	return string.format(
+		"--- [%s #%d] %s (Имя: %s | Тип: %s) ---\n%s\n",
+		prefix or "SCRIPT",
+		index or 1,
+		getFullPath(scr),
+		scr.Name,
+		scr.ClassName,
+		bodyText
+	)
+end
+
+local function getScriptsInsideTree(rootInst)
+	local found = {}
+	local seen = {}
+
+	if isScriptInstance(rootInst) and not seen[rootInst] then
+		seen[rootInst] = true
+		table.insert(found, rootInst)
+	end
+
+	local okDesc, descList = pcall(function()
+		return rootInst:GetDescendants()
+	end)
+	if okDesc and descList then
+		for _, desc in ipairs(descList) do
+			if isScriptInstance(desc) and not seen[desc] then
+				seen[desc] = true
+				table.insert(found, desc)
+			end
+		end
+	end
+
+	return found
+end
+
+local function dumpFullTree(rootInst)
+	local out = {}
+
+	local function walk(node, indent)
+		local okCh, children = pcall(function()
+			return node:GetChildren()
+		end)
+		if not okCh or not children then return end
+
+		for i, ch in ipairs(children) do
+			local isLast = (i == #children)
+			local branch = isLast and "└─ " or "├─ "
+			table.insert(out, indent .. branch .. ch.Name .. " [" .. ch.ClassName .. "]")
+			walk(ch, indent .. (isLast and "   " or "│  "))
+		end
+	end
+
+	table.insert(out, "+ [" .. rootInst.Name .. "] " .. getFullPath(rootInst) .. " (" .. rootInst.ClassName .. ")")
+	walk(rootInst, "")
+
+	local treeScripts = getScriptsInsideTree(rootInst)
+	if #treeScripts > 0 then
+		table.insert(out, "\n[Скрипты в этом дереве: " .. #treeScripts .. "]")
+		for idx, scr in ipairs(treeScripts) do
+			table.insert(out, formatScriptBlock(scr, idx, "IN TREE"))
+		end
+	else
+		table.insert(out, "[Скрипты в этом дереве: 0]")
+	end
+
 	return table.concat(out, "\n")
 end
 
-local function collectAllData()
-	local targetLower = {}
-	for _, name in ipairs(TREE_TARGETS) do
-		targetLower[string.lower(name)] = name
-	end
-
-	local matchedTrees = {}
-	local nearbyOrRelatedTrees = {}
+local function searchByQueries()
+	local resultsByQuery = {}
+	local allFoundTrees = {}
 	local databaseNodes = {}
 	local modulesNodes = {}
-
-	local seenTree = {}
-	local seenRelated = {}
+	local seenGlobalTree = {}
 	local seenDb = {}
 	local seenMod = {}
 
-	local function inspectNode(inst)
-		local lower = string.lower(inst.Name)
+	local candidates = {}
+	local seenCand = {}
 
-		if lower == "database" and not seenDb[inst] then
-			seenDb[inst] = true
-			table.insert(databaseNodes, inst)
-		end
+	local function addCandidate(inst)
+		if typeof(inst) ~= "Instance" or seenCand[inst] then return end
+		seenCand[inst] = true
+		table.insert(candidates, inst)
 
-		if lower == "modules" and not seenMod[inst] then
-			seenMod[inst] = true
-			table.insert(modulesNodes, inst)
-		end
-
-		local exactTarget = targetLower[lower]
-		if exactTarget and not seenTree[inst] then
-			seenTree[inst] = true
-			table.insert(matchedTrees, {
-				target = exactTarget,
-				inst = inst,
-				path = getFullPath(inst),
-			})
-
-			if inst.Parent and inst.Parent ~= game and not seenRelated[inst.Parent] then
-				seenRelated[inst.Parent] = true
-				table.insert(nearbyOrRelatedTrees, {
-					reason = "Parent of " .. inst.Name,
-					inst = inst.Parent,
-					path = getFullPath(inst.Parent),
-				})
+		local okName, name = pcall(function() return inst.Name end)
+		if okName and type(name) == "string" then
+			local lower = string.lower(name)
+			if lower == "database" and not seenDb[inst] then
+				seenDb[inst] = true
+				table.insert(databaseNodes, inst)
 			end
-			for _, ch in ipairs(inst:GetChildren()) do
-				if #ch:GetChildren() > 0 and not targetLower[string.lower(ch.Name)] and not seenRelated[ch] then
-					seenRelated[ch] = true
-					table.insert(nearbyOrRelatedTrees, {
-						reason = "Subtree in " .. inst.Name,
-						inst = ch,
-						path = getFullPath(ch),
-					})
-				end
-			end
-		elseif not exactTarget and not seenRelated[inst] then
-			for _, tName in ipairs(TREE_TARGETS) do
-				if string.find(lower, string.lower(tName), 1, true) then
-					seenRelated[inst] = true
-					table.insert(nearbyOrRelatedTrees, {
-						reason = "Partial match (" .. tName .. ")",
-						inst = inst,
-						path = getFullPath(inst),
-					})
-					break
-				end
+			if lower == "modules" and not seenMod[inst] then
+				seenMod[inst] = true
+				table.insert(modulesNodes, inst)
 			end
 		end
 	end
 
-	for _, root in ipairs(SCAN_ROOTS) do
+	for _, root in ipairs(getScanRoots()) do
 		if root then
-			inspectNode(root)
-			for _, desc in ipairs(root:GetDescendants()) do
-				inspectNode(desc)
+			addCandidate(root)
+			local okDesc, descList = pcall(function() return root:GetDescendants() end)
+			if okDesc and descList then
+				for _, desc in ipairs(descList) do
+					addCandidate(desc)
+				end
 			end
 		end
 	end
 
-	return matchedTrees, nearbyOrRelatedTrees, databaseNodes, modulesNodes
+	if typeof(getnilinstances) == "function" then
+		local okNil, nilList = pcall(getnilinstances)
+		if okNil and type(nilList) == "table" then
+			for _, inst in ipairs(nilList) do
+				addCandidate(inst)
+			end
+		end
+	end
+
+	for _, query in ipairs(SEARCH_QUERIES) do
+		local qLower = string.lower(query)
+		local matches = {}
+
+		for _, inst in ipairs(candidates) do
+			local okName, name = pcall(function() return inst.Name end)
+			if okName and type(name) == "string" then
+				if string.find(string.lower(name), qLower, 1, true) then
+					table.insert(matches, inst)
+					if not seenGlobalTree[inst] then
+						seenGlobalTree[inst] = true
+						table.insert(allFoundTrees, inst)
+					end
+				end
+			end
+		end
+
+		table.insert(resultsByQuery, {
+			query = query,
+			matches = matches,
+		})
+	end
+
+	return resultsByQuery, allFoundTrees, databaseNodes, modulesNodes
 end
 
-local function collectScriptsFromNodes(nodes, labelPrefix)
-	local lines = {}
+local function collectScriptsWithContents(nodes, labelPrefix)
+	local blocks = {}
 	local seen = {}
 	local total = 0
 
+	local function processScript(scr)
+		if not isScriptInstance(scr) or seen[scr] then return end
+		seen[scr] = true
+		total += 1
+		table.insert(blocks, formatScriptBlock(scr, total, labelPrefix))
+	end
+
 	for _, node in ipairs(nodes) do
-		for _, desc in ipairs(node:GetDescendants()) do
-			if isScriptInstance(desc) and not seen[desc] then
-				seen[desc] = true
-				total += 1
-				table.insert(lines, string.format("+ [%s] %s [%s]", labelPrefix, getFullPath(desc), desc.ClassName))
+		processScript(node)
+		local okDesc, descList = pcall(function() return node:GetDescendants() end)
+		if okDesc and descList then
+			for _, desc in ipairs(descList) do
+				processScript(desc)
 			end
 		end
 	end
 
 	if total == 0 then
-		table.insert(lines, "! Скрипты не найдены (" .. labelPrefix .. ")")
-	else
-		table.insert(lines, 1, "=== " .. labelPrefix .. " | Всего скриптов: " .. total .. " ===")
+		return "! Скрипты не найдены (" .. labelPrefix .. ")"
 	end
 
-	return table.concat(lines, "\n")
+	table.insert(blocks, 1, "=== " .. labelPrefix .. " | Всего скриптов: " .. total .. " ===\n")
+	return table.concat(blocks, "\n")
 end
 
 local function buildUI()
@@ -233,8 +348,8 @@ local function buildUI()
 
 	local mainPanel = Instance.new("Frame")
 	mainPanel.Name = "MainPanel"
-	mainPanel.Size = UDim2.new(0.56, 0, 0.72, 0)
-	mainPanel.Position = UDim2.new(0.42, 0, 0.16, 0)
+	mainPanel.Size = UDim2.new(0.60, 0, 0.74, 0)
+	mainPanel.Position = UDim2.new(0.38, 0, 0.14, 0)
 	mainPanel.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 	mainPanel.BackgroundTransparency = 0.05
 	mainPanel.BorderSizePixel = 0
@@ -327,7 +442,7 @@ local function buildUI()
 	outBox.Position = UDim2.new(0, 6, 0, 6)
 	outBox.BackgroundTransparency = 1
 	outBox.TextColor3 = Color3.fromRGB(220, 220, 228)
-	outBox.Text = "Нажми одну из кнопок сверху, чтобы вывести деревья или скрипты."
+	outBox.Text = "Нажми «Вывести деревья» или кнопку скриптов."
 	outBox.TextXAlignment = Enum.TextXAlignment.Left
 	outBox.TextYAlignment = Enum.TextYAlignment.Top
 	outBox.MultiLine = true
@@ -352,48 +467,42 @@ local function buildUI()
 	local function setOutput(str)
 		outBox.Text = str
 		local lineCount = select(2, string.gsub(str, "\n", "\n")) + 1
-		local height = math.max(180, lineCount * 15 + 24)
+		local estWrappedLines = math.ceil(#str / 55)
+		local totalLines = math.max(lineCount, estWrappedLines)
+		local height = math.max(220, totalLines * 15 + 32)
 		outBox.Size = UDim2.new(1, -12, 0, height)
-		scroll.CanvasSize = UDim2.new(0, 0, 0, height + 12)
+		scroll.CanvasSize = UDim2.new(0, 0, 0, height + 16)
+		scroll.CanvasPosition = Vector2.new(0, 0)
 	end
 
 	btnTrees.MouseButton1Click:Connect(function()
-		local matched, related = collectAllData()
+		local resultsByQuery = searchByQueries()
 		local chunks = {}
-		table.insert(chunks, "=== ЦЕЛЕВЫЕ ДЕРЕВЬЯ (" .. #matched .. ") ===")
-		for _, item in ipairs(matched) do
-			table.insert(chunks, dumpTreeLines(item.inst, 2, 25))
-			table.insert(chunks, "")
-		end
 
-		table.insert(chunks, "=== СВЯЗАННЫЕ / БЕЗ ТОЧНОГО ИМЕНИ (" .. #related .. ") ===")
-		for _, item in ipairs(related) do
-			table.insert(chunks, "+ [" .. item.reason .. "] " .. item.path .. " [" .. item.inst.ClassName .. "]")
+		for _, entry in ipairs(resultsByQuery) do
+			table.insert(chunks, "=== ПОИСК: " .. entry.query .. " (" .. #entry.matches .. ") ===")
+			for _, treeInst in ipairs(entry.matches) do
+				table.insert(chunks, dumpFullTree(treeInst))
+				table.insert(chunks, "")
+			end
 		end
 
 		setOutput(table.concat(chunks, "\n"))
 	end)
 
 	btnAllTreeScripts.MouseButton1Click:Connect(function()
-		local matched, related = collectAllData()
-		local nodes = {}
-		for _, item in ipairs(matched) do
-			table.insert(nodes, item.inst)
-		end
-		for _, item in ipairs(related) do
-			table.insert(nodes, item.inst)
-		end
-		setOutput(collectScriptsFromNodes(nodes, "TREE SCRIPT"))
+		local _, allFoundTrees = searchByQueries()
+		setOutput(collectScriptsWithContents(allFoundTrees, "TREE SCRIPT"))
 	end)
 
 	btnDbScripts.MouseButton1Click:Connect(function()
-		local _, _, dbNodes = collectAllData()
-		setOutput(collectScriptsFromNodes(dbNodes, "DATABASE"))
+		local _, _, dbNodes = searchByQueries()
+		setOutput(collectScriptsWithContents(dbNodes, "DATABASE"))
 	end)
 
 	btnModScripts.MouseButton1Click:Connect(function()
-		local _, _, _, modNodes = collectAllData()
-		setOutput(collectScriptsFromNodes(modNodes, "MODULES"))
+		local _, _, _, modNodes = searchByQueries()
+		setOutput(collectScriptsWithContents(modNodes, "MODULES"))
 	end)
 
 	copyBtn.MouseButton1Click:Connect(function()
@@ -413,7 +522,7 @@ local function buildUI()
 		minimized = not minimized
 		body.Visible = not minimized
 		minBtn.Text = minimized and "^" or "V"
-		mainPanel.Size = minimized and UDim2.new(0.56, 0, 0, 34) or UDim2.new(0.56, 0, 0.72, 0)
+		mainPanel.Size = minimized and UDim2.new(0.60, 0, 0, 34) or UDim2.new(0.60, 0, 0.74, 0)
 	end)
 end
 
