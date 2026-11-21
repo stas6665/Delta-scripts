@@ -47,7 +47,7 @@ Track.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
 Track.BorderSizePixel = 0
 Track.Parent = Background
 
-local TrackCorner = Instance.new("UIC corner", Track)
+local TrackCorner = Instance.new("UICorner", Track)
 TrackCorner.CornerRadius = UDim.new(1, 0)
 
 local Fill = Instance.new("Frame")
