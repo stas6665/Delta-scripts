@@ -1,1494 +1,831 @@
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local LocalPlayer = Players.LocalPlayer
+local parentGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local mainGui = playerGui:WaitForChild("MainGUI")
-local gameGui = mainGui:WaitForChild("Game")
-local newItemFrame = gameGui:WaitForChild("NewItem")
-local claimBtn = newItemFrame:WaitForChild("Container"):WaitForChild("Claim")
-
-local itemModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ItemModule"))
-local syncDb = require(ReplicatedStorage:WaitForChild("Database"):WaitForChild("Sync"))
-
-local equipService = nil
-pcall(function()
-	local clientServices = ReplicatedStorage:FindFirstChild("ClientServices")
-	if clientServices and clientServices:FindFirstChild("EquipService") then
-		equipService = require(clientServices.EquipService)
-	end
-end)
-
-local TARGET_KEY = "Gingerscope"
-local TARGET_ID = 15617843269
-local ASSET_ID_URI = "rbxassetid://" .. tostring(TARGET_ID)
-local ANCIENT_COLOR = Color3.fromRGB(115, 35, 225)
-local ANCIENT_DARK = Color3.fromRGB(65, 15, 145)
-
-local isClaimed = false
-local isEquipped = false
-local itemCount = 0
-local holdTrack = nil
-local currentCardNameLabel = nil
-local currentCardRoot = nil
-local currentCardContainer = nil
-local attachedByHandle = setmetatable({}, { __mode = "k" })
-local hiddenPartsState = setmetatable({}, { __mode = "k" })
-local hookedButtons = setmetatable({}, { __mode = "k" })
-local hookedCardSignals = setmetatable({}, { __mode = "k" })
-
-local function findEntryByItemIdOrKey(targetId, fallbackKey)
-	local idStr = tostring(targetId)
-	if syncDb and typeof(syncDb.Weapons) == "table" then
-		for key, entry in pairs(syncDb.Weapons) do
-			if typeof(entry) == "table" and tostring(entry.ItemID or "") == idStr then
-				return tostring(key), entry
-			end
-		end
-		if syncDb.Weapons[fallbackKey] then
-			return fallbackKey, syncDb.Weapons[fallbackKey]
-		end
-	end
-
-	return fallbackKey, {
-		ItemName = fallbackKey,
-		ItemType = "Gun",
-		Rarity = "Ancient",
-		Event = "Christmas",
-		Year = 2023,
-		ItemID = targetId,
-	}
+if parentGui:FindFirstChild("CopyUiAllGui") then
+	parentGui.CopyUiAllGui:Destroy()
 end
 
-local resolvedDefaultKey, gsEntry = findEntryByItemIdOrKey(TARGET_ID, TARGET_KEY)
-TARGET_KEY = resolvedDefaultKey
-gsEntry.Rarity = gsEntry.Rarity or "Ancient"
-gsEntry.Event = gsEntry.Event or "Christmas"
-
-local function isChristmasName(str)
-	local lower = string.lower(tostring(str or ""))
-	return string.find(lower, "christmas", 1, true) ~= nil
-		or string.find(lower, "chrismas", 1, true) ~= nil
-		or string.find(lower, "xmas", 1, true) ~= nil
-end
-
-local function getItemIdValue(obj)
-	if not obj then return "" end
-	local attr = obj:GetAttribute("ItemID")
-	if attr ~= nil then
-		return tostring(attr)
-	end
-	local valObj = obj:FindFirstChild("ItemID")
-	if valObj and valObj:IsA("ValueBase") then
-		return tostring(valObj.Value)
-	end
-	return ""
-end
-
-local function getWholeModelAsset(obj)
-	if not obj then return nil end
-	local parentTool = obj:FindFirstAncestorOfClass("Tool")
-	if parentTool then
-		return parentTool
-	end
-	local parentModel = obj:FindFirstAncestorOfClass("Model")
-	if parentModel and parentModel ~= workspace and parentModel ~= ReplicatedStorage then
-		return parentModel
-	end
-	if obj:IsA("Model") or obj:IsA("Tool") or obj:IsA("MeshPart") or obj:IsA("BasePart") then
-		return obj
-	end
-	return nil
-end
-
-local function findWholeAssetByItemId(targetId, itemKey)
-	local idStr = tostring(targetId)
-	local keyLower = string.lower(tostring(itemKey or TARGET_KEY))
-	local found = {
-		Item = nil,
-		Sound = nil,
-		Anim = nil,
-		Beam = nil,
-		Image = (typeof(gsEntry) == "table" and gsEntry.Image) or ASSET_ID_URI,
-	}
-
-	-- 1. Приоритет: точное совпадение по ItemID -> берём целую модель/тул с текстурой
-	for _, root in ipairs({ ReplicatedStorage, workspace }) do
-		for _, obj in ipairs(root:GetDescendants()) do
-			if getItemIdValue(obj) == idStr then
-				local whole = getWholeModelAsset(obj)
-				if whole and not found.Item then
-					found.Item = whole
-				end
-				if obj:IsA("Sound") and not found.Sound then
-					found.Sound = obj
-				elseif obj:IsA("Animation") and not found.Anim then
-					found.Anim = obj
-				elseif obj:IsA("Beam") and not found.Beam then
-					found.Beam = obj
-				end
-			end
-		end
-	end
-
-	-- 2. Запасной поиск по имени ключа (например Gingerscope), если ItemID висит выше/в таблице
-	if not found.Item and keyLower ~= "" then
-		for _, root in ipairs({ ReplicatedStorage, workspace }) do
-			for _, obj in ipairs(root:GetDescendants()) do
-				if obj.Name:lower():find(keyLower, 1, true) then
-					local whole = getWholeModelAsset(obj)
-					if whole and not found.Item then
-						found.Item = whole
-					elseif obj:IsA("Sound") and not found.Sound then
-						found.Sound = obj
-					elseif obj:IsA("Animation") and not found.Anim then
-						found.Anim = obj
-					elseif obj:IsA("Beam") and not found.Beam then
-						found.Beam = obj
-					end
-				end
-			end
-		end
-	end
-
-	return found
-end
-
-local assets = findWholeAssetByItemId(TARGET_ID, TARGET_KEY)
-
-local function resolveWeaponData(rawName)
-	local clean = tostring(rawName or ""):gsub("^%s+", ""):gsub("%s+$", "")
-	if clean == "" then
-		clean = TARGET_KEY
-	end
-
-	if syncDb and typeof(syncDb.Weapons) == "table" then
-		-- Если ввели сам ItemID цифрами
-		for key, entry in pairs(syncDb.Weapons) do
-			if typeof(entry) == "table" and tostring(entry.ItemID or "") == clean then
-				return tostring(key), entry
-			end
-		end
-		if syncDb.Weapons[clean] then
-			return clean, syncDb.Weapons[clean]
-		end
-		for key, entry in pairs(syncDb.Weapons) do
-			if tostring(key):lower() == clean:lower() or (typeof(entry) == "table" and tostring(entry.ItemName or ""):lower() == clean:lower()) then
-				return tostring(key), entry
-			end
-		end
-	end
-
-	return clean, {
-		ItemName = clean,
-		ItemType = "Gun",
-		Rarity = "Ancient",
-		Event = "Christmas",
-		Year = gsEntry.Year or 2023,
-		ItemID = TARGET_ID,
-		Image = gsEntry.Image or ASSET_ID_URI,
-	}
-end
-
-local function centerNewItemWindow()
-	if newItemFrame:IsA("GuiObject") then
-		newItemFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-		newItemFrame.Position = UDim2.fromScale(0.5, 0.5)
-	end
-	local container = newItemFrame:FindFirstChild("Container")
-	if container and container:IsA("GuiObject") and container.Size ~= UDim2.fromScale(1, 1) then
-		container.AnchorPoint = Vector2.new(0.5, 0.5)
-		container.Position = UDim2.fromScale(0.5, 0.5)
-	end
-end
-
-local function isPistolTool(tool)
-	if not tool or not tool:IsA("Tool") then return false end
-	if tool.Name == "GS_Gingerscope_Tool" then return false end
-	local n = tool.Name:lower()
-	if n:find("knife", 1, true) or n:find("blade", 1, true) or n:find("dagger", 1, true) or n:find("scythe", 1, true) or n:find("axe", 1, true) or n:find("sword", 1, true) then
-		return false
-	end
-	if n:find("gun", 1, true) or n:find("pistol", 1, true) or n:find("revolver", 1, true) or n:find("gingerscope", 1, true) or n:find("blaster", 1, true) or n:find("raygun", 1, true) then
-		return true
-	end
-	local itemType = tostring(tool:GetAttribute("ItemType") or tool:GetAttribute("Type") or ""):lower()
-	if itemType == "gun" then
-		return true
-	end
-	return tool:FindFirstChild("Handle", true) ~= nil
-end
-
-local function collectPistolHandles()
-	local handles = {}
-	local seen = {}
-
-	local function scanContainer(container)
-		if not container then return end
-		for _, desc in ipairs(container:GetDescendants()) do
-			if desc:IsA("BasePart") and desc.Name == "Handle" and desc.Name ~= "GS_Gingerscope_Handle" then
-				local tool = desc:FindFirstAncestorOfClass("Tool")
-				if isPistolTool(tool) and not seen[desc] then
-					seen[desc] = true
-					table.insert(handles, { handle = desc, tool = tool })
-				end
-			end
-		end
-	end
-
-	scanContainer(player.Character)
-	scanContainer(player:FindFirstChild("Backpack"))
-
-	return handles
-end
-
--- Клонируем цельную модель с текстурой по ItemID; если модель не найдена — возвращаем nil (без резервного куба)
-local function createUnifiedItemClone()
-	if not assets.Item then
-		assets = findWholeAssetByItemId(gsEntry.ItemID or TARGET_ID, TARGET_KEY)
-	end
-	if not assets.Item then
-		return nil
-	end
-
-	local ok, clone = pcall(function()
-		return assets.Item:Clone()
-	end)
-	if not ok or not clone then
-		return nil
-	end
-
-	-- Если клонировался Tool, извлекаем его содержимое в цельную Model, чтобы сохранить все детали и текстуры
-	if clone:IsA("Tool") then
-		local modelWrap = Instance.new("Model")
-		modelWrap.Name = "GS_Gingerscope_Handle"
-		for _, child in ipairs(clone:GetChildren()) do
-			if not child:IsA("LuaSourceContainer") then
-				child.Parent = modelWrap
-			end
-		end
-		clone:Destroy()
-		clone = modelWrap
-	end
-
-	local parts = {}
-	for _, desc in ipairs(clone:GetDescendants()) do
-		if desc:IsA("BasePart") then
-			desc.LocalTransparencyModifier = 0
-			desc.Transparency = 0
-			desc.Anchored = false
-			desc.CanCollide = false
-			desc.Massless = true
-			table.insert(parts, desc)
-		end
-	end
-
-	if clone:IsA("BasePart") then
-		clone.Name = "GS_Gingerscope_Handle"
-		clone.LocalTransparencyModifier = 0
-		clone.Transparency = 0
-		clone.Anchored = false
-		clone.CanCollide = false
-		clone.Massless = true
-	elseif clone:IsA("Model") then
-		clone.Name = "GS_Gingerscope_Handle"
-		local primary = clone.PrimaryPart or clone:FindFirstChild("Handle", true) or parts[1]
-		if primary then
-			clone.PrimaryPart = primary
-			-- Скрепляем все детали цельной модели с PrimaryPart, чтобы текстурированная модель не рассыпалась
-			for _, part in ipairs(parts) do
-				if part ~= primary then
-					local weld = Instance.new("WeldConstraint")
-					weld.Part0 = primary
-					weld.Part1 = part
-					weld.Parent = part
-				end
-			end
-		end
-	end
-
-	return clone
-end
-
-local function hideToolOriginalParts(tool, keepHandle)
-	if not tool then return end
-	for _, desc in ipairs(tool:GetDescendants()) do
-		if desc:IsA("BasePart") and desc ~= keepHandle and desc.Name ~= "GS_Gingerscope_Handle" and not desc:IsDescendantOf(attachedByHandle[keepHandle] or workspace) then
-			if not hiddenPartsState[desc] then
-				hiddenPartsState[desc] = {
-					mod = desc.LocalTransparencyModifier,
-					tr = desc.Transparency,
-				}
-			end
-			desc.LocalTransparencyModifier = 1
-			desc.Transparency = 1
-		end
-	end
-end
-
-local function restoreHiddenParts()
-	for part, state in pairs(hiddenPartsState) do
-		if part and part.Parent then
-			part.LocalTransparencyModifier = state.mod or 0
-			part.Transparency = state.tr or 0
-		end
-		hiddenPartsState[part] = nil
-	end
-end
-
-local function attachReplacementToHandle(handle, tool)
-	if attachedByHandle[handle] and attachedByHandle[handle].Parent then
-		hideToolOriginalParts(tool, handle)
-		return attachedByHandle[handle]
-	end
-
-	local clone = createUnifiedItemClone()
-	if not clone then
-		return nil
-	end
-
-	clone.Name = "GS_Gingerscope_Handle"
-
-	local primary = nil
-	if clone:IsA("BasePart") then
-		clone.CFrame = handle.CFrame
-		clone.Parent = handle.Parent
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = handle
-		weld.Part1 = clone
-		weld.Parent = clone
-		primary = clone
-	elseif clone:IsA("Model") then
-		local rootPart = clone.PrimaryPart or clone:FindFirstChild("Handle", true) or clone:FindFirstChildWhichIsA("BasePart", true)
-		if rootPart then
-			clone.PrimaryPart = rootPart
-			clone:PivotTo(handle.CFrame)
-			clone.Parent = handle.Parent
-			local weld = Instance.new("WeldConstraint")
-			weld.Part0 = handle
-			weld.Part1 = rootPart
-			weld.Parent = rootPart
-			primary = rootPart
-		end
-	end
-
-	if primary then
-		attachedByHandle[handle] = clone
-		hideToolOriginalParts(tool, handle)
-	else
-		clone:Destroy()
-	end
-
-	return primary
-end
-
-local function clearAllHandleReplacements()
-	for handle, repl in pairs(attachedByHandle) do
-		if repl and repl.Parent then
-			repl:Destroy()
-		end
-		attachedByHandle[handle] = nil
-	end
-	restoreHiddenParts()
-end
-
-local function isOwnedByLocalPlayer(obj)
-	if not obj then return false end
-	if obj:IsDescendantOf(playerGui) then
-		return true
-	end
-	local char = player.Character
-	if char and obj:IsDescendantOf(char) then
-		return true
-	end
-
-	local pName = player.Name:lower()
-	local uidStr = tostring(player.UserId)
-
-	for _, other in ipairs(Players:GetPlayers()) do
-		if other ~= player then
-			local oChar = other.Character
-			if oChar and obj:IsDescendantOf(oChar) then
-				return false
-			end
-			local oName = other.Name:lower()
-			if obj.Name:lower():find(oName, 1, true) then
-				return false
-			end
-		end
-	end
-
-	if obj.Name:lower():find(pName, 1, true) then
-		return true
-	end
-
-	local cur = obj
-	while cur and cur ~= workspace and cur ~= game do
-		local cName = cur.Name:lower()
-		if cName:find(pName, 1, true) or cur.Name == uidStr then
-			return true
-		end
-		local ownerAttr = tostring(cur:GetAttribute("Owner") or cur:GetAttribute("Player") or cur:GetAttribute("UserId") or "")
-		if ownerAttr == uidStr or ownerAttr:lower() == pName then
-			return true
-		end
-		local ownerVal = cur:FindFirstChild("Owner") or cur:FindFirstChild("Player") or cur:FindFirstChild("UserId")
-		if ownerVal and ownerVal:IsA("ValueBase") then
-			local vStr = tostring(ownerVal.Value)
-			if vStr == uidStr or vStr:lower() == pName then
-				return true
-			end
-		end
-		cur = cur.Parent
-	end
-
-	return false
-end
-
-local function updateGunDisplay()
-	for _, container in ipairs({ workspace, playerGui }) do
-		for _, d in ipairs(container:GetDescendants()) do
-			if d.Name == "GS_GunDisplay_Handle" then
-				d:Destroy()
-			end
-		end
-	end
-
-	if not isEquipped then
-		return
-	end
-
-	for _, container in ipairs({ workspace, playerGui }) do
-		for _, d in ipairs(container:GetDescendants()) do
-			if d.Name:lower():find("gundisplay", 1, true) and isOwnedByLocalPlayer(d) then
-				if d:IsA("BasePart") or d:IsA("Model") then
-					local anchor = d:IsA("Model") and (d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")) or d
-					if anchor then
-						local itemClone = createUnifiedItemClone()
-						if itemClone then
-							itemClone.Name = "GS_GunDisplay_Handle"
-							if itemClone:IsA("BasePart") then
-								itemClone.Anchored = true
-								itemClone.CFrame = anchor.CFrame * CFrame.new(0, 1.5, 0)
-								itemClone.Parent = d
-							elseif itemClone:IsA("Model") then
-								local p = itemClone.PrimaryPart or itemClone:FindFirstChildWhichIsA("BasePart", true)
-								if p then
-									itemClone.PrimaryPart = p
-									itemClone:PivotTo(anchor.CFrame * CFrame.new(0, 1.5, 0))
-									for _, part in ipairs(itemClone:GetDescendants()) do
-										if part:IsA("BasePart") then
-											part.Anchored = true
-										end
-									end
-								end
-								itemClone.Parent = d
-							end
-						end
-					end
-				elseif d:IsA("GuiObject") then
-					local lbl = Instance.new("TextLabel")
-					lbl.Name = "GS_GunDisplay_Handle"
-					lbl.Size = UDim2.fromScale(1, 1)
-					lbl.BackgroundTransparency = 0.3
-					lbl.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-					lbl.Text = tostring(gsEntry.ItemName or TARGET_KEY)
-					lbl.TextColor3 = Color3.fromRGB(255, 215, 110)
-					lbl.Font = Enum.Font.GothamBold
-					lbl.TextScaled = true
-					lbl.Parent = d
-				end
-			end
-		end
-	end
-end
-
-local function syncHoldAnimation()
-	local char = player.Character
-	local hum = char and char:FindFirstChildOfClass("Humanoid")
-
-	if not isEquipped or not hum or not assets.Anim then
-		if holdTrack then
-			holdTrack:Stop()
-			holdTrack:Destroy()
-			holdTrack = nil
-		end
-		return
-	end
-
-	if not holdTrack then
-		local ok, tr = pcall(function() return hum:LoadAnimation(assets.Anim) end)
-		if ok and tr then
-			tr.Priority = Enum.AnimationPriority.Action
-			tr.Looped = true
-			tr:Play()
-			holdTrack = tr
-		end
-	elseif not holdTrack.IsPlaying then
-		holdTrack:Play()
-	end
-end
-
-local function syncPistolReplacements()
-	if not isEquipped then
-		clearAllHandleReplacements()
-		syncHoldAnimation()
-		updateGunDisplay()
-		return
-	end
-
-	local entries = collectPistolHandles()
-	local activeHandles = {}
-	for _, entry in ipairs(entries) do
-		activeHandles[entry.handle] = true
-		attachReplacementToHandle(entry.handle, entry.tool)
-	end
-
-	for handle, repl in pairs(attachedByHandle) do
-		if not activeHandles[handle] or not handle.Parent then
-			if repl and repl.Parent then
-				repl:Destroy()
-			end
-			attachedByHandle[handle] = nil
-		end
-	end
-
-	syncHoldAnimation()
-	updateGunDisplay()
-end
-
-local function updateCardAmountVisual(card)
-	if not card then return end
-	local countText = tostring(math.max(0, math.floor(itemCount)))
-
-	local cont = card:FindFirstChild("Container")
-	local nativeAmount = cont and cont:FindFirstChild("Amount")
-	if nativeAmount and nativeAmount:IsA("TextLabel") then
-		nativeAmount.Text = (itemCount > 1) and ("x" .. countText) or ""
-		nativeAmount.Visible = itemCount > 1
-	end
-
-	local badge = card:FindFirstChild("GS_CountBadge")
-	if not badge then
-		badge = Instance.new("TextLabel")
-		badge.Name = "GS_CountBadge"
-		badge.Size = UDim2.new(0, 44, 0, 18)
-		badge.Position = UDim2.new(1, -48, 1, -22)
-		badge.BackgroundColor3 = Color3.fromRGB(20, 16, 32)
-		badge.BackgroundTransparency = 0.15
-		badge.BorderSizePixel = 0
-		badge.TextColor3 = Color3.fromRGB(255, 240, 150)
-		badge.Font = Enum.Font.GothamBold
-		badge.TextSize = 11
-		badge.ZIndex = 20
-		badge.Parent = card
-
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 5)
-		corner.Parent = badge
-
-		local stroke = Instance.new("UIStroke")
-		stroke.Color = ANCIENT_COLOR
-		stroke.Thickness = 1.2
-		stroke.Parent = badge
-	end
-
-	if badge:IsA("TextLabel") then
-		badge.Text = countText
-		badge.Visible = itemCount > 0
-	end
-end
-
-local setEquipped
-local addGingerscopeToInventoryUI
-
-local function consumeOneOnUnequip()
-	if itemCount <= 0 then return end
-	itemCount -= 1
-
-	if itemCount <= 0 then
-		itemCount = 0
-		isClaimed = false
-		if currentCardRoot and currentCardRoot.Parent then
-			currentCardRoot:Destroy()
-		end
-		currentCardRoot = nil
-	elseif currentCardRoot and currentCardRoot.Parent then
-		updateCardAmountVisual(currentCardRoot)
-	end
-end
-
-local invSlotGui = Instance.new("ScreenGui")
-invSlotGui.Name = "GS_InventorySlot_UI"
-invSlotGui.ResetOnSpawn = false
-invSlotGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-invSlotGui.Parent = playerGui
-
-local slotBtn = Instance.new("TextButton")
-slotBtn.Visible = false
-slotBtn.Size = UDim2.fromOffset(175, 36)
-slotBtn.Position = UDim2.new(0.5, -87.5, 1, -54)
-slotBtn.BackgroundColor3 = Color3.fromRGB(32, 32, 40)
-slotBtn.Text = tostring(gsEntry.ItemName or TARGET_KEY)
-slotBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-slotBtn.Font = Enum.Font.GothamBold
-slotBtn.TextSize = 12
-slotBtn.Parent = invSlotGui
-
--- Кнопка Spawn для открытия окошка
-local openSpawnBtn = Instance.new("TextButton")
-openSpawnBtn.Name = "GS_OpenSpawnButton"
-openSpawnBtn.Size = UDim2.fromOffset(96, 36)
-openSpawnBtn.Position = UDim2.new(1, -108, 1, -54)
-openSpawnBtn.BackgroundColor3 = ANCIENT_COLOR
-openSpawnBtn.BorderSizePixel = 0
-openSpawnBtn.Text = "Spawn"
-openSpawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-openSpawnBtn.Font = Enum.Font.GothamBold
-openSpawnBtn.TextSize = 14
-openSpawnBtn.ZIndex = 30
-openSpawnBtn.Parent = invSlotGui
-
-local openSpawnCorner = Instance.new("UICorner")
-openSpawnCorner.CornerRadius = UDim.new(0, 8)
-openSpawnCorner.Parent = openSpawnBtn
-
--- Перетаскиваемое окошко Spawn
-local spawnWindow = Instance.new("Frame")
-spawnWindow.Name = "GS_SpawnWindow"
-spawnWindow.Size = UDim2.fromOffset(244, 178)
-spawnWindow.Position = UDim2.new(0.5, -122, 0.5, -89)
-spawnWindow.AnchorPoint = Vector2.new(0, 0)
-spawnWindow.BackgroundColor3 = Color3.fromRGB(22, 20, 30)
-spawnWindow.BorderSizePixel = 0
-spawnWindow.Visible = false
-spawnWindow.ZIndex = 40
-spawnWindow.Parent = invSlotGui
-
-local spawnCorner = Instance.new("UICorner")
-spawnCorner.CornerRadius = UDim.new(0, 10)
-spawnCorner.Parent = spawnWindow
-
-local spawnStroke = Instance.new("UIStroke")
-spawnStroke.Color = ANCIENT_COLOR
-spawnStroke.Thickness = 2
-spawnStroke.Parent = spawnWindow
-
-local spawnHeader = Instance.new("TextLabel")
-spawnHeader.Name = "DragHeader"
-spawnHeader.Size = UDim2.new(1, -38, 0, 30)
-spawnHeader.Position = UDim2.fromOffset(10, 4)
-spawnHeader.BackgroundTransparency = 1
-spawnHeader.Text = "Spawn"
-spawnHeader.TextXAlignment = Enum.TextXAlignment.Left
-spawnHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
-spawnHeader.Font = Enum.Font.GothamBold
-spawnHeader.TextSize = 14
-spawnHeader.ZIndex = 41
-spawnHeader.Parent = spawnWindow
-
-local closeSpawnBtn = Instance.new("TextButton")
-closeSpawnBtn.Size = UDim2.fromOffset(24, 24)
-closeSpawnBtn.Position = UDim2.new(1, -30, 0, 7)
-closeSpawnBtn.BackgroundColor3 = Color3.fromRGB(55, 24, 34)
-closeSpawnBtn.BorderSizePixel = 0
-closeSpawnBtn.Text = "X"
-closeSpawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeSpawnBtn.Font = Enum.Font.GothamBold
-closeSpawnBtn.TextSize = 12
-closeSpawnBtn.ZIndex = 42
-closeSpawnBtn.Parent = spawnWindow
-
-local closeCorner = Instance.new("UICorner")
-closeCorner.CornerRadius = UDim.new(0, 6)
-closeCorner.Parent = closeSpawnBtn
-
-local weaponInput = Instance.new("TextBox")
-weaponInput.Name = "WeaponNameBox"
-weaponInput.Size = UDim2.new(1, -20, 0, 34)
-weaponInput.Position = UDim2.fromOffset(10, 38)
-weaponInput.BackgroundColor3 = Color3.fromRGB(36, 33, 48)
-weaponInput.BorderSizePixel = 0
-weaponInput.Text = TARGET_KEY
-weaponInput.PlaceholderText = "Название (Gingerscope)"
-weaponInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-weaponInput.PlaceholderColor3 = Color3.fromRGB(150, 145, 170)
-weaponInput.Font = Enum.Font.GothamMedium
-weaponInput.TextSize = 13
-weaponInput.ClearTextOnFocus = false
-weaponInput.ZIndex = 41
-weaponInput.Parent = spawnWindow
-
-local weaponCorner = Instance.new("UICorner")
-weaponCorner.CornerRadius = UDim.new(0, 6)
-weaponCorner.Parent = weaponInput
-
-local amountInput = Instance.new("TextBox")
-amountInput.Name = "AmountBox"
-amountInput.Size = UDim2.new(1, -20, 0, 34)
-amountInput.Position = UDim2.fromOffset(10, 80)
-amountInput.BackgroundColor3 = Color3.fromRGB(36, 33, 48)
-amountInput.BorderSizePixel = 0
-amountInput.Text = "10"
-amountInput.PlaceholderText = "Количество (например 100)"
-amountInput.TextColor3 = Color3.fromRGB(255, 240, 150)
-amountInput.PlaceholderColor3 = Color3.fromRGB(150, 145, 170)
-amountInput.Font = Enum.Font.GothamBold
-amountInput.TextSize = 13
-amountInput.ClearTextOnFocus = false
-amountInput.ZIndex = 41
-amountInput.Parent = spawnWindow
-
-local amountCorner = Instance.new("UICorner")
-amountCorner.CornerRadius = UDim.new(0, 6)
-amountCorner.Parent = amountInput
-
-local confirmSpawnBtn = Instance.new("TextButton")
-confirmSpawnBtn.Name = "SpawnActionButton"
-confirmSpawnBtn.Size = UDim2.new(1, -20, 0, 36)
-confirmSpawnBtn.Position = UDim2.fromOffset(10, 124)
-confirmSpawnBtn.BackgroundColor3 = Color3.fromRGB(95, 35, 205)
-confirmSpawnBtn.BorderSizePixel = 0
-confirmSpawnBtn.Text = "Spawn"
-confirmSpawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-confirmSpawnBtn.Font = Enum.Font.GothamBold
-confirmSpawnBtn.TextSize = 14
-confirmSpawnBtn.ZIndex = 41
-confirmSpawnBtn.Parent = spawnWindow
-
-local confirmCorner = Instance.new("UICorner")
-confirmCorner.CornerRadius = UDim.new(0, 7)
-confirmCorner.Parent = confirmSpawnBtn
-
--- Плавное перетаскивание окна пальцем (Touch) или мышью (MouseButton1)
+-- === ИНТЕРФЕЙС ===
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "CopyUiAllGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = parentGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0.94, 0, 0.58, 0)
+MainFrame.Position = UDim2.new(0.03, 0, 0.04, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
+MainFrame.BackgroundTransparency = 0.08
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Color = Color3.fromRGB(80, 80, 100)
+Stroke.Thickness = 1
+Stroke.Parent = MainFrame
+
+local TopBar = Instance.new("Frame")
+TopBar.Name = "TopBar"
+TopBar.Size = UDim2.new(1, 0, 0, 34)
+TopBar.BackgroundColor3 = Color3.fromRGB(26, 26, 34)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 10)
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(0.26, -6, 1, 0)
+TitleLabel.Position = UDim2.new(0, 8, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "UI DUMPER"
+TitleLabel.TextColor3 = Color3.fromRGB(235, 240, 255)
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 10
+TitleLabel.Parent = TopBar
+
+local ScanQueryBtn = Instance.new("TextButton")
+ScanQueryBtn.Size = UDim2.new(0, 62, 0, 24)
+ScanQueryBtn.Position = UDim2.new(1, -304, 0.5, -12)
+ScanQueryBtn.BackgroundColor3 = Color3.fromRGB(45, 135, 235)
+ScanQueryBtn.Text = "Find Tree"
+ScanQueryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ScanQueryBtn.Font = Enum.Font.GothamBold
+ScanQueryBtn.TextSize = 9
+ScanQueryBtn.Parent = TopBar
+Instance.new("UICorner", ScanQueryBtn).CornerRadius = UDim.new(0, 6)
+
+local DumpScriptsBtn = Instance.new("TextButton")
+DumpScriptsBtn.Size = UDim2.new(0, 66, 0, 24)
+DumpScriptsBtn.Position = UDim2.new(1, -236, 0.5, -12)
+DumpScriptsBtn.BackgroundColor3 = Color3.fromRGB(125, 65, 195)
+DumpScriptsBtn.Text = "Scripts In"
+DumpScriptsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+DumpScriptsBtn.Font = Enum.Font.GothamBold
+DumpScriptsBtn.TextSize = 9
+DumpScriptsBtn.Parent = TopBar
+Instance.new("UICorner", DumpScriptsBtn).CornerRadius = UDim.new(0, 6)
+
+local ClearBtn = Instance.new("TextButton")
+ClearBtn.Size = UDim2.new(0, 48, 0, 24)
+ClearBtn.Position = UDim2.new(1, -164, 0.5, -12)
+ClearBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
+ClearBtn.Text = "Clear"
+ClearBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
+ClearBtn.Font = Enum.Font.GothamBold
+ClearBtn.TextSize = 9
+ClearBtn.Parent = TopBar
+Instance.new("UICorner", ClearBtn).CornerRadius = UDim.new(0, 6)
+
+local MinBtn = Instance.new("TextButton")
+MinBtn.Size = UDim2.new(0, 48, 0, 24)
+MinBtn.Position = UDim2.new(1, -110, 0.5, -12)
+MinBtn.BackgroundColor3 = Color3.fromRGB(55, 55, 70)
+MinBtn.Text = "Min"
+MinBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
+MinBtn.Font = Enum.Font.GothamBold
+MinBtn.TextSize = 9
+MinBtn.Parent = TopBar
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 42, 0, 24)
+CloseBtn.Position = UDim2.new(1, -52, 0.5, -12)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(165, 45, 55)
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 10
+CloseBtn.Parent = TopBar
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+local QueryBox = Instance.new("TextBox")
+QueryBox.Size = UDim2.new(1, -16, 0, 28)
+QueryBox.Position = UDim2.new(0, 8, 0, 40)
+QueryBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
+QueryBox.PlaceholderText = "Запрос (по умолчанию: Item)..."
+QueryBox.PlaceholderColor3 = Color3.fromRGB(135, 135, 155)
+QueryBox.Text = "Item"
+QueryBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+QueryBox.ClearTextOnFocus = false
+QueryBox.Font = Enum.Font.Code
+QueryBox.TextSize = 12
+QueryBox.Parent = MainFrame
+Instance.new("UICorner", QueryBox).CornerRadius = UDim.new(0, 6)
+
+local CopyUiBtn = Instance.new("TextButton")
+CopyUiBtn.Name = "CopyUiBtn"
+CopyUiBtn.Size = UDim2.new(1, -16, 0, 34)
+CopyUiBtn.Position = UDim2.new(0, 8, 1, -42)
+CopyUiBtn.BackgroundColor3 = Color3.fromRGB(35, 130, 85)
+CopyUiBtn.Text = "СКОПИРОВАТЬ ВСЁ ИЗ ИНТЕРФЕЙСА"
+CopyUiBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CopyUiBtn.Font = Enum.Font.GothamBold
+CopyUiBtn.TextSize = 11
+CopyUiBtn.Parent = MainFrame
+Instance.new("UICorner", CopyUiBtn).CornerRadius = UDim.new(0, 7)
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -16, 1, -118)
+Scroll.Position = UDim2.new(0, 8, 0, 74)
+Scroll.BackgroundColor3 = Color3.fromRGB(11, 11, 15)
+Scroll.BorderSizePixel = 0
+Scroll.ScrollBarThickness = 5
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.Parent = MainFrame
+Instance.new("UICorner", Scroll).CornerRadius = UDim.new(0, 6)
+
+local Layout = Instance.new("UIListLayout")
+Layout.Padding = UDim.new(0, 3)
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+Layout.Parent = Scroll
+
+-- Перетаскивание окна (тач + мышь)
 do
 	local dragging = false
-	local dragInput = nil
-	local dragStart = Vector2.zero
-	local startPos = UDim2.new(0, 0, 0, 0)
+	local dragInput, dragStart, startPos
 
-	local function beginDrag(input)
+	TopBar.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
-			dragInput = input
 			dragStart = input.Position
-			startPos = spawnWindow.Position
-
+			startPos = MainFrame.Position
 			input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
-					if dragInput == input then
-						dragging = false
-						dragInput = nil
-					end
+					dragging = false
 				end
 			end)
 		end
-	end
+	end)
 
-	spawnWindow.InputBegan:Connect(beginDrag)
-	spawnHeader.InputBegan:Connect(beginDrag)
+	TopBar.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
 
 	UserInputService.InputChanged:Connect(function(input)
 		if dragging and input == dragInput then
-			if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-				local delta = input.Position - dragStart
-				spawnWindow.Position = UDim2.new(
-					startPos.X.Scale,
-					startPos.X.Offset + delta.X,
-					startPos.Y.Scale,
-					startPos.Y.Offset + delta.Y
-				)
-			end
+			local delta = input.Position - dragStart
+			MainFrame.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
 		end
 	end)
 end
 
-openSpawnBtn.Activated:Connect(function()
-	spawnWindow.Visible = not spawnWindow.Visible
-end)
+-- === СТАТУС И КОПИРОВАНИЕ ВСЕГО ВЫВЕДЕННОГО В ИНТЕРФЕЙС ===
+local statusSeq = 0
+local isBusy = false
+local rows = {}
+local rowOrder = 0
+local maxUiRows = 40000
+local stepCounter = 0
 
-closeSpawnBtn.Activated:Connect(function()
-	spawnWindow.Visible = false
-end)
-
-local function spawnWeaponAmount(rawWeaponName, rawAmount)
-	local qty = tonumber(rawAmount)
-	if not qty or qty <= 0 then
-		qty = 1
-	end
-	qty = math.floor(qty)
-
-	local resolvedName, resolvedEntry = resolveWeaponData(rawWeaponName)
-	TARGET_KEY = resolvedName
-	gsEntry = resolvedEntry
-	if typeof(gsEntry) == "table" then
-		gsEntry.ItemName = gsEntry.ItemName or resolvedName
-		gsEntry.Rarity = gsEntry.Rarity or "Ancient"
-		gsEntry.Event = gsEntry.Event or "Christmas"
-		if gsEntry.ItemID then
-			TARGET_ID = gsEntry.ItemID
-		end
-		if gsEntry.Image and tostring(gsEntry.Image) ~= "" then
-			assets.Image = tostring(gsEntry.Image)
-		end
-	end
-
-	assets = findWholeAssetByItemId(gsEntry.ItemID or TARGET_ID, TARGET_KEY)
-
-	isClaimed = true
-	itemCount += qty
-
-	local addedToUi = addGingerscopeToInventoryUI()
-	if currentCardRoot and currentCardRoot.Parent then
-		updateCardAmountVisual(currentCardRoot)
-	end
-	if not addedToUi then
-		slotBtn.Visible = true
-	end
-
-	syncPistolReplacements()
-end
-
-confirmSpawnBtn.Activated:Connect(function()
-	spawnWeaponAmount(weaponInput.Text, amountInput.Text)
-	spawnWindow.Visible = false
-end)
-
-local function findLayoutContainer(node)
-	if not node then return nil end
-	if node:IsA("UIGridLayout") or node:IsA("UIListLayout") then
-		if node.Parent and node.Parent:IsA("GuiObject") then
-			return node.Parent
-		end
-	end
-	local layout = node:FindFirstChildWhichIsA("UIGridLayout", true) or node:FindFirstChildWhichIsA("UIListLayout", true)
-	if layout and layout.Parent and layout.Parent:IsA("GuiObject") then
-		return layout.Parent
-	end
-	if node:IsA("ScrollingFrame") or node:IsA("GuiObject") then
-		return node
-	end
-	return nil
-end
-
-local function findChristmasContainer()
-	local inv2 = gameGui:FindFirstChild("Inventory2")
-	local main = inv2 and inv2:FindFirstChild("Main")
-	local weapons = main and main:FindFirstChild("Weapons")
-	local items = weapons and weapons:FindFirstChild("Items")
-	local itemList = items and items:FindFirstChild("ItemList")
-
-	for _, root in ipairs({ mainGui, playerGui }) do
-		for _, desc in ipairs(root:GetDescendants()) do
-			local n = desc.Name:lower()
-			if isChristmasName(n) and not n:find("halloween", 1, true) then
-				local cont = findLayoutContainer(desc)
-				if cont then
-					return cont
-				end
-			end
-		end
-	end
-
-	for _, root in ipairs({ mainGui, playerGui }) do
-		for _, desc in ipairs(root:GetDescendants()) do
-			if desc:IsA("TextLabel") then
-				local t = desc.Text:lower()
-				if isChristmasName(t) or t:find("рождество", 1, true) then
-					local parent = desc.Parent
-					if parent then
-						for _, sib in ipairs(parent:GetChildren()) do
-							if sib ~= desc and sib:IsA("GuiObject") then
-								local cont = findLayoutContainer(sib)
-								if cont then
-									return cont
-								end
-							end
-						end
-						local grand = parent.Parent
-						if grand then
-							for _, sib in ipairs(grand:GetChildren()) do
-								if sib ~= parent and sib:IsA("GuiObject") then
-									local cont = findLayoutContainer(sib)
-									if cont then
-										return cont
-									end
-								end
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	if itemList and itemList:IsA("GuiObject") then
-		return itemList
-	end
-
-	return nil
-end
-
-local function getBottomLayoutOrder(container)
-	local maxOrder = 0
-	for _, child in ipairs(container:GetChildren()) do
-		if child:IsA("GuiObject") and child.Name ~= "GS_InventoryCard" then
-			if child.LayoutOrder > maxOrder then
-				maxOrder = child.LayoutOrder
-			end
-		end
-	end
-	return maxOrder + 1
-end
-
-local function isEventTabSelected()
-	local inv2 = gameGui:FindFirstChild("Inventory2")
-	local main = inv2 and inv2:FindFirstChild("Main")
-	local weapons = main and main:FindFirstChild("Weapons")
-	local items = weapons and weapons:FindFirstChild("Items")
-	local tabs = items and items:FindFirstChild("Tabs")
-	local eventTab = tabs and tabs:FindFirstChild("Event")
-	local border = eventTab and eventTab:FindFirstChild("ViewBorder")
-	if border and border:IsA("GuiObject") then
-		return border.Visible
-	end
-	return true
-end
-
-local function enforceFxBadge(card)
-	if not card then return end
-	local tagsFolder = card:FindFirstChild("Tags")
-	local foundFx = false
-
-	if tagsFolder then
-		for _, tag in ipairs(tagsFolder:GetChildren()) do
-			if tag:IsA("GuiObject") then
-				local tagLower = tag.Name:lower()
-				local isFx = (tagLower == "fx" or tagLower:find("fx", 1, true) ~= nil)
-				local isChristmas = isChristmasName(tagLower)
-				local showTag = isFx or isChristmas
-				tag.Visible = showTag
-				if isFx then
-					foundFx = true
-				end
-				if showTag then
-					for _, sub in ipairs(tag:GetDescendants()) do
-						if sub:IsA("GuiObject") then
-							sub.Visible = true
-						end
-						if sub:IsA("TextLabel") then
-							if sub.Name:lower():find("year", 1, true) then
-								sub.Text = tostring(gsEntry.Year or 2023)
-							elseif isFx and (sub.Name:lower():find("tag", 1, true) or sub.Name:lower():find("label", 1, true) or sub.Text == "") then
-								sub.Text = "FX"
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	if not foundFx then
-		local existingBadge = card:FindFirstChild("GS_FX_Badge")
-		if not existingBadge then
-			local badge = Instance.new("TextLabel")
-			badge.Name = "GS_FX_Badge"
-			badge.Size = UDim2.fromOffset(32, 16)
-			badge.Position = UDim2.new(1, -36, 0, 4)
-			badge.BackgroundColor3 = Color3.fromRGB(145, 55, 255)
-			badge.BorderSizePixel = 0
-			badge.Text = "FX"
-			badge.TextColor3 = Color3.fromRGB(255, 255, 255)
-			badge.Font = Enum.Font.GothamBold
-			badge.TextSize = 10
-			badge.ZIndex = 15
-			badge.Parent = card
-
-			local corner = Instance.new("UICorner")
-			corner.CornerRadius = UDim.new(0, 4)
-			corner.Parent = badge
-		elseif existingBadge:IsA("GuiObject") then
-			existingBadge.Visible = true
-		end
+local function yieldStep(everyN)
+	stepCounter += 1
+	if stepCounter % (everyN or 120) == 0 then
+		RunService.Heartbeat:Wait()
 	end
 end
 
-local function syncCardVisibility()
-	if not isClaimed or itemCount <= 0 then return end
-	local container = findChristmasContainer()
-	if container then
-		currentCardContainer = container
-	end
-
-	if not currentCardRoot or not currentCardRoot.Parent then
-		if container then
-			addGingerscopeToInventoryUI()
+local function setStatus(msg)
+	statusSeq += 1
+	local cur = statusSeq
+	TitleLabel.Text = msg
+	task.delay(2.5, function()
+		if statusSeq == cur then
+			TitleLabel.Text = "UI DUMPER"
 		end
+	end)
+end
+
+local function getClipboardFn()
+	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
+	return setclipboard
+		or toclipboard
+		or set_clipboard
+		or writeclipboard
+		or (genv and genv.setclipboard)
+		or (genv and genv.toclipboard)
+		or (genv and genv.set_clipboard)
+		or (genv and genv.writeclipboard)
+		or nil
+end
+
+local function copyToClipboard(str, label)
+	local txt = tostring(str or "")
+	if #txt == 0 then
+		setStatus("Empty!")
+		return false
+	end
+	local fn = getClipboardFn()
+	if type(fn) ~= "function" then
+		setStatus("No Clip API")
+		return false
+	end
+	local ok = pcall(fn, txt)
+	if ok then
+		setStatus((label or "Copied") .. " [" .. tostring(#txt) .. "]")
+		return true
+	end
+	setStatus("Clip Err")
+	return false
+end
+
+local function copyAllVisibleInUi()
+	if #rows == 0 then
+		setStatus("Empty!")
 		return
 	end
-
-	if currentCardContainer and currentCardRoot.Parent ~= currentCardContainer then
-		pcall(function()
-			currentCardRoot.Parent = currentCardContainer
-		end)
+	local parts = {}
+	for i = 1, #rows do
+		local item = rows[i]
+		if item and item.FullLine then
+			table.insert(parts, item.FullLine)
+		end
 	end
-
-	enforceFxBadge(currentCardRoot)
-	updateCardAmountVisual(currentCardRoot)
-
-	local shouldBeVisible = isEventTabSelected()
-	if currentCardRoot:IsA("GuiObject") and currentCardRoot.Visible ~= shouldBeVisible then
-		currentCardRoot.Visible = shouldBeVisible
-	end
+	copyToClipboard(table.concat(parts, "\n"), "UI All")
 end
 
-local function updateEquippedGunSlot()
-	local inv2 = gameGui:FindFirstChild("Inventory2")
-	local main = inv2 and inv2:FindFirstChild("Main")
-	local weapons = main and main:FindFirstChild("Weapons")
-	local equipped = weapons and weapons:FindFirstChild("Equipped")
-	local container = equipped and equipped:FindFirstChild("Container")
-	local gunSlot = container and container:FindFirstChild("Gun")
-	if not gunSlot then return end
+-- === ВЫВОД В ИНТЕРФЕЙС ===
+local function pushUiLine(text, color)
+	rowOrder += 1
+	local lineStr = tostring(text)
 
-	local slotCont = gunSlot:FindFirstChild("Container")
-	local slotIcon = slotCont and slotCont:FindFirstChild("Icon")
-	local slotName = gunSlot:FindFirstChild("ItemName") and gunSlot.ItemName:FindFirstChild("Label")
-
-	if isEquipped then
-		if not gunSlot:GetAttribute("GS_PrevIcon") and slotIcon and slotIcon:IsA("ImageLabel") then
-			gunSlot:SetAttribute("GS_PrevIcon", slotIcon.Image)
-		end
-		if not gunSlot:GetAttribute("GS_PrevName") and slotName and slotName:IsA("TextLabel") then
-			gunSlot:SetAttribute("GS_PrevName", slotName.Text)
-		end
-		if slotIcon and slotIcon:IsA("ImageLabel") then
-			slotIcon.Image = assets.Image
-		end
-		if slotName and slotName:IsA("TextLabel") then
-			slotName.Text = tostring(gsEntry.ItemName or TARGET_KEY)
-		end
-		if equipService and equipService.EquipItem then
-			pcall(function()
-				equipService:EquipItem("Weapons", tostring(gsEntry.ItemName or TARGET_KEY))
-			end)
-		end
-	else
-		local prevIcon = gunSlot:GetAttribute("GS_PrevIcon")
-		local prevName = gunSlot:GetAttribute("GS_PrevName")
-		if prevIcon and slotIcon and slotIcon:IsA("ImageLabel") then
-			slotIcon.Image = prevIcon
-		end
-		if prevName and slotName and slotName:IsA("TextLabel") then
-			slotName.Text = prevName
-		end
-	end
-end
-
-local function refreshEquipVisuals()
-	local baseName = tostring(gsEntry.ItemName or TARGET_KEY)
-	if currentCardNameLabel and currentCardNameLabel:IsA("TextLabel") then
-		currentCardNameLabel.Text = baseName
-	end
-	if currentCardRoot then
-		local stroke = currentCardRoot:FindFirstChildOfClass("UIStroke") or (currentCardRoot:FindFirstChild("Container") and currentCardRoot.Container:FindFirstChildOfClass("UIStroke"))
-		if stroke then
-			stroke.Color = isEquipped and Color3.fromRGB(255, 255, 255) or ANCIENT_COLOR
-			stroke.Thickness = isEquipped and 2.5 or 1.5
-		end
-		enforceFxBadge(currentCardRoot)
-		updateCardAmountVisual(currentCardRoot)
-	end
-	slotBtn.BackgroundColor3 = isEquipped and Color3.fromRGB(65, 130, 220) or Color3.fromRGB(32, 32, 40)
-	slotBtn.Text = baseName
-end
-
-setEquipped = function(state)
-	local wasEquipped = isEquipped
-	isEquipped = state
-	if wasEquipped and not state then
-		consumeOneOnUnequip()
-	end
-	refreshEquipVisuals()
-	updateEquippedGunSlot()
-	syncPistolReplacements()
-	syncCardVisibility()
-end
-
-local function toggleGingerscopeEquip()
-	if not isClaimed or itemCount <= 0 then return end
-	setEquipped(not isEquipped)
-end
-
-slotBtn.MouseButton1Click:Connect(toggleGingerscopeEquip)
-
-local function bindOtherItemButton(btn)
-	if hookedButtons[btn] then return end
-	if currentCardRoot and btn:IsDescendantOf(currentCardRoot) then return end
-	if btn.Name == "Claim" then return end
-
-	hookedButtons[btn] = true
-	if btn:IsA("GuiButton") then
-		btn.Activated:Connect(function()
-			if isEquipped then
-				setEquipped(false)
-			end
-			task.defer(syncCardVisibility)
-		end)
-		btn.MouseButton1Click:Connect(function()
-			if isEquipped then
-				setEquipped(false)
-			end
-			task.defer(syncCardVisibility)
-		end)
-	end
-end
-
-local function hookOtherInventoryButtons(rootScope)
-	if not rootScope then return end
-	for _, desc in ipairs(rootScope:GetDescendants()) do
-		if desc:IsA("GuiButton") then
-			bindOtherItemButton(desc)
-		end
-	end
-end
-
-local function findInventoryCardTemplate()
-	local inv2 = gameGui:FindFirstChild("Inventory2")
-	if inv2 and inv2:FindFirstChild("EquipContainer") and inv2.EquipContainer:FindFirstChild("ItemFrame") then
-		return inv2.EquipContainer.ItemFrame
-	end
-
-	local rsMain = ReplicatedStorage:FindFirstChild("MainGUI")
-	local rsInv2 = rsMain and rsMain:FindFirstChild("Inventory2")
-	if rsInv2 and rsInv2:FindFirstChild("EquipContainer") and rsInv2.EquipContainer:FindFirstChild("ItemFrame") then
-		return rsInv2.EquipContainer.ItemFrame
-	end
-
-	local rsInv = rsMain and rsMain:FindFirstChild("Inventory")
-	local rsInvScript = rsInv and rsInv:FindFirstChild("Inventory")
-	if rsInvScript and rsInvScript:FindFirstChild("ItemOld") then
-		return rsInvScript.ItemOld
-	end
-
-	return nil
-end
-
-local function applyAncientCardStyle(card)
-	local itemNameFrame = card:FindFirstChild("ItemName")
-	if itemNameFrame and itemNameFrame:IsA("GuiObject") then
-		itemNameFrame.BackgroundColor3 = ANCIENT_COLOR
-		local bg = itemNameFrame:FindFirstChild("BG")
-		if bg and bg:IsA("GuiObject") then
-			bg.BackgroundColor3 = ANCIENT_COLOR
-			if bg:IsA("ImageLabel") then
-				bg.ImageColor3 = ANCIENT_COLOR
-			end
-		end
-		for _, sub in ipairs(itemNameFrame:GetDescendants()) do
-			if sub:IsA("UIGradient") then
-				sub.Color = ColorSequence.new({
-					ColorSequenceKeypoint.new(0, ANCIENT_DARK),
-					ColorSequenceKeypoint.new(0.5, ANCIENT_COLOR),
-					ColorSequenceKeypoint.new(1, ANCIENT_DARK),
-				})
-			elseif sub:IsA("UIStroke") then
-				sub.Color = ANCIENT_DARK
-			end
+	if #rows >= maxUiRows then
+		local first = table.remove(rows, 1)
+		if first and first.Btn then
+			first.Btn:Destroy()
 		end
 	end
 
-	local cont = card:FindFirstChild("Container")
-	if cont then
-		for _, sub in ipairs(cont:GetDescendants()) do
-			if sub:IsA("UIGradient") then
-				sub.Color = ColorSequence.new({
-					ColorSequenceKeypoint.new(0, ANCIENT_DARK),
-					ColorSequenceKeypoint.new(1, ANCIENT_COLOR),
-				})
-			elseif sub:IsA("UIStroke") then
-				sub.Color = ANCIENT_COLOR
-			end
-		end
-	end
-end
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -8, 0, 0)
+	btn.AutomaticSize = Enum.AutomaticSize.Y
+	btn.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+	btn.BackgroundTransparency = 0.15
+	btn.Text = lineStr
+	btn.TextColor3 = color or Color3.fromRGB(220, 238, 255)
+	btn.TextWrapped = true
+	btn.TextXAlignment = Enum.TextXAlignment.Left
+	btn.Font = Enum.Font.Code
+	btn.TextSize = 11
+	btn.LayoutOrder = rowOrder
+	btn.AutoButtonColor = true
+	btn.Parent = Scroll
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 
-local function attachCardGuards(card)
-	if not card or hookedCardSignals[card] then return end
-	hookedCardSignals[card] = true
-
-	card:GetPropertyChangedSignal("Visible"):Connect(function()
-		if not isClaimed or itemCount <= 0 or card ~= currentCardRoot then return end
-		local expected = isEventTabSelected()
-		if card:IsA("GuiObject") and card.Visible ~= expected then
-			task.defer(function()
-				if currentCardRoot == card and card.Parent then
-					card.Visible = isEventTabSelected()
-					enforceFxBadge(card)
-					updateCardAmountVisual(card)
-				end
-			end)
-		end
+	btn.Activated:Connect(function()
+		copyToClipboard(lineStr, "Line")
 	end)
 
-	card:GetPropertyChangedSignal("Parent"):Connect(function()
-		if not isClaimed or itemCount <= 0 or card ~= currentCardRoot then return end
-		if not card.Parent then
-			task.defer(function()
-				if isClaimed and itemCount > 0 and currentCardRoot == card and not card.Parent then
-					currentCardRoot = nil
-					addGingerscopeToInventoryUI()
-				end
-			end)
-		else
-			local container = currentCardContainer or findChristmasContainer()
-			if container and card.Parent ~= container then
-				task.defer(function()
-					if isClaimed and itemCount > 0 and currentCardRoot == card and container.Parent then
-						card.Parent = container
-						card.Visible = isEventTabSelected()
-						enforceFxBadge(card)
-						updateCardAmountVisual(card)
-					end
-				end)
-			end
-		end
-	end)
-end
-
-addGingerscopeToInventoryUI = function()
-	if itemCount <= 0 then
-		return false
-	end
-
-	local targetContainer = findChristmasContainer()
-	local template = findInventoryCardTemplate()
-	if not targetContainer or not template then
-		return false
-	end
-
-	currentCardContainer = targetContainer
-
-	for _, root in ipairs({ mainGui, playerGui }) do
-		for _, obj in ipairs(root:GetDescendants()) do
-			if obj.Name == "GS_InventoryCard" then
-				obj:Destroy()
-			end
-		end
-	end
-
-	local card = template:Clone()
-	card.Name = "GS_InventoryCard"
-	card.Visible = isEventTabSelected()
-	card.LayoutOrder = getBottomLayoutOrder(targetContainer)
-	card.Parent = targetContainer
-	currentCardRoot = card
-
-	local itemNameFrame = card:FindFirstChild("ItemName")
-	local nameLabel = itemNameFrame and itemNameFrame:FindFirstChild("Label")
-	currentCardNameLabel = nameLabel
-	if nameLabel and nameLabel:IsA("TextLabel") then
-		nameLabel.Text = tostring(gsEntry.ItemName or TARGET_KEY)
-	end
-
-	local cont = card:FindFirstChild("Container")
-	local icon = cont and cont:FindFirstChild("Icon")
-	if icon and icon:IsA("ImageLabel") then
-		icon.Image = assets.Image
-		icon.Visible = true
-	end
-
-	enforceFxBadge(card)
-	applyAncientCardStyle(card)
-	updateCardAmountVisual(card)
-	refreshEquipVisuals()
-	attachCardGuards(card)
-
-	local actionBtn = cont and cont:FindFirstChild("ActionButton")
-	local clickTarget = (actionBtn and actionBtn:IsA("GuiButton") and actionBtn) or (card:IsA("GuiButton") and card)
-
-	if clickTarget then
-		clickTarget.Activated:Connect(toggleGingerscopeEquip)
-		clickTarget.MouseButton1Click:Connect(toggleGingerscopeEquip)
-	else
-		for _, desc in ipairs(card:GetDescendants()) do
-			if desc:IsA("GuiButton") then
-				desc.Activated:Connect(toggleGingerscopeEquip)
-				desc.MouseButton1Click:Connect(toggleGingerscopeEquip)
-			end
-		end
-	end
-
-	hookOtherInventoryButtons(mainGui)
-	slotBtn.Visible = false
-	return true
-end
-
-local function openNativeNewItem()
-	centerNewItemWindow()
-	if _G.NewItem then
-		_G.NewItem(TARGET_KEY, "You Got...", nil, "Weapons", 1)
-	end
-
-	local container = newItemFrame:FindFirstChild("Container")
-	local innerItem = container and container:FindFirstChild("NewItem")
-	if innerItem and itemModule.DisplayItem then
-		pcall(itemModule.DisplayItem, innerItem, gsEntry, 1)
-	end
-
-	local icon = innerItem and innerItem:FindFirstChild("Container") and innerItem.Container:FindFirstChild("Icon")
-	if icon and icon:IsA("ImageLabel") and (icon.Image == "" or icon.Image == "rbxassetid://0") then
-		icon.Image = assets.Image
-	end
-
-	if Lighting:FindFirstChild("NewItemBlur") then
-		Lighting.NewItemBlur.Enabled = true
-	end
-	newItemFrame.Visible = true
-end
-
-local function playFallbackFlyToTarget(iconObj, targetGuiObj)
-	local flyer = Instance.new("ImageLabel")
-	flyer.Name = "GS_FlyIcon"
-	flyer.Size = UDim2.fromOffset(64, 64)
-	flyer.Position = UDim2.fromScale(0.5, 0.5)
-	flyer.AnchorPoint = Vector2.new(0.5, 0.5)
-	flyer.BackgroundTransparency = 1
-	flyer.Image = (iconObj and iconObj:IsA("ImageLabel") and iconObj.Image ~= "" and iconObj.Image) or assets.Image
-	flyer.ZIndex = 70
-	flyer.Parent = invSlotGui
-
-	local dest = targetGuiObj or slotBtn
-	local targetPos = UDim2.fromOffset(
-		dest.AbsolutePosition.X + dest.AbsoluteSize.X * 0.5,
-		dest.AbsolutePosition.Y + dest.AbsoluteSize.Y * 0.5
-	)
-
-	local tw = TweenService:Create(flyer, TweenInfo.new(0.42, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Position = targetPos,
-		Size = UDim2.fromOffset(32, 32),
+	table.insert(rows, {
+		FullLine = lineStr,
+		Btn = btn,
 	})
-	tw:Play()
-	tw.Completed:Connect(function()
-		flyer:Destroy()
-	end)
 end
 
-claimBtn.Activated:Connect(function()
-	if isClaimed then return end
-	isClaimed = true
-	itemCount = math.max(itemCount, 1)
-
-	local container = newItemFrame:FindFirstChild("Container")
-	local innerItem = container and container:FindFirstChild("NewItem")
-	local iconObj = innerItem and innerItem:FindFirstChild("Container") and innerItem.Container:FindFirstChild("Icon")
-	local dockInv = gameGui:FindFirstChild("Dock") and gameGui.Dock:FindFirstChild("Inventory")
-
-	local nativeAnimOk = false
-	if iconObj and dockInv and itemModule.AnimateItemIconIntoInventory then
-		nativeAnimOk = pcall(itemModule.AnimateItemIconIntoInventory, iconObj, dockInv, gameGui)
+-- === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
+local function safeFullName(inst)
+	if typeof(inst) ~= "Instance" then
+		return tostring(inst)
 	end
+	local ok, res = pcall(function()
+		return inst:GetFullName()
+	end)
+	return ok and res or tostring(inst)
+end
 
-	newItemFrame.Visible = false
-	if Lighting:FindFirstChild("NewItemBlur") then
-		Lighting.NewItemBlur.Enabled = false
+local function isServerOnlyScript(inst)
+	if typeof(inst) ~= "Instance" then
+		return true
 	end
-
-	local addedToUi = addGingerscopeToInventoryUI()
-	if not addedToUi then
-		slotBtn.Visible = true
-	end
-
-	if not nativeAnimOk then
-		playFallbackFlyToTarget(iconObj, addedToUi and dockInv or slotBtn)
-	end
-
-	syncPistolReplacements()
-end)
-
-mainGui.DescendantAdded:Connect(function(desc)
-	if desc:IsA("GuiButton") then
-		bindOtherItemButton(desc)
-	end
-	if isClaimed and itemCount > 0 and (desc:IsA("UIGridLayout") or desc:IsA("UIListLayout")) then
-		task.defer(function()
-			syncCardVisibility()
+	if inst:IsA("Script") and not inst:IsA("LocalScript") then
+		local okCtx, ctx = pcall(function()
+			return inst.RunContext
 		end)
+		if okCtx and ctx == Enum.RunContext.Client then
+			return false
+		end
+		return true
 	end
-end)
+	return false
+end
 
-task.spawn(function()
-	local inv2 = gameGui:FindFirstChild("Inventory2")
-	if inv2 and inv2:IsA("GuiObject") then
-		inv2:GetPropertyChangedSignal("Visible"):Connect(function()
-			if isClaimed and itemCount > 0 then
-				task.defer(function()
-					addGingerscopeToInventoryUI()
-				end)
+local function isAccessibleScript(inst)
+	return typeof(inst) == "Instance" and inst:IsA("LuaSourceContainer") and not isServerOnlyScript(inst)
+end
+
+local function formatKeyLabel(k)
+	if type(k) == "string" then
+		if string.match(k, "^[%a_][%w_]*$") then
+			return k
+		end
+		return string.format("[%q]", k)
+	end
+	return "[" .. tostring(k) .. "]"
+end
+
+local function formatLeafValue(val)
+	local t = typeof(val)
+	if t == "string" then
+		local s = val
+		if #s > 600 then
+			s = string.sub(s, 1, 600) .. "..."
+		end
+		return string.format("%q", s)
+	elseif t == "number" or t == "boolean" or t == "nil" then
+		return tostring(val)
+	elseif t == "Instance" then
+		return string.format("<%s:%s (%s)>", val.ClassName, val.Name, safeFullName(val))
+	elseif t == "function" then
+		return "<function>"
+	end
+	return "<" .. t .. ": " .. tostring(val) .. ">"
+end
+
+local function dumpRequireValueFullToUi(val, indent, depth, visited, basePrefix)
+	yieldStep(150)
+	local pad = basePrefix .. string.rep("  ", indent)
+	if type(val) ~= "table" then
+		pushUiLine(pad .. formatLeafValue(val), Color3.fromRGB(205, 225, 245))
+		return
+	end
+	if visited[val] or depth >= 8 then
+		pushUiLine(pad .. "{...}", Color3.fromRGB(205, 225, 245))
+		return
+	end
+	visited[val] = true
+	pushUiLine(pad .. "{", Color3.fromRGB(205, 225, 245))
+
+	for k, v in pairs(val) do
+		yieldStep(150)
+		local label = formatKeyLabel(k)
+		if type(v) == "table" and not visited[v] and (depth + 1) < 8 then
+			pushUiLine(pad .. "  " .. label .. " =", Color3.fromRGB(220, 235, 255))
+			dumpRequireValueFullToUi(v, indent + 2, depth + 1, visited, basePrefix)
+		else
+			pushUiLine(pad .. "  " .. label .. " = " .. formatLeafValue(v), Color3.fromRGB(205, 225, 245))
+		end
+	end
+
+	pushUiLine(pad .. "}", Color3.fromRGB(205, 225, 245))
+	visited[val] = nil
+end
+
+local function extractScriptInnerFullToUi(scriptObj, basePrefix)
+	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
+
+	if scriptObj:IsA("ModuleScript") then
+		local okReq, modVal = pcall(require, scriptObj)
+		if okReq then
+			pushUiLine(basePrefix .. "  [MODULE REQUIRE]:", Color3.fromRGB(165, 245, 195))
+			dumpRequireValueFullToUi(modVal, 2, 0, {}, basePrefix)
+		else
+			pushUiLine(basePrefix .. "  [MODULE REQUIRE ERR]: " .. tostring(modVal), Color3.fromRGB(255, 150, 120))
+		end
+	end
+
+	local decompileFn = decompile or (genv and genv.decompile)
+	if type(decompileFn) == "function" then
+		local okDec, src = pcall(decompileFn, scriptObj)
+		if okDec and type(src) == "string" and #src > 0 then
+			pushUiLine(basePrefix .. "  [DECOMPILED]:", Color3.fromRGB(165, 210, 255))
+			for sLine in string.gmatch(src, "[^\r\n]+") do
+				yieldStep(200)
+				pushUiLine(basePrefix .. "    " .. sLine, Color3.fromRGB(205, 225, 245))
 			end
-		end)
+			return
+		end
 	end
 
-	local main = inv2 and inv2:FindFirstChild("Main")
-	local weapons = main and main:FindFirstChild("Weapons")
-	local items = weapons and weapons:FindFirstChild("Items")
-	local tabs = items and items:FindFirstChild("Tabs")
-	if tabs then
-		for _, tab in ipairs(tabs:GetChildren()) do
-			if tab.Name ~= "Search" and tab.Name ~= "UIListLayout" then
-				local btn = tab:FindFirstChild("View")
-				if btn and btn:IsA("GuiButton") then
-					btn.Activated:Connect(function()
-						task.defer(syncCardVisibility)
-					end)
+	local bcFn = getscriptbytecode or (genv and genv.getscriptbytecode)
+	if type(bcFn) == "function" then
+		local okBc, bc = pcall(bcFn, scriptObj)
+		if okBc and type(bc) == "string" and #bc > 0 then
+			pushUiLine(basePrefix .. "  [BYTECODE]: " .. tostring(#bc) .. " bytes", Color3.fromRGB(185, 195, 215))
+		end
+	end
+end
+
+local function describeNodeFull(node)
+	local props = {}
+
+	if node:IsA("GuiObject") then
+		table.insert(props, "Visible=" .. tostring(node.Visible))
+	elseif node:IsA("LayerCollector") then
+		table.insert(props, "Enabled=" .. tostring(node.Enabled))
+	end
+
+	if node:IsA("TextLabel") or node:IsA("TextButton") or node:IsA("TextBox") then
+		table.insert(props, "Text=" .. string.format("%q", tostring(node.Text)))
+	elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
+		table.insert(props, "Image=" .. string.format("%q", tostring(node.Image)))
+	elseif node:IsA("MeshPart") then
+		table.insert(props, "MeshId=" .. string.format("%q", tostring(node.MeshId)))
+		table.insert(props, "TextureID=" .. string.format("%q", tostring(node.TextureID)))
+	elseif node:IsA("SpecialMesh") then
+		table.insert(props, "MeshId=" .. string.format("%q", tostring(node.MeshId)))
+		table.insert(props, "TextureId=" .. string.format("%q", tostring(node.TextureId)))
+	elseif node:IsA("Decal") or node:IsA("Texture") then
+		table.insert(props, "Texture=" .. string.format("%q", tostring(node.Texture)))
+	elseif node:IsA("Sound") then
+		table.insert(props, "SoundId=" .. string.format("%q", tostring(node.SoundId)))
+	elseif node:IsA("Animation") then
+		table.insert(props, "AnimationId=" .. string.format("%q", tostring(node.AnimationId)))
+	elseif node:IsA("ValueBase") then
+		local okV, val = pcall(function()
+			return node.Value
+		end)
+		if okV then
+			table.insert(props, "Value=" .. formatLeafValue(val))
+		end
+	end
+
+	local okTags, tags = pcall(function()
+		return CollectionService:GetTags(node)
+	end)
+	if okTags and type(tags) == "table" and #tags > 0 then
+		table.insert(props, "Tags=[" .. table.concat(tags, ", ") .. "]")
+	end
+
+	local okAttr, attrs = pcall(function()
+		return node:GetAttributes()
+	end)
+	if okAttr and type(attrs) == "table" then
+		for k, v in pairs(attrs) do
+			table.insert(props, "Attr." .. tostring(k) .. "=" .. formatLeafValue(v))
+		end
+	end
+
+	if #props == 0 then
+		return ""
+	end
+	return "  {" .. table.concat(props, ", ") .. "}"
+end
+
+local function isInventoryRelatedScript(inst)
+	if not isAccessibleScript(inst) then
+		return false
+	end
+	local fullLow = string.lower(safeFullName(inst))
+	local nameLow = string.lower(tostring(inst.Name or ""))
+	return string.find(fullLow, "inventory", 1, true) ~= nil
+		or string.find(fullLow, "inventory2", 1, true) ~= nil
+		or string.find(nameLow, "inventory", 1, true) ~= nil
+		or string.find(nameLow, "inventory2", 1, true) ~= nil
+end
+
+local function dumpSubtreeFullToUi(rootInst, dumpedScriptsSet, collectedScriptsList, seenCollectedSet)
+	local count = 0
+	local function walk(node, depth, prefix, isLast)
+		count += 1
+		yieldStep(150)
+		local branch = (depth == 0) and "" or (isLast and "└── " or "├── ")
+		local line = string.format("%s%s[%s] %s%s  (%s)", prefix, branch, node.ClassName, node.Name, describeNodeFull(node), safeFullName(node))
+		pushUiLine(line, depth == 0 and Color3.fromRGB(255, 205, 95) or Color3.fromRGB(215, 235, 255))
+
+		local nextPrefix = (depth == 0) and "" or (prefix .. (isLast and "    " or "│   "))
+		if isAccessibleScript(node) then
+			if dumpedScriptsSet then
+				dumpedScriptsSet[node] = true
+			end
+			if collectedScriptsList and seenCollectedSet and not seenCollectedSet[node] then
+				seenCollectedSet[node] = true
+				table.insert(collectedScriptsList, node)
+			end
+			extractScriptInnerFullToUi(node, nextPrefix)
+		end
+
+		local okCh, ch = pcall(function()
+			return node:GetChildren()
+		end)
+		if okCh and type(ch) == "table" then
+			for i, c in ipairs(ch) do
+				walk(c, depth + 1, nextPrefix, i == #ch)
+			end
+		end
+	end
+	walk(rootInst, 0, "", true)
+	return count
+end
+
+-- === 1. ПОЛНЫЙ ОБХОД ДЕРЕВЬЕВ, STARTERGUI, DATABASE И ВСЕХ ДОСТУПНЫХ СКРИПТОВ ===
+local function parseQueries(rawText)
+	local trimmed = string.match(tostring(rawText or ""), "^%s*(.-)%s*$")
+	if not trimmed or trimmed == "" then
+		return { "item" }
+	end
+	local list = {}
+	for part in string.gmatch(trimmed, "[^,;|]+") do
+		local tok = string.match(part, "^%s*(.-)%s*$")
+		if tok and tok ~= "" then
+			table.insert(list, string.lower(tok))
+		end
+	end
+	return (#list > 0) and list or { string.lower(trimmed) }
+end
+
+local function matchesQuery(obj, qList)
+	local nameLow = string.lower(tostring(obj.Name or ""))
+	for _, q in ipairs(qList) do
+		if string.find(nameLow, q, 1, true) then
+			return true, "name:" .. q
+		end
+	end
+
+	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+		local tLow = string.lower(tostring(obj.Text or ""))
+		for _, q in ipairs(qList) do
+			if string.find(tLow, q, 1, true) then
+				return true, "text:" .. q
+			end
+		end
+	elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+		local iLow = string.lower(tostring(obj.Image or ""))
+		for _, q in ipairs(qList) do
+			if string.find(iLow, q, 1, true) then
+				return true, "image:" .. q
+			end
+		end
+	elseif obj:IsA("ValueBase") then
+		local okV, val = pcall(function()
+			return obj.Value
+		end)
+		if okV then
+			local vLow = string.lower(tostring(val))
+			for _, q in ipairs(qList) do
+				if string.find(vLow, q, 1, true) then
+					return true, "val:" .. q
 				end
 			end
 		end
 	end
-end)
 
-local function hookCharacter(char)
-	char.ChildAdded:Connect(function()
-		task.defer(syncPistolReplacements)
-	end)
-	char.ChildRemoved:Connect(function()
-		task.defer(syncPistolReplacements)
-	end)
-	local backpack = player:FindFirstChild("Backpack")
-	if backpack then
-		backpack.ChildAdded:Connect(function()
-			task.defer(syncPistolReplacements)
-		end)
-		backpack.ChildRemoved:Connect(function()
-			task.defer(syncPistolReplacements)
-		end)
-	end
-	syncPistolReplacements()
+	return false, nil
 end
 
-if player.Character then
-	hookCharacter(player.Character)
+local function getDatabaseRoot()
+	local okDb, db = pcall(function()
+		return ReplicatedStorage:FindFirstChild("Database")
+	end)
+	return okDb and db or nil
 end
-player.CharacterAdded:Connect(hookCharacter)
 
-local lastCardGuardTick = 0
-RunService.Heartbeat:Connect(function(dt)
-	if isEquipped then
-		syncPistolReplacements()
-	end
-	if isClaimed and itemCount > 0 then
-		lastCardGuardTick += dt
-		if lastCardGuardTick >= 1 then
-			lastCardGuardTick = 0
-			syncCardVisibility()
+local function getScanRoots()
+	local roots = {}
+	local seen = {}
+	local function addRoot(r)
+		if r and not seen[r] then
+			seen[r] = true
+			table.insert(roots, r)
 		end
 	end
+
+	addRoot(StarterGui)
+	addRoot(getDatabaseRoot())
+	addRoot(ReplicatedStorage)
+	addRoot(LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
+	addRoot(LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"))
+	addRoot(LocalPlayer and LocalPlayer.Character)
+	addRoot(workspace)
+
+	return roots
+end
+
+local function runQueryStructureScan()
+	if isBusy then
+		setStatus("Busy...")
+		return
+	end
+	isBusy = true
+	ScanQueryBtn.Text = "Wait..."
+	ScanQueryBtn.BackgroundColor3 = Color3.fromRGB(185, 115, 30)
+
+	task.spawn(function()
+		local ok, err = pcall(function()
+			local qList = parseQueries(QueryBox.Text)
+			pushUiLine("=== ПОЛНАЯ ВЫГРУЗКА STARTERGUI + ДЕРЕВЬЕВ: " .. table.concat(qList, ", ") .. " ===", Color3.fromRGB(120, 210, 255))
+
+			local roots = getScanRoots()
+			local databaseRoot = getDatabaseRoot()
+			local matched = {}
+			local seenInst = {}
+			local priorityScripts = {}
+			local seenPriorityScript = {}
+
+			if StarterGui then
+				seenInst[StarterGui] = true
+				table.insert(matched, { inst = StarterGui, tag = "root:StarterGui" })
+			end
+
+			local function considerScriptPriority(obj)
+				if not isAccessibleScript(obj) then
+					return
+				end
+				local inDb = databaseRoot and (obj == databaseRoot or obj:IsDescendantOf(databaseRoot))
+				local inStarter = obj == StarterGui or obj:IsDescendantOf(StarterGui)
+				if inDb or inStarter or isInventoryRelatedScript(obj) then
+					if not seenPriorityScript[obj] then
+						seenPriorityScript[obj] = true
+						table.insert(priorityScripts, obj)
+					end
+				end
+			end
+
+			for _, r in ipairs(roots) do
+				if r then
+					local mRoot, tagRoot = matchesQuery(r, qList)
+					if mRoot and not seenInst[r] then
+						seenInst[r] = true
+						table.insert(matched, { inst = r, tag = tagRoot })
+					end
+					considerScriptPriority(r)
+
+					local okDesc, desc = pcall(function()
+						return r:GetDescendants()
+					end)
+					if okDesc and type(desc) == "table" then
+						for _, obj in ipairs(desc) do
+							yieldStep(500)
+							if not seenInst[obj] then
+								local m, tag = matchesQuery(obj, qList)
+								if m then
+									seenInst[obj] = true
+									table.insert(matched, { inst = obj, tag = tag })
+								end
+							end
+							considerScriptPriority(obj)
+						end
+					end
+				end
+			end
+
+			local totalNodes = 0
+			local dumpedScripts = {}
+
+			for idx, entry in ipairs(matched) do
+				local inst = entry.inst
+				pushUiLine(string.format("▼ #%d [%s] %s (%s)", idx, entry.tag, safeFullName(inst), inst.ClassName), Color3.fromRGB(115, 240, 165))
+				totalNodes += dumpSubtreeFullToUi(inst, dumpedScripts, priorityScripts, seenPriorityScript)
+			end
+
+			pushUiLine("=== ВСЕ ДОСТУПНЫЕ СКРИПТЫ И МОДУЛИ (STARTERGUI / DATABASE / INVENTORY) ===", Color3.fromRGB(255, 185, 95))
+			local extraScriptCount = 0
+			for _, sc in ipairs(priorityScripts) do
+				if not dumpedScripts[sc] then
+					dumpedScripts[sc] = true
+					extraScriptCount += 1
+					pushUiLine(string.format("  [%s] %s (%s)", sc.ClassName, sc.Name, safeFullName(sc)), Color3.fromRGB(140, 235, 255))
+					extractScriptInnerFullToUi(sc, "  ")
+				end
+			end
+
+			setStatus("Trees:" .. tostring(#matched) .. " Nodes:" .. tostring(totalNodes) .. " Scr:" .. tostring(extraScriptCount))
+		end)
+
+		if not ok then
+			pushUiLine("Ошибка: " .. tostring(err), Color3.fromRGB(255, 85, 85))
+			setStatus("Err")
+		end
+
+		isBusy = false
+		ScanQueryBtn.Text = "Find Tree"
+		ScanQueryBtn.BackgroundColor3 = Color3.fromRGB(45, 135, 235)
+	end)
+end
+
+-- === 2. ОБХОД СКРИПТОВ И РАЗБОР REQUIRE(MODULE) ===
+local function getTargetScriptBranches()
+	local branches = {}
+	local seen = {}
+	local function addInst(inst)
+		if inst and not seen[inst] then
+			seen[inst] = true
+			table.insert(branches, inst)
+		end
+	end
+	local function addPath(parentObj, childName)
+		if not parentObj then
+			return
+		end
+		local ok, found = pcall(function()
+			return parentObj:FindFirstChild(childName)
+		end)
+		if ok and found then
+			addInst(found)
+		end
+	end
+
+	addInst(StarterGui)
+	addInst(getDatabaseRoot())
+	addPath(ReplicatedStorage, "ClientTweenEvents")
+	addPath(ReplicatedStorage, "Database")
+	addPath(ReplicatedStorage, "ClientServices")
+	addPath(ReplicatedStorage, "Modules")
+	local db = getDatabaseRoot()
+	if db then
+		addPath(db, "Sync")
+	end
+	return branches
+end
+
+local function runScriptsBranchesDump()
+	if isBusy then
+		setStatus("Busy...")
+		return
+	end
+	isBusy = true
+	DumpScriptsBtn.Text = "Wait..."
+	DumpScriptsBtn.BackgroundColor3 = Color3.fromRGB(185, 115, 30)
+
+	task.spawn(function()
+		local ok, err = pcall(function()
+			pushUiLine("=== СКРИПТЫ И МОДУЛИ (STARTERGUI + DATABASE + ВЕТКИ) ===", Color3.fromRGB(185, 130, 255))
+			local branches = getTargetScriptBranches()
+			local scriptsFound = 0
+
+			for _, branch in ipairs(branches) do
+				pushUiLine("▼ BRANCH: " .. safeFullName(branch), Color3.fromRGB(255, 205, 95))
+
+				local candidates = { branch }
+				local okDesc, desc = pcall(function()
+					return branch:GetDescendants()
+				end)
+				if okDesc and type(desc) == "table" then
+					for _, d in ipairs(desc) do
+						table.insert(candidates, d)
+					end
+				end
+
+				for _, obj in ipairs(candidates) do
+					yieldStep(150)
+					if isAccessibleScript(obj) then
+						scriptsFound += 1
+						pushUiLine(string.format("  [%s] %s (%s)", obj.ClassName, obj.Name, safeFullName(obj)), Color3.fromRGB(120, 240, 175))
+						extractScriptInnerFullToUi(obj, "  ")
+					end
+				end
+			end
+
+			setStatus("Scripts: " .. tostring(scriptsFound))
+		end)
+
+		if not ok then
+			pushUiLine("Ошибка: " .. tostring(err), Color3.fromRGB(255, 85, 85))
+			setStatus("Err")
+		end
+
+		isBusy = false
+		DumpScriptsBtn.Text = "Scripts In"
+		DumpScriptsBtn.BackgroundColor3 = Color3.fromRGB(125, 65, 195)
+	end)
+end
+
+ScanQueryBtn.Activated:Connect(runQueryStructureScan)
+DumpScriptsBtn.Activated:Connect(runScriptsBranchesDump)
+CopyUiBtn.Activated:Connect(copyAllVisibleInUi)
+
+ClearBtn.Activated:Connect(function()
+	for _, item in ipairs(rows) do
+		if item.Btn then
+			item.Btn:Destroy()
+		end
+	end
+	table.clear(rows)
+	setStatus("Cleared")
 end)
 
-openNativeNewItem()
+local isMin = false
+MinBtn.Activated:Connect(function()
+	isMin = not isMin
+	QueryBox.Visible = not isMin
+	Scroll.Visible = not isMin
+	CopyUiBtn.Visible = not isMin
+	ScanQueryBtn.Visible = not isMin
+	DumpScriptsBtn.Visible = not isMin
+	ClearBtn.Visible = not isMin
+	MainFrame.Size = isMin and UDim2.new(0.55, 0, 0, 34) or UDim2.new(0.94, 0, 0.58, 0)
+	MinBtn.Text = isMin and "Max" or "Min"
+end)
+
+CloseBtn.Activated:Connect(function()
+	ScreenGui:Destroy()
+end)
+
+pushUiLine("Готово. Нажми 'Find Tree' или 'Scripts In', затем 'СКОПИРОВАТЬ ВСЁ ИЗ ИНТЕРФЕЙСА'.", Color3.fromRGB(180, 200, 230))
