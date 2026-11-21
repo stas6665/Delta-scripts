@@ -4,7 +4,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 local StarterPlayer = game:GetService("StarterPlayer")
 local CollectionService = game:GetService("CollectionService")
-local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 local parentGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -156,7 +155,6 @@ Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 Scroll.Parent = MainFrame
 Instance.new("UICorner", Scroll).CornerRadius = UDim.new(0, 6)
 
--- Один текстовый блок вместо тысяч кнопок: не вешает телефон и не вылетает
 local OutputLabel = Instance.new("TextLabel")
 OutputLabel.Size = UDim2.new(1, -10, 0, 0)
 OutputLabel.Position = UDim2.new(0, 4, 0, 2)
@@ -212,7 +210,8 @@ end
 local statusSeq = 0
 local isBusy = false
 local currentDumpText = OutputLabel.Text
-local MAX_CHARS = 900000
+local MAX_LABEL_CHARS = 185000 -- строго ниже лимита Roblox TextLabel (~200000)
+local MAX_CLIP_CHARS = 1500000
 
 local function setStatus(msg)
 	statusSeq += 1
@@ -225,13 +224,26 @@ local function setStatus(msg)
 	end)
 end
 
+local function safeSetLabelText(txt)
+	local str = tostring(txt or "")
+	if #str > MAX_LABEL_CHARS then
+		str = string.sub(str, 1, MAX_LABEL_CHARS) .. "\n... [PREVIEW TRIMMED AT 185K CHARS; FULL TEXT IN CLIPBOARD]"
+	end
+	local ok = pcall(function()
+		OutputLabel.Text = str
+	end)
+	if not ok then
+		OutputLabel.Text = string.sub(str, 1, 100000) .. "\n... [TRIMMED]"
+	end
+end
+
 local function flushBufferToUi(lines)
 	local full = table.concat(lines, "\n")
-	if #full > MAX_CHARS then
-		full = string.sub(full, 1, MAX_CHARS) .. "\n... [TRUNCATED FOR MEMORY SAFETY]"
+	if #full > MAX_CLIP_CHARS then
+		full = string.sub(full, 1, MAX_CLIP_CHARS) .. "\n... [TRUNCATED FOR MEMORY SAFETY]"
 	end
 	currentDumpText = full
-	OutputLabel.Text = full
+	safeSetLabelText(full)
 	Scroll.CanvasPosition = Vector2.new(0, 0)
 end
 
@@ -587,7 +599,7 @@ local function getScanRoots()
 	return roots
 end
 
--- === БЫСТРЫЙ FIND TREE (БЕЗ АНИМАЦИИ И ВЫЛЕТОВ) ===
+-- === БЫСТРЫЙ FIND TREE ===
 local function runQueryStructureScan()
 	if isBusy then
 		setStatus("Busy...")
@@ -691,7 +703,7 @@ local function runQueryStructureScan()
 
 		if not ok then
 			currentDumpText = "Ошибка: " .. tostring(err)
-			OutputLabel.Text = currentDumpText
+			safeSetLabelText(currentDumpText)
 			setStatus("Err")
 		end
 
@@ -714,24 +726,6 @@ local function runScriptsBranchesDump()
 		local ok, err = pcall(function()
 			local out = { "=== SCRIPTS & MODULES ===" }
 			local branches = getScanRoots()
-			local qList = parseQueries(QueryBox.Text)
-
-			for _, r in ipairs(branches) do
-				if r then
-					local okDesc, desc = pcall(function()
-						return r:GetDescendants()
-					end)
-					if okDesc and type(desc) == "table" then
-						for i = 1, #desc do
-							local obj = desc[i]
-							if matchesQuery(obj, qList) then
-								table.insert(out, obj)
-							end
-						end
-					end
-				end
-			end
-
 			local scriptsFound = 0
 			local seenScripts = {}
 
@@ -760,7 +754,7 @@ local function runScriptsBranchesDump()
 
 		if not ok then
 			currentDumpText = "Ошибка: " .. tostring(err)
-			OutputLabel.Text = currentDumpText
+			safeSetLabelText(currentDumpText)
 			setStatus("Err")
 		end
 
