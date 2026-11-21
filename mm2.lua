@@ -1,4 +1,4 @@
--- Scan (Crash-safe copy + chunks + manual select fallback)
+-- Scan (Direct clipboard copy + large chunks)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,8 +24,8 @@ local SEARCH_QUERIES = {
 	"Box",
 }
 
-local CHUNK_SIZE = 25000
-local MAX_SCRIPT_CHARS = 15000
+local CHUNK_SIZE = 95000
+local MAX_SCRIPT_CHARS = 35000
 
 local function getScanRoots()
 	local roots = {
@@ -73,29 +73,57 @@ local function trimText(str, maxLen, suffixNote)
 	return string.sub(str, 1, maxLen) .. (suffixNote or "\n... [Обрезано]")
 end
 
-local function splitIntoChunks(text, chunkSize)
+local function splitIntoLargeChunks(text, chunkSize)
 	if type(text) ~= "string" or #text == 0 then
 		return { "" }
 	end
+	if #text <= chunkSize then
+		return { text }
+	end
+
 	local chunks = {}
 	local len = #text
-	for i = 1, len, chunkSize do
-		table.insert(chunks, string.sub(text, i, math.min(i + chunkSize - 1, len)))
+	local startPos = 1
+
+	while startPos <= len do
+		local rawEnd = math.min(startPos + chunkSize - 1, len)
+		local cutPos = rawEnd
+
+		if rawEnd < len then
+			local lastNewline = string.find(text, "\n[^\n]*$", startPos)
+			if not lastNewline then
+				for i = rawEnd, startPos + math.floor(chunkSize * 0.7), -1 do
+					if string.sub(text, i, i) == "\n" then
+						cutPos = i
+						break
+					end
+				end
+			else
+				cutPos = lastNewline
+			end
+		end
+
+		if cutPos < startPos then
+			cutPos = rawEnd
+		end
+
+		table.insert(chunks, string.sub(text, startPos, cutPos))
+		startPos = cutPos + 1
 	end
+
 	return chunks
 end
 
-local function tryExecutorClipboard(text)
+local function copyToClipboard(text)
 	if type(text) ~= "string" or #text == 0 then
 		return false
 	end
-	local safeStr = string.sub(text, 1, CHUNK_SIZE)
 	if typeof(setclipboard) == "function" then
-		local ok = pcall(setclipboard, safeStr)
+		local ok = pcall(setclipboard, text)
 		if ok then return true end
 	end
 	if typeof(toclipboard) == "function" then
-		local ok = pcall(toclipboard, safeStr)
+		local ok = pcall(toclipboard, text)
 		if ok then return true end
 	end
 	return false
@@ -115,7 +143,7 @@ local function serializeValue(val, depth, seenTables)
 	elseif t == "Instance" then
 		return getFullPath(val) .. " [" .. val.ClassName .. "]"
 	elseif t == "table" then
-		if depth >= 2 then
+		if depth >= 3 then
 			return "{ ... }"
 		end
 		if seenTables[val] then
@@ -127,7 +155,7 @@ local function serializeValue(val, depth, seenTables)
 		local count = 0
 		for k, v in pairs(val) do
 			count += 1
-			if count > 20 then
+			if count > 30 then
 				table.insert(parts, "  ... (ещё ключи)")
 				break
 			end
@@ -468,7 +496,7 @@ local function buildUI()
 	outBox.Position = UDim2.new(0, 6, 0, 6)
 	outBox.BackgroundTransparency = 1
 	outBox.TextColor3 = Color3.fromRGB(220, 220, 228)
-	outBox.Text = "Нажми кнопку сверху. Для копирования без вылета используй «Выделить» или «След. кусок»."
+	outBox.Text = "Нажми кнопку сверху."
 	outBox.TextXAlignment = Enum.TextXAlignment.Left
 	outBox.TextYAlignment = Enum.TextYAlignment.Top
 	outBox.MultiLine = true
@@ -479,27 +507,15 @@ local function buildUI()
 	outBox.TextWrapped = true
 	outBox.Parent = scroll
 
-	-- Нижняя панель: Выделить / След. кусок / Копировать
 	local bottomBar = Instance.new("Frame")
 	bottomBar.Size = UDim2.new(1, 0, 0, 38)
 	bottomBar.Position = UDim2.new(0, 0, 1, -38)
 	bottomBar.BackgroundTransparency = 1
 	bottomBar.Parent = body
 
-	local selectBtn = Instance.new("TextButton")
-	selectBtn.Size = UDim2.new(0.26, -3, 1, 0)
-	selectBtn.Position = UDim2.new(0, 0, 0, 0)
-	selectBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 56)
-	selectBtn.Text = "Выделить"
-	selectBtn.TextColor3 = Color3.fromRGB(240, 240, 248)
-	selectBtn.Font = Enum.Font.GothamBold
-	selectBtn.TextSize = 11
-	selectBtn.Parent = bottomBar
-	Instance.new("UICorner", selectBtn).CornerRadius = UDim.new(0, 6)
-
 	local nextChunkBtn = Instance.new("TextButton")
-	nextChunkBtn.Size = UDim2.new(0.28, -3, 1, 0)
-	nextChunkBtn.Position = UDim2.new(0.26, 2, 0, 0)
+	nextChunkBtn.Size = UDim2.new(0.32, -3, 1, 0)
+	nextChunkBtn.Position = UDim2.new(0, 0, 0, 0)
 	nextChunkBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 46)
 	nextChunkBtn.Text = "Кусок 1/1"
 	nextChunkBtn.TextColor3 = Color3.fromRGB(220, 220, 235)
@@ -509,10 +525,10 @@ local function buildUI()
 	Instance.new("UICorner", nextChunkBtn).CornerRadius = UDim.new(0, 6)
 
 	local copyBtn = Instance.new("TextButton")
-	copyBtn.Size = UDim2.new(0.46, 0, 1, 0)
-	copyBtn.Position = UDim2.new(0.54, 2, 0, 0)
+	copyBtn.Size = UDim2.new(0.68, -2, 1, 0)
+	copyBtn.Position = UDim2.new(0.32, 2, 0, 0)
 	copyBtn.BackgroundColor3 = Color3.fromRGB(24, 118, 224)
-	copyBtn.Text = "Скопировать кусок"
+	copyBtn.Text = "Скопировать в буфер"
 	copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	copyBtn.Font = Enum.Font.GothamBold
 	copyBtn.TextSize = 12
@@ -521,11 +537,12 @@ local function buildUI()
 
 	local chunks = { "" }
 	local chunkIndex = 1
+	local isCopying = false
 
 	local function renderCurrentChunk()
 		local currentText = chunks[chunkIndex] or ""
-		if #currentText > 120000 then
-			currentText = string.sub(currentText, 1, 120000)
+		if #currentText > 180000 then
+			currentText = string.sub(currentText, 1, 180000)
 		end
 		outBox.Text = currentText
 		nextChunkBtn.Text = string.format("Кусок %d/%d", chunkIndex, #chunks)
@@ -540,7 +557,7 @@ local function buildUI()
 	end
 
 	local function setOutput(str)
-		chunks = splitIntoChunks(str or "", CHUNK_SIZE)
+		chunks = splitIntoLargeChunks(str or "", CHUNK_SIZE)
 		chunkIndex = 1
 		renderCurrentChunk()
 	end
@@ -582,33 +599,23 @@ local function buildUI()
 		end
 	end)
 
-	selectBtn.MouseButton1Click:Connect(function()
-		outBox.TextEditable = true
-		outBox:CaptureFocus()
-		selectBtn.Text = "Выделено"
-		task.delay(2, function()
-			if outBox and outBox.Parent then
-				outBox.TextEditable = false
-			end
-			if selectBtn and selectBtn.Parent then
-				selectBtn.Text = "Выделить"
-			end
-		end)
-	end)
-
 	copyBtn.MouseButton1Click:Connect(function()
+		if isCopying then return end
+		isCopying = true
+
 		local textToCopy = chunks[chunkIndex] or outBox.Text
 		task.spawn(function()
-			local ok = tryExecutorClipboard(textToCopy)
+			local ok = copyToClipboard(textToCopy)
 			if copyBtn and copyBtn.Parent then
-				copyBtn.Text = ok and ("Кусок " .. chunkIndex .. " скопирован!") or "Нажми «Выделить»"
+				copyBtn.Text = ok and ("Кусок " .. chunkIndex .. " скопирован!") or "Буфер недоступен"
 				copyBtn.BackgroundColor3 = ok and Color3.fromRGB(30, 155, 85) or Color3.fromRGB(165, 45, 55)
 			end
 			task.wait(1.2)
 			if copyBtn and copyBtn.Parent then
-				copyBtn.Text = "Скопировать кусок"
+				copyBtn.Text = "Скопировать в буфер"
 				copyBtn.BackgroundColor3 = Color3.fromRGB(24, 118, 224)
 			end
+			isCopying = false
 		end)
 	end)
 
