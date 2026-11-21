@@ -1,5 +1,4 @@
--- Scan (Search by list, dump full trees + scripts inside them & contents)
--- Fixed: Mobile crash on "Скопировать в буфер" + safe memory limits
+-- Scan (Crash-safe copy + chunks + manual select fallback)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -25,9 +24,8 @@ local SEARCH_QUERIES = {
 	"Box",
 }
 
-local MAX_DISPLAY_CHARS = 90000
-local MAX_CLIPBOARD_CHARS = 120000
-local MAX_SCRIPT_CHARS = 25000
+local CHUNK_SIZE = 25000
+local MAX_SCRIPT_CHARS = 15000
 
 local function getScanRoots()
 	local roots = {
@@ -72,37 +70,35 @@ end
 local function trimText(str, maxLen, suffixNote)
 	if type(str) ~= "string" then return "" end
 	if #str <= maxLen then return str end
-	return string.sub(str, 1, maxLen) .. (suffixNote or "\n... [Обрезано для защиты от вылета]")
+	return string.sub(str, 1, maxLen) .. (suffixNote or "\n... [Обрезано]")
 end
 
-local function copyToClipboardSafe(text)
+local function splitIntoChunks(text, chunkSize)
 	if type(text) ~= "string" or #text == 0 then
-		return false, "Пусто"
+		return { "" }
 	end
-
-	local truncated = false
-	local payload = text
-	if #payload > MAX_CLIPBOARD_CHARS then
-		truncated = true
-		payload = string.sub(payload, 1, MAX_CLIPBOARD_CHARS)
-			.. "\n\n... [Обрезано до " .. MAX_CLIPBOARD_CHARS .. " из " .. #text
-			.. " символов, чтобы не крашнуть телефон]"
+	local chunks = {}
+	local len = #text
+	for i = 1, len, chunkSize do
+		table.insert(chunks, string.sub(text, i, math.min(i + chunkSize - 1, len)))
 	end
+	return chunks
+end
 
-	local copied = false
+local function tryExecutorClipboard(text)
+	if type(text) ~= "string" or #text == 0 then
+		return false
+	end
+	local safeStr = string.sub(text, 1, CHUNK_SIZE)
 	if typeof(setclipboard) == "function" then
-		copied = pcall(setclipboard, payload)
-	elseif typeof(toclipboard) == "function" then
-		copied = pcall(toclipboard, payload)
+		local ok = pcall(setclipboard, safeStr)
+		if ok then return true end
 	end
-
-	if not copied then
-		return false, "Буфер недоступен"
+	if typeof(toclipboard) == "function" then
+		local ok = pcall(toclipboard, safeStr)
+		if ok then return true end
 	end
-	if truncated then
-		return true, "Скопировано (часть)"
-	end
-	return true, "Скопировано!"
+	return false
 end
 
 local function serializeValue(val, depth, seenTables)
@@ -131,7 +127,7 @@ local function serializeValue(val, depth, seenTables)
 		local count = 0
 		for k, v in pairs(val) do
 			count += 1
-			if count > 25 then
+			if count > 20 then
 				table.insert(parts, "  ... (ещё ключи)")
 				break
 			end
@@ -153,7 +149,7 @@ local function getScriptContent(scr)
 	if typeof(decompile) == "function" then
 		local ok, res = pcall(decompile, scr)
 		if ok and type(res) == "string" and #res > 0 then
-			return trimText(res, MAX_SCRIPT_CHARS, "\n-- [Код скрипта обрезан для экономии памяти]")
+			return trimText(res, MAX_SCRIPT_CHARS, "\n-- [Код обрезан]")
 		end
 	end
 
@@ -161,7 +157,7 @@ local function getScriptContent(scr)
 		return scr.Source
 	end)
 	if okSrc and type(src) == "string" and #src > 0 then
-		return trimText(src, MAX_SCRIPT_CHARS, "\n-- [Source обрезан для экономии памяти]")
+		return trimText(src, MAX_SCRIPT_CHARS, "\n-- [Source обрезан]")
 	end
 
 	if scr:IsA("ModuleScript") and typeof(require) == "function" then
@@ -172,7 +168,7 @@ local function getScriptContent(scr)
 		end
 	end
 
-	return "-- [Внутренность скрипта недоступна в текущем контексте]"
+	return "-- [Внутренность скрипта недоступна]"
 end
 
 local function formatScriptBlock(scr, index, prefix)
@@ -378,8 +374,8 @@ local function buildUI()
 
 	local mainPanel = Instance.new("Frame")
 	mainPanel.Name = "MainPanel"
-	mainPanel.Size = UDim2.new(0.60, 0, 0.74, 0)
-	mainPanel.Position = UDim2.new(0.38, 0, 0.14, 0)
+	mainPanel.Size = UDim2.new(0.62, 0, 0.76, 0)
+	mainPanel.Position = UDim2.new(0.36, 0, 0.12, 0)
 	mainPanel.BackgroundColor3 = Color3.fromRGB(16, 16, 18)
 	mainPanel.BackgroundTransparency = 0.05
 	mainPanel.BorderSizePixel = 0
@@ -458,7 +454,7 @@ local function buildUI()
 	local btnModScripts = makeActionBtn("Скрипты Modules", 0.75, 0.25)
 
 	local scroll = Instance.new("ScrollingFrame")
-	scroll.Size = UDim2.new(1, 0, 1, -82)
+	scroll.Size = UDim2.new(1, 0, 1, -84)
 	scroll.Position = UDim2.new(0, 0, 0, 36)
 	scroll.BackgroundColor3 = Color3.fromRGB(12, 12, 14)
 	scroll.BorderSizePixel = 0
@@ -472,7 +468,7 @@ local function buildUI()
 	outBox.Position = UDim2.new(0, 6, 0, 6)
 	outBox.BackgroundTransparency = 1
 	outBox.TextColor3 = Color3.fromRGB(220, 220, 228)
-	outBox.Text = "Нажми «Вывести деревья» или кнопку скриптов."
+	outBox.Text = "Нажми кнопку сверху. Для копирования без вылета используй «Выделить» или «След. кусок»."
 	outBox.TextXAlignment = Enum.TextXAlignment.Left
 	outBox.TextYAlignment = Enum.TextYAlignment.Top
 	outBox.MultiLine = true
@@ -483,31 +479,59 @@ local function buildUI()
 	outBox.TextWrapped = true
 	outBox.Parent = scroll
 
+	-- Нижняя панель: Выделить / След. кусок / Копировать
+	local bottomBar = Instance.new("Frame")
+	bottomBar.Size = UDim2.new(1, 0, 0, 38)
+	bottomBar.Position = UDim2.new(0, 0, 1, -38)
+	bottomBar.BackgroundTransparency = 1
+	bottomBar.Parent = body
+
+	local selectBtn = Instance.new("TextButton")
+	selectBtn.Size = UDim2.new(0.26, -3, 1, 0)
+	selectBtn.Position = UDim2.new(0, 0, 0, 0)
+	selectBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 56)
+	selectBtn.Text = "Выделить"
+	selectBtn.TextColor3 = Color3.fromRGB(240, 240, 248)
+	selectBtn.Font = Enum.Font.GothamBold
+	selectBtn.TextSize = 11
+	selectBtn.Parent = bottomBar
+	Instance.new("UICorner", selectBtn).CornerRadius = UDim.new(0, 6)
+
+	local nextChunkBtn = Instance.new("TextButton")
+	nextChunkBtn.Size = UDim2.new(0.28, -3, 1, 0)
+	nextChunkBtn.Position = UDim2.new(0.26, 2, 0, 0)
+	nextChunkBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 46)
+	nextChunkBtn.Text = "Кусок 1/1"
+	nextChunkBtn.TextColor3 = Color3.fromRGB(220, 220, 235)
+	nextChunkBtn.Font = Enum.Font.GothamBold
+	nextChunkBtn.TextSize = 11
+	nextChunkBtn.Parent = bottomBar
+	Instance.new("UICorner", nextChunkBtn).CornerRadius = UDim.new(0, 6)
+
 	local copyBtn = Instance.new("TextButton")
-	copyBtn.Size = UDim2.new(1, 0, 0, 38)
-	copyBtn.Position = UDim2.new(0, 0, 1, -38)
+	copyBtn.Size = UDim2.new(0.46, 0, 1, 0)
+	copyBtn.Position = UDim2.new(0.54, 2, 0, 0)
 	copyBtn.BackgroundColor3 = Color3.fromRGB(24, 118, 224)
-	copyBtn.Text = "Скопировать в буфер"
+	copyBtn.Text = "Скопировать кусок"
 	copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	copyBtn.Font = Enum.Font.GothamBold
-	copyBtn.TextSize = 13
-	copyBtn.Parent = body
+	copyBtn.TextSize = 12
+	copyBtn.Parent = bottomBar
 	Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
 
-	local latestOutputText = ""
-	local isCopying = false
+	local chunks = { "" }
+	local chunkIndex = 1
 
-	local function setOutput(str)
-		latestOutputText = str or ""
-		local displayStr = latestOutputText
-		if #displayStr > MAX_DISPLAY_CHARS then
-			displayStr = string.sub(displayStr, 1, MAX_DISPLAY_CHARS)
-				.. "\n\n... [Текст обрезан для окна: " .. #displayStr .. "/" .. #latestOutputText .. " символов]"
+	local function renderCurrentChunk()
+		local currentText = chunks[chunkIndex] or ""
+		if #currentText > 120000 then
+			currentText = string.sub(currentText, 1, 120000)
 		end
+		outBox.Text = currentText
+		nextChunkBtn.Text = string.format("Кусок %d/%d", chunkIndex, #chunks)
 
-		outBox.Text = displayStr
-		local lineCount = select(2, string.gsub(displayStr, "\n", "\n")) + 1
-		local estWrappedLines = math.ceil(#displayStr / 55)
+		local lineCount = select(2, string.gsub(currentText, "\n", "\n")) + 1
+		local estWrappedLines = math.ceil(#currentText / 55)
 		local totalLines = math.max(lineCount, estWrappedLines)
 		local height = math.max(220, totalLines * 15 + 32)
 		outBox.Size = UDim2.new(1, -12, 0, height)
@@ -515,19 +539,25 @@ local function buildUI()
 		scroll.CanvasPosition = Vector2.new(0, 0)
 	end
 
+	local function setOutput(str)
+		chunks = splitIntoChunks(str or "", CHUNK_SIZE)
+		chunkIndex = 1
+		renderCurrentChunk()
+	end
+
 	btnTrees.MouseButton1Click:Connect(function()
 		local resultsByQuery = searchByQueries()
-		local chunks = {}
+		local parts = {}
 
 		for _, entry in ipairs(resultsByQuery) do
-			table.insert(chunks, "=== ПОИСК: " .. entry.query .. " (" .. #entry.matches .. ") ===")
+			table.insert(parts, "=== ПОИСК: " .. entry.query .. " (" .. #entry.matches .. ") ===")
 			for _, treeInst in ipairs(entry.matches) do
-				table.insert(chunks, dumpFullTree(treeInst))
-				table.insert(chunks, "")
+				table.insert(parts, dumpFullTree(treeInst))
+				table.insert(parts, "")
 			end
 		end
 
-		setOutput(table.concat(chunks, "\n"))
+		setOutput(table.concat(parts, "\n"))
 	end)
 
 	btnAllTreeScripts.MouseButton1Click:Connect(function()
@@ -545,23 +575,40 @@ local function buildUI()
 		setOutput(collectScriptsWithContents(modNodes, "MODULES"))
 	end)
 
-	copyBtn.MouseButton1Click:Connect(function()
-		if isCopying then return end
-		isCopying = true
+	nextChunkBtn.MouseButton1Click:Connect(function()
+		if #chunks > 1 then
+			chunkIndex = (chunkIndex % #chunks) + 1
+			renderCurrentChunk()
+		end
+	end)
 
-		local sourceText = (latestOutputText ~= "" and latestOutputText) or outBox.Text
+	selectBtn.MouseButton1Click:Connect(function()
+		outBox.TextEditable = true
+		outBox:CaptureFocus()
+		selectBtn.Text = "Выделено"
+		task.delay(2, function()
+			if outBox and outBox.Parent then
+				outBox.TextEditable = false
+			end
+			if selectBtn and selectBtn.Parent then
+				selectBtn.Text = "Выделить"
+			end
+		end)
+	end)
+
+	copyBtn.MouseButton1Click:Connect(function()
+		local textToCopy = chunks[chunkIndex] or outBox.Text
 		task.spawn(function()
-			local ok, statusText = copyToClipboardSafe(sourceText)
+			local ok = tryExecutorClipboard(textToCopy)
 			if copyBtn and copyBtn.Parent then
-				copyBtn.Text = statusText
+				copyBtn.Text = ok and ("Кусок " .. chunkIndex .. " скопирован!") or "Нажми «Выделить»"
 				copyBtn.BackgroundColor3 = ok and Color3.fromRGB(30, 155, 85) or Color3.fromRGB(165, 45, 55)
 			end
 			task.wait(1.2)
 			if copyBtn and copyBtn.Parent then
-				copyBtn.Text = "Скопировать в буфер"
+				copyBtn.Text = "Скопировать кусок"
 				copyBtn.BackgroundColor3 = Color3.fromRGB(24, 118, 224)
 			end
-			isCopying = false
 		end)
 	end)
 
@@ -570,7 +617,7 @@ local function buildUI()
 		minimized = not minimized
 		body.Visible = not minimized
 		minBtn.Text = minimized and "^" or "V"
-		mainPanel.Size = minimized and UDim2.new(0.60, 0, 0, 34) or UDim2.new(0.60, 0, 0.74, 0)
+		mainPanel.Size = minimized and UDim2.new(0.62, 0, 0, 34) or UDim2.new(0.62, 0, 0.76, 0)
 	end)
 end
 
