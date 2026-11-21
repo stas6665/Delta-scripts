@@ -1,5 +1,5 @@
 -- Scan (Search by list, dump full trees + scripts inside them & contents)
--- Fixed: 200,000 char Text limit crash + full clipboard export
+-- Fixed: Mobile crash on "Скопировать в буфер" + safe memory limits
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -25,7 +25,9 @@ local SEARCH_QUERIES = {
 	"Box",
 }
 
-local MAX_DISPLAY_CHARS = 180000
+local MAX_DISPLAY_CHARS = 90000
+local MAX_CLIPBOARD_CHARS = 120000
+local MAX_SCRIPT_CHARS = 25000
 
 local function getScanRoots()
 	local roots = {
@@ -67,16 +69,40 @@ local function isScriptInstance(inst)
 	return inst:IsA("LocalScript") or inst:IsA("ModuleScript") or inst:IsA("Script")
 end
 
-local function copyToClipboard(text)
+local function trimText(str, maxLen, suffixNote)
+	if type(str) ~= "string" then return "" end
+	if #str <= maxLen then return str end
+	return string.sub(str, 1, maxLen) .. (suffixNote or "\n... [Обрезано для защиты от вылета]")
+end
+
+local function copyToClipboardSafe(text)
+	if type(text) ~= "string" or #text == 0 then
+		return false, "Пусто"
+	end
+
+	local truncated = false
+	local payload = text
+	if #payload > MAX_CLIPBOARD_CHARS then
+		truncated = true
+		payload = string.sub(payload, 1, MAX_CLIPBOARD_CHARS)
+			.. "\n\n... [Обрезано до " .. MAX_CLIPBOARD_CHARS .. " из " .. #text
+			.. " символов, чтобы не крашнуть телефон]"
+	end
+
+	local copied = false
 	if typeof(setclipboard) == "function" then
-		local ok = pcall(setclipboard, text)
-		if ok then return true end
+		copied = pcall(setclipboard, payload)
+	elseif typeof(toclipboard) == "function" then
+		copied = pcall(toclipboard, payload)
 	end
-	if typeof(toclipboard) == "function" then
-		local ok = pcall(toclipboard, text)
-		if ok then return true end
+
+	if not copied then
+		return false, "Буфер недоступен"
 	end
-	return false
+	if truncated then
+		return true, "Скопировано (часть)"
+	end
+	return true, "Скопировано!"
 end
 
 local function serializeValue(val, depth, seenTables)
@@ -93,8 +119,8 @@ local function serializeValue(val, depth, seenTables)
 	elseif t == "Instance" then
 		return getFullPath(val) .. " [" .. val.ClassName .. "]"
 	elseif t == "table" then
-		if depth >= 3 then
-			return "{ ... (глубина) }"
+		if depth >= 2 then
+			return "{ ... }"
 		end
 		if seenTables[val] then
 			return "{ ... (цикл) }"
@@ -105,7 +131,7 @@ local function serializeValue(val, depth, seenTables)
 		local count = 0
 		for k, v in pairs(val) do
 			count += 1
-			if count > 40 then
+			if count > 25 then
 				table.insert(parts, "  ... (ещё ключи)")
 				break
 			end
@@ -127,7 +153,7 @@ local function getScriptContent(scr)
 	if typeof(decompile) == "function" then
 		local ok, res = pcall(decompile, scr)
 		if ok and type(res) == "string" and #res > 0 then
-			return res
+			return trimText(res, MAX_SCRIPT_CHARS, "\n-- [Код скрипта обрезан для экономии памяти]")
 		end
 	end
 
@@ -135,13 +161,14 @@ local function getScriptContent(scr)
 		return scr.Source
 	end)
 	if okSrc and type(src) == "string" and #src > 0 then
-		return src
+		return trimText(src, MAX_SCRIPT_CHARS, "\n-- [Source обрезан для экономии памяти]")
 	end
 
 	if scr:IsA("ModuleScript") and typeof(require) == "function" then
 		local okReq, modData = pcall(require, scr)
 		if okReq then
-			return "-- [Returned from require]\n" .. serializeValue(modData, 0, {})
+			local serialized = serializeValue(modData, 0, {})
+			return trimText("-- [Returned from require]\n" .. serialized, MAX_SCRIPT_CHARS, "\n-- [Таблица обрезана]")
 		end
 	end
 
@@ -467,16 +494,15 @@ local function buildUI()
 	copyBtn.Parent = body
 	Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
 
-	local fullBufferText = ""
+	local latestOutputText = ""
+	local isCopying = false
 
 	local function setOutput(str)
-		fullBufferText = str or ""
-		local displayStr = fullBufferText
+		latestOutputText = str or ""
+		local displayStr = latestOutputText
 		if #displayStr > MAX_DISPLAY_CHARS then
 			displayStr = string.sub(displayStr, 1, MAX_DISPLAY_CHARS)
-				.. "\n\n... [Текст обрезан для отображения в окне (всего символов: "
-				.. #fullBufferText
-				.. ", лимит UI: 200000). Нажми «Скопировать в буфер», чтобы скопировать ПОЛНЫЙ текст.]"
+				.. "\n\n... [Текст обрезан для окна: " .. #displayStr .. "/" .. #latestOutputText .. " символов]"
 		end
 
 		outBox.Text = displayStr
@@ -520,15 +546,22 @@ local function buildUI()
 	end)
 
 	copyBtn.MouseButton1Click:Connect(function()
-		local textToCopy = (fullBufferText ~= "" and fullBufferText) or outBox.Text
-		local ok = copyToClipboard(textToCopy)
-		copyBtn.Text = ok and "Скопировано!" or "Буфер недоступен"
-		copyBtn.BackgroundColor3 = ok and Color3.fromRGB(30, 155, 85) or Color3.fromRGB(165, 45, 55)
-		task.delay(1.2, function()
+		if isCopying then return end
+		isCopying = true
+
+		local sourceText = (latestOutputText ~= "" and latestOutputText) or outBox.Text
+		task.spawn(function()
+			local ok, statusText = copyToClipboardSafe(sourceText)
+			if copyBtn and copyBtn.Parent then
+				copyBtn.Text = statusText
+				copyBtn.BackgroundColor3 = ok and Color3.fromRGB(30, 155, 85) or Color3.fromRGB(165, 45, 55)
+			end
+			task.wait(1.2)
 			if copyBtn and copyBtn.Parent then
 				copyBtn.Text = "Скопировать в буфер"
 				copyBtn.BackgroundColor3 = Color3.fromRGB(24, 118, 224)
 			end
+			isCopying = false
 		end)
 	end)
 
