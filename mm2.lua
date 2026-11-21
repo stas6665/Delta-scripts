@@ -1,4 +1,4 @@
--- Auto-scan on startup + Output Window + Copy All button
+-- Fixed Auto-scan + Output Window (handles >200k chars safely) + Copy All button
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -120,7 +120,6 @@ closeBtn.ZIndex = 1002
 closeBtn.Parent = topBar
 addCorner(closeBtn, 5)
 
--- Перетаскивание (тач + мышь)
 local dragging = false
 local dragStart: Vector3? = nil
 local winStart: UDim2? = nil
@@ -177,21 +176,10 @@ scroll.Parent = body
 addCorner(scroll, 6)
 addStroke(scroll, Color3.fromRGB(48, 56, 76), 1)
 
-local outputLabel = Instance.new("TextLabel")
-outputLabel.Name = "OutputLabel"
-outputLabel.Size = UDim2.new(0, 1200, 0, 2000)
-outputLabel.Position = UDim2.fromOffset(6, 6)
-outputLabel.BackgroundTransparency = 1
-outputLabel.Font = Enum.Font.Code
-outputLabel.TextSize = 11
-outputLabel.TextXAlignment = Enum.TextXAlignment.Left
-outputLabel.TextYAlignment = Enum.TextYAlignment.Top
-outputLabel.TextWrapped = false
-outputLabel.RichText = false
-outputLabel.TextColor3 = Color3.fromRGB(225, 232, 245)
-outputLabel.Text = "Сканирование..."
-outputLabel.ZIndex = 1003
-outputLabel.Parent = scroll
+local listLayout = Instance.new("UIListLayout")
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.Padding = UDim.new(0, 4)
+listLayout.Parent = scroll
 
 local copyBtn = Instance.new("TextButton")
 copyBtn.Name = "CopyAllButton"
@@ -214,6 +202,10 @@ local keywords = {
 	"hellowen",
 	"box",
 }
+
+local MAX_CHUNK_CHARS = 180000
+local MAX_CHILDREN_PER_NODE = 12
+local lastFullReport = ""
 
 local function getMatchedKeywords(name: string): { string }
 	local lower = string.lower(name)
@@ -244,31 +236,90 @@ local function dumpSubtree(root: Instance, lines: { string }, prefix: string, ma
 	if currentDepth > maxDepth then
 		return
 	end
-	for _, child in ipairs(root:GetChildren()) do
+	local children = root:GetChildren()
+	local total = #children
+	local limit = math.min(total, MAX_CHILDREN_PER_NODE)
+
+	for i = 1, limit do
+		local child = children[i]
 		local m = getMatchedKeywords(child.Name)
 		table.insert(lines, string.format("%s|-- %s", prefix, formatNodeInfo(child, m)))
 		dumpSubtree(child, lines, prefix .. "|   ", maxDepth, currentDepth + 1)
 	end
+
+	if total > limit then
+		table.insert(lines, string.format("%s`-- ... (+ ещё %d дочерних объектов)", prefix, total - limit))
+	end
 end
 
-local function updateCanvasForText(text: string)
-	local lineCount = 1
-	for _ in string.gmatch(text, "\n") do
-		lineCount += 1
+local function clearChunks()
+	for _, child in ipairs(scroll:GetChildren()) do
+		if child:IsA("TextLabel") then
+			child:Destroy()
+		end
+	end
+end
+
+local function renderTextSafely(fullText: string)
+	clearChunks()
+	lastFullReport = fullText
+
+	if fullText == "" then
+		scroll.CanvasSize = UDim2.fromOffset(scroll.AbsoluteSize.X, scroll.AbsoluteSize.Y)
+		return
 	end
 
-	local maxLen = 20
-	for line in string.gmatch(text, "[^\n]+") do
-		if #line > maxLen then
-			maxLen = #line
+	local maxLineLen = 20
+	for line in string.gmatch(fullText, "[^\n]+") do
+		if #line > maxLineLen then
+			maxLineLen = #line
 		end
 	end
 
-	local width = math.max(scroll.AbsoluteSize.X, maxLen * 7 + 24)
-	local height = math.max(scroll.AbsoluteSize.Y, lineCount * 15 + 24)
+	local chunkWidth = math.max(scroll.AbsoluteSize.X - 12, maxLineLen * 7 + 24)
+	local totalHeight = 12
+	local chunkIndex = 1
+	local pos = 1
+	local len = #fullText
 
-	outputLabel.Size = UDim2.fromOffset(width, height)
-	scroll.CanvasSize = UDim2.fromOffset(width + 12, height + 12)
+	while pos <= len do
+		local endPos = math.min(pos + MAX_CHUNK_CHARS - 1, len)
+		if endPos < len then
+			local nl = string.find(fullText, "\n", endPos, true)
+			if nl and nl - pos < MAX_CHUNK_CHARS + 200 then
+				endPos = nl
+			end
+		end
+
+		local chunkText = string.sub(fullText, pos, endPos)
+		local lineCount = 1
+		for _ in string.gmatch(chunkText, "\n") do
+			lineCount += 1
+		end
+		local chunkHeight = math.max(24, lineCount * 15 + 10)
+
+		local lbl = Instance.new("TextLabel")
+		lbl.Name = "Chunk_" .. tostring(chunkIndex)
+		lbl.LayoutOrder = chunkIndex
+		lbl.Size = UDim2.fromOffset(chunkWidth, chunkHeight)
+		lbl.BackgroundTransparency = 1
+		lbl.Font = Enum.Font.Code
+		lbl.TextSize = 11
+		lbl.TextXAlignment = Enum.TextXAlignment.Left
+		lbl.TextYAlignment = Enum.TextYAlignment.Top
+		lbl.TextWrapped = false
+		lbl.RichText = false
+		lbl.TextColor3 = Color3.fromRGB(225, 232, 245)
+		lbl.Text = chunkText
+		lbl.ZIndex = 1003
+		lbl.Parent = scroll
+
+		totalHeight += chunkHeight + 4
+		chunkIndex += 1
+		pos = endPos + 1
+	end
+
+	scroll.CanvasSize = UDim2.fromOffset(chunkWidth + 16, math.max(scroll.AbsoluteSize.Y, totalHeight))
 	scroll.CanvasPosition = Vector2.zero
 end
 
@@ -283,7 +334,7 @@ local function runScan()
 			if #rootMatches > 0 then
 				foundAny = true
 				table.insert(lines, "[ROOT] " .. gui:GetFullName() .. " -> " .. formatNodeInfo(gui, rootMatches))
-				dumpSubtree(gui, lines, "    ", 3, 1)
+				dumpSubtree(gui, lines, "    ", 2, 1)
 			end
 
 			for _, desc in ipairs(gui:GetDescendants()) do
@@ -300,7 +351,7 @@ local function runScan()
 					table.insert(lines, "  Вложенных объектов: " .. tostring(childrenCount))
 					if childrenCount > 0 then
 						table.insert(lines, "  Дерево внутри:")
-						dumpSubtree(desc, lines, "    ", 3, 1)
+						dumpSubtree(desc, lines, "    ", 2, 1)
 					end
 				end
 			end
@@ -322,16 +373,13 @@ local function runScan()
 	end
 
 	local result = table.concat(lines, "\n")
-	outputLabel.Text = result
-	updateCanvasForText(result)
-	print(result)
+	renderTextSafely(result)
 end
 
 copyBtn.MouseButton1Click:Connect(function()
-	local textToCopy = outputLabel.Text
 	local copied = false
 	if typeof(setclipboard) == "function" then
-		copied = pcall(setclipboard, textToCopy)
+		copied = pcall(setclipboard, lastFullReport)
 	end
 
 	if copied then
@@ -353,8 +401,7 @@ end)
 scanBtn.MouseButton1Click:Connect(runScan)
 
 clearBtn.MouseButton1Click:Connect(function()
-	outputLabel.Text = ""
-	updateCanvasForText("")
+	renderTextSafely("")
 end)
 
 local minimized = false
@@ -369,7 +416,6 @@ closeBtn.MouseButton1Click:Connect(function()
 	screenGui:Destroy()
 end)
 
--- Автосканирование сразу при запуске и повторно через 1 сек после догрузки UI
 runScan()
 task.delay(1, function()
 	if screenGui and screenGui.Parent then
