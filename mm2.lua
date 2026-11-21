@@ -1,4 +1,4 @@
--- Fixed Auto-scan + Output Window (handles >200k chars safely) + Copy All button
+-- Compact Auto-Scanner + Safe Chunked Output Window + Copy All button
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -203,8 +203,7 @@ local keywords = {
 	"box",
 }
 
-local MAX_CHUNK_CHARS = 180000
-local MAX_CHILDREN_PER_NODE = 12
+local SAFE_CHUNK_SIZE = 150000
 local lastFullReport = ""
 
 local function getMatchedKeywords(name: string): { string }
@@ -222,34 +221,14 @@ local function formatNodeInfo(inst: Instance, matched: { string }?): string
 	local parentName = inst.Parent and inst.Parent.Name or "nil"
 	local info = string.format("%s [%s] (Parent: %s)", inst.Name, inst.ClassName, parentName)
 	if inst:IsA("GuiObject") then
-		info ..= string.format(" | Visible=%s", tostring(inst.Visible))
+		info ..= string.format(" | Vis=%s", tostring(inst.Visible))
 	elseif inst:IsA("LayerCollector") then
-		info ..= string.format(" | Enabled=%s", tostring(inst.Enabled))
+		info ..= string.format(" | En=%s", tostring(inst.Enabled))
 	end
 	if matched and #matched > 0 then
-		info ..= " | Match: " .. table.concat(matched, ",")
+		info ..= " | [" .. table.concat(matched, ",") .. "]"
 	end
 	return info
-end
-
-local function dumpSubtree(root: Instance, lines: { string }, prefix: string, maxDepth: number, currentDepth: number)
-	if currentDepth > maxDepth then
-		return
-	end
-	local children = root:GetChildren()
-	local total = #children
-	local limit = math.min(total, MAX_CHILDREN_PER_NODE)
-
-	for i = 1, limit do
-		local child = children[i]
-		local m = getMatchedKeywords(child.Name)
-		table.insert(lines, string.format("%s|-- %s", prefix, formatNodeInfo(child, m)))
-		dumpSubtree(child, lines, prefix .. "|   ", maxDepth, currentDepth + 1)
-	end
-
-	if total > limit then
-		table.insert(lines, string.format("%s`-- ... (+ ещё %d дочерних объектов)", prefix, total - limit))
-	end
 end
 
 local function clearChunks()
@@ -283,15 +262,9 @@ local function renderTextSafely(fullText: string)
 	local len = #fullText
 
 	while pos <= len do
-		local endPos = math.min(pos + MAX_CHUNK_CHARS - 1, len)
-		if endPos < len then
-			local nl = string.find(fullText, "\n", endPos, true)
-			if nl and nl - pos < MAX_CHUNK_CHARS + 200 then
-				endPos = nl
-			end
-		end
-
+		local endPos = math.min(pos + SAFE_CHUNK_SIZE - 1, len)
 		local chunkText = string.sub(fullText, pos, endPos)
+
 		local lineCount = 1
 		for _ in string.gmatch(chunkText, "\n") do
 			lineCount += 1
@@ -327,31 +300,26 @@ local function runScan()
 	local lines = { "=== PlayerGui Tree & Path Scan ===" }
 	local foundAny = false
 
-	table.insert(lines, "\n--- 1. EXACT MATCHES & WHERE THEY ARE ---")
+	table.insert(lines, "\n--- 1. MATCHES & PATHS ---")
 	for _, gui in ipairs(playerGui:GetChildren()) do
 		if gui ~= screenGui then
-			local rootMatches = getMatchedKeywords(gui.Name)
-			if #rootMatches > 0 then
-				foundAny = true
-				table.insert(lines, "[ROOT] " .. gui:GetFullName() .. " -> " .. formatNodeInfo(gui, rootMatches))
-				dumpSubtree(gui, lines, "    ", 2, 1)
-			end
-
 			for _, desc in ipairs(gui:GetDescendants()) do
 				local matches = getMatchedKeywords(desc.Name)
 				if #matches > 0 then
 					foundAny = true
-					table.insert(lines, "")
-					table.insert(lines, "[MATCH] " .. desc:GetFullName())
-					table.insert(lines, "  Где находится: " .. formatNodeInfo(desc, matches))
-					if desc.Parent then
-						table.insert(lines, "  Внутри родителя: " .. desc.Parent:GetFullName() .. " [" .. desc.Parent.ClassName .. "]")
+					local childNames = {}
+					local children = desc:GetChildren()
+					for i = 1, math.min(#children, 8) do
+						table.insert(childNames, children[i].Name .. "[" .. children[i].ClassName .. "]")
 					end
-					local childrenCount = #desc:GetChildren()
-					table.insert(lines, "  Вложенных объектов: " .. tostring(childrenCount))
-					if childrenCount > 0 then
-						table.insert(lines, "  Дерево внутри:")
-						dumpSubtree(desc, lines, "    ", 2, 1)
+					if #children > 8 then
+						table.insert(childNames, "+" .. tostring(#children - 8) .. " more")
+					end
+
+					table.insert(lines, "[MATCH] " .. desc:GetFullName())
+					table.insert(lines, "  Info: " .. formatNodeInfo(desc, matches))
+					if #childNames > 0 then
+						table.insert(lines, "  Children (" .. tostring(#children) .. "): " .. table.concat(childNames, ", "))
 					end
 				end
 			end
@@ -359,16 +327,13 @@ local function runScan()
 	end
 
 	if not foundAny then
-		table.insert(lines, "Совпадений по Inventory / Claim / Christmas / Halloween / Hellowen / Box не найдено.")
+		table.insert(lines, "Совпадений не найдено.")
 	end
 
-	table.insert(lines, "\n--- 2. ALL SCREENGUIS IN PLAYERGUI ---")
+	table.insert(lines, "\n--- 2. ALL SCREENGUIS ---")
 	for _, gui in ipairs(playerGui:GetChildren()) do
 		if gui ~= screenGui then
-			table.insert(lines, "  * " .. formatNodeInfo(gui))
-			for _, child in ipairs(gui:GetChildren()) do
-				table.insert(lines, "      - " .. formatNodeInfo(child))
-			end
+			table.insert(lines, "* " .. formatNodeInfo(gui))
 		end
 	end
 
