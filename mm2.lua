@@ -12,6 +12,15 @@ if parentGui:FindFirstChild("CopyUiAllGui") then
 	parentGui.CopyUiAllGui:Destroy()
 end
 
+local DEFAULT_QUERIES = {
+	"inventory",
+	"inventory2",
+	"item",
+	"claime",
+	"sync",
+	"box",
+}
+
 -- === ИНТЕРФЕЙС ===
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "CopyUiAllGui"
@@ -113,9 +122,9 @@ local QueryBox = Instance.new("TextBox")
 QueryBox.Size = UDim2.new(1, -16, 0, 28)
 QueryBox.Position = UDim2.new(0, 8, 0, 40)
 QueryBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-QueryBox.PlaceholderText = "Запрос (по умолчанию: Item)..."
+QueryBox.PlaceholderText = "Доп. запросы (базовые: Inventory, Inventory2, Item, Claime, sync, Box)..."
 QueryBox.PlaceholderColor3 = Color3.fromRGB(135, 135, 155)
-QueryBox.Text = "Item"
+QueryBox.Text = ""
 QueryBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 QueryBox.ClearTextOnFocus = false
 QueryBox.Font = Enum.Font.Code
@@ -147,7 +156,7 @@ Scroll.Parent = MainFrame
 Instance.new("UICorner", Scroll).CornerRadius = UDim.new(0, 6)
 
 local Layout = Instance.new("UIListLayout")
-Layout.Padding = UDim.new(0, 3)
+Layout.Padding = UDim.new(0, 2)
 Layout.SortOrder = Enum.SortOrder.LayoutOrder
 Layout.Parent = Scroll
 
@@ -193,12 +202,12 @@ local statusSeq = 0
 local isBusy = false
 local rows = {}
 local rowOrder = 0
-local maxUiRows = 40000
+local maxUiRows = 25000
 local stepCounter = 0
 
 local function yieldStep(everyN)
 	stepCounter += 1
-	if stepCounter % (everyN or 120) == 0 then
+	if stepCounter % (everyN or 70) == 0 then
 		RunService.Heartbeat:Wait()
 	end
 end
@@ -262,7 +271,7 @@ local function copyAllVisibleInUi()
 	copyToClipboard(table.concat(parts, "\n"), "UI All")
 end
 
--- === ВЫВОД В ИНТЕРФЕЙС ===
+-- === ЛЁГКИЙ ВЫВОД В ИНТЕРФЕЙС ===
 local function pushUiLine(text, color)
 	rowOrder += 1
 	local lineStr = tostring(text)
@@ -278,7 +287,8 @@ local function pushUiLine(text, color)
 	btn.Size = UDim2.new(1, -8, 0, 0)
 	btn.AutomaticSize = Enum.AutomaticSize.Y
 	btn.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
-	btn.BackgroundTransparency = 0.15
+	btn.BackgroundTransparency = 0.2
+	btn.BorderSizePixel = 0
 	btn.Text = lineStr
 	btn.TextColor3 = color or Color3.fromRGB(220, 238, 255)
 	btn.TextWrapped = true
@@ -286,9 +296,8 @@ local function pushUiLine(text, color)
 	btn.Font = Enum.Font.Code
 	btn.TextSize = 11
 	btn.LayoutOrder = rowOrder
-	btn.AutoButtonColor = true
+	btn.AutoButtonColor = false
 	btn.Parent = Scroll
-	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 
 	btn.Activated:Connect(function()
 		copyToClipboard(lineStr, "Line")
@@ -311,9 +320,22 @@ local function safeFullName(inst)
 	return ok and res or tostring(inst)
 end
 
+local function isInReplicatedStorage(inst)
+	if typeof(inst) ~= "Instance" then
+		return false
+	end
+	local ok, res = pcall(function()
+		return inst == ReplicatedStorage or inst:IsDescendantOf(ReplicatedStorage)
+	end)
+	return ok and res == true
+end
+
 local function isServerOnlyScript(inst)
 	if typeof(inst) ~= "Instance" then
 		return true
+	end
+	if isInReplicatedStorage(inst) then
+		return false
 	end
 	if inst:IsA("Script") and not inst:IsA("LocalScript") then
 		local okCtx, ctx = pcall(function()
@@ -345,40 +367,46 @@ local function formatLeafValue(val)
 	local t = typeof(val)
 	if t == "string" then
 		local s = val
-		if #s > 600 then
-			s = string.sub(s, 1, 600) .. "..."
+		if #s > 300 then
+			s = string.sub(s, 1, 300) .. "..."
 		end
 		return string.format("%q", s)
 	elseif t == "number" or t == "boolean" or t == "nil" then
 		return tostring(val)
 	elseif t == "Instance" then
-		return string.format("<%s:%s (%s)>", val.ClassName, val.Name, safeFullName(val))
+		return string.format("<%s:%s>", val.ClassName, val.Name)
 	elseif t == "function" then
 		return "<function>"
 	end
-	return "<" .. t .. ": " .. tostring(val) .. ">"
+	return "<" .. t .. ">"
 end
 
-local function dumpRequireValueFullToUi(val, indent, depth, visited, basePrefix)
-	yieldStep(150)
+local function dumpRequireValueToUi(val, indent, depth, visited, basePrefix)
+	yieldStep(90)
 	local pad = basePrefix .. string.rep("  ", indent)
 	if type(val) ~= "table" then
 		pushUiLine(pad .. formatLeafValue(val), Color3.fromRGB(205, 225, 245))
 		return
 	end
-	if visited[val] or depth >= 8 then
+	if visited[val] or depth >= 6 then
 		pushUiLine(pad .. "{...}", Color3.fromRGB(205, 225, 245))
 		return
 	end
 	visited[val] = true
 	pushUiLine(pad .. "{", Color3.fromRGB(205, 225, 245))
 
+	local keysCount = 0
 	for k, v in pairs(val) do
-		yieldStep(150)
+		keysCount += 1
+		if keysCount > 150 then
+			pushUiLine(pad .. "  ... (more keys)", Color3.fromRGB(165, 180, 200))
+			break
+		end
+		yieldStep(90)
 		local label = formatKeyLabel(k)
-		if type(v) == "table" and not visited[v] and (depth + 1) < 8 then
+		if type(v) == "table" and not visited[v] and (depth + 1) < 6 then
 			pushUiLine(pad .. "  " .. label .. " =", Color3.fromRGB(220, 235, 255))
-			dumpRequireValueFullToUi(v, indent + 2, depth + 1, visited, basePrefix)
+			dumpRequireValueToUi(v, indent + 2, depth + 1, visited, basePrefix)
 		else
 			pushUiLine(pad .. "  " .. label .. " = " .. formatLeafValue(v), Color3.fromRGB(205, 225, 245))
 		end
@@ -388,14 +416,14 @@ local function dumpRequireValueFullToUi(val, indent, depth, visited, basePrefix)
 	visited[val] = nil
 end
 
-local function extractScriptInnerFullToUi(scriptObj, basePrefix)
+local function extractScriptInnerToUi(scriptObj, basePrefix)
 	local genv = (typeof(getgenv) == "function" and getgenv()) or nil
 
 	if scriptObj:IsA("ModuleScript") then
 		local okReq, modVal = pcall(require, scriptObj)
 		if okReq then
 			pushUiLine(basePrefix .. "  [MODULE REQUIRE]:", Color3.fromRGB(165, 245, 195))
-			dumpRequireValueFullToUi(modVal, 2, 0, {}, basePrefix)
+			dumpRequireValueToUi(modVal, 2, 0, {}, basePrefix)
 		else
 			pushUiLine(basePrefix .. "  [MODULE REQUIRE ERR]: " .. tostring(modVal), Color3.fromRGB(255, 150, 120))
 		end
@@ -406,8 +434,14 @@ local function extractScriptInnerFullToUi(scriptObj, basePrefix)
 		local okDec, src = pcall(decompileFn, scriptObj)
 		if okDec and type(src) == "string" and #src > 0 then
 			pushUiLine(basePrefix .. "  [DECOMPILED]:", Color3.fromRGB(165, 210, 255))
+			local lineNum = 0
 			for sLine in string.gmatch(src, "[^\r\n]+") do
-				yieldStep(200)
+				lineNum += 1
+				if lineNum > 800 then
+					pushUiLine(basePrefix .. "    ... (script truncated for FPS)", Color3.fromRGB(165, 180, 200))
+					break
+				end
+				yieldStep(120)
 				pushUiLine(basePrefix .. "    " .. sLine, Color3.fromRGB(205, 225, 245))
 			end
 			return
@@ -423,7 +457,7 @@ local function extractScriptInnerFullToUi(scriptObj, basePrefix)
 	end
 end
 
-local function describeNodeFull(node)
+local function describeNodeFast(node)
 	local props = {}
 
 	if node:IsA("GuiObject") then
@@ -433,21 +467,13 @@ local function describeNodeFull(node)
 	end
 
 	if node:IsA("TextLabel") or node:IsA("TextButton") or node:IsA("TextBox") then
-		table.insert(props, "Text=" .. string.format("%q", tostring(node.Text)))
+		if node.Text ~= "" then
+			table.insert(props, "Text=" .. formatLeafValue(node.Text))
+		end
 	elseif node:IsA("ImageLabel") or node:IsA("ImageButton") then
-		table.insert(props, "Image=" .. string.format("%q", tostring(node.Image)))
-	elseif node:IsA("MeshPart") then
-		table.insert(props, "MeshId=" .. string.format("%q", tostring(node.MeshId)))
-		table.insert(props, "TextureID=" .. string.format("%q", tostring(node.TextureID)))
-	elseif node:IsA("SpecialMesh") then
-		table.insert(props, "MeshId=" .. string.format("%q", tostring(node.MeshId)))
-		table.insert(props, "TextureId=" .. string.format("%q", tostring(node.TextureId)))
-	elseif node:IsA("Decal") or node:IsA("Texture") then
-		table.insert(props, "Texture=" .. string.format("%q", tostring(node.Texture)))
-	elseif node:IsA("Sound") then
-		table.insert(props, "SoundId=" .. string.format("%q", tostring(node.SoundId)))
-	elseif node:IsA("Animation") then
-		table.insert(props, "AnimationId=" .. string.format("%q", tostring(node.AnimationId)))
+		if node.Image ~= "" then
+			table.insert(props, "Image=" .. formatLeafValue(node.Image))
+		end
 	elseif node:IsA("ValueBase") then
 		local okV, val = pcall(function()
 			return node.Value
@@ -479,25 +505,13 @@ local function describeNodeFull(node)
 	return "  {" .. table.concat(props, ", ") .. "}"
 end
 
-local function isInventoryRelatedScript(inst)
-	if not isAccessibleScript(inst) then
-		return false
-	end
-	local fullLow = string.lower(safeFullName(inst))
-	local nameLow = string.lower(tostring(inst.Name or ""))
-	return string.find(fullLow, "inventory", 1, true) ~= nil
-		or string.find(fullLow, "inventory2", 1, true) ~= nil
-		or string.find(nameLow, "inventory", 1, true) ~= nil
-		or string.find(nameLow, "inventory2", 1, true) ~= nil
-end
-
-local function dumpSubtreeFullToUi(rootInst, dumpedScriptsSet, collectedScriptsList, seenCollectedSet)
+local function dumpSubtreeFastToUi(rootInst, dumpedScriptsSet, collectedScriptsList, seenCollectedSet)
 	local count = 0
 	local function walk(node, depth, prefix, isLast)
 		count += 1
-		yieldStep(150)
+		yieldStep(75)
 		local branch = (depth == 0) and "" or (isLast and "└── " or "├── ")
-		local line = string.format("%s%s[%s] %s%s  (%s)", prefix, branch, node.ClassName, node.Name, describeNodeFull(node), safeFullName(node))
+		local line = string.format("%s%s[%s] %s%s  (%s)", prefix, branch, node.ClassName, node.Name, describeNodeFast(node), safeFullName(node))
 		pushUiLine(line, depth == 0 and Color3.fromRGB(255, 205, 95) or Color3.fromRGB(215, 235, 255))
 
 		local nextPrefix = (depth == 0) and "" or (prefix .. (isLast and "    " or "│   "))
@@ -509,7 +523,7 @@ local function dumpSubtreeFullToUi(rootInst, dumpedScriptsSet, collectedScriptsL
 				seenCollectedSet[node] = true
 				table.insert(collectedScriptsList, node)
 			end
-			extractScriptInnerFullToUi(node, nextPrefix)
+			extractScriptInnerToUi(node, nextPrefix)
 		end
 
 		local okCh, ch = pcall(function()
@@ -525,20 +539,56 @@ local function dumpSubtreeFullToUi(rootInst, dumpedScriptsSet, collectedScriptsL
 	return count
 end
 
--- === 1. ПОЛНЫЙ ОБХОД ДЕРЕВЬЕВ, STARTERGUI, DATABASE И ВСЕХ ДОСТУПНЫХ СКРИПТОВ ===
-local function parseQueries(rawText)
-	local trimmed = string.match(tostring(rawText or ""), "^%s*(.-)%s*$")
-	if not trimmed or trimmed == "" then
-		return { "item" }
-	end
+local function collectAllReplicatedScripts()
 	local list = {}
-	for part in string.gmatch(trimmed, "[^,;|]+") do
-		local tok = string.match(part, "^%s*(.-)%s*$")
-		if tok and tok ~= "" then
-			table.insert(list, string.lower(tok))
+	local seen = {}
+	local function tryAdd(obj)
+		if typeof(obj) == "Instance" and obj:IsA("LuaSourceContainer") and not seen[obj] then
+			seen[obj] = true
+			table.insert(list, obj)
 		end
 	end
-	return (#list > 0) and list or { string.lower(trimmed) }
+
+	tryAdd(ReplicatedStorage)
+	local okDesc, desc = pcall(function()
+		return ReplicatedStorage:GetDescendants()
+	end)
+	if okDesc and type(desc) == "table" then
+		for _, obj in ipairs(desc) do
+			tryAdd(obj)
+		end
+	end
+	return list
+end
+
+-- === 1. ПОЛНАЯ ВЫГРУЗКА REPLICATEDSTORAGE + ВСЕХ ЕГО СКРИПТОВ + STARTERGUI + ДЕРЕВЬЕВ ===
+local function parseQueries(rawText)
+	local list = {}
+	local seen = {}
+
+	local function addTok(tok)
+		local clean = string.match(tostring(tok or ""), "^%s*(.-)%s*$")
+		if clean and clean ~= "" then
+			local low = string.lower(clean)
+			if not seen[low] then
+				seen[low] = true
+				table.insert(list, low)
+			end
+		end
+	end
+
+	for _, defQ in ipairs(DEFAULT_QUERIES) do
+		addTok(defQ)
+	end
+
+	local trimmed = string.match(tostring(rawText or ""), "^%s*(.-)%s*$")
+	if trimmed and trimmed ~= "" then
+		for part in string.gmatch(trimmed, "[^,;|]+") do
+			addTok(part)
+		end
+	end
+
+	return list
 end
 
 local function matchesQuery(obj, qList)
@@ -597,13 +647,12 @@ local function getScanRoots()
 		end
 	end
 
+	addRoot(ReplicatedStorage)
 	addRoot(StarterGui)
 	addRoot(getDatabaseRoot())
-	addRoot(ReplicatedStorage)
 	addRoot(LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
 	addRoot(LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"))
 	addRoot(LocalPlayer and LocalPlayer.Character)
-	addRoot(workspace)
 
 	return roots
 end
@@ -620,15 +669,18 @@ local function runQueryStructureScan()
 	task.spawn(function()
 		local ok, err = pcall(function()
 			local qList = parseQueries(QueryBox.Text)
-			pushUiLine("=== ПОЛНАЯ ВЫГРУЗКА STARTERGUI + ДЕРЕВЬЕВ: " .. table.concat(qList, ", ") .. " ===", Color3.fromRGB(120, 210, 255))
+			pushUiLine("=== ПОЛНЫЙ ДАМП REPLICATEDSTORAGE + STARTERGUI + ДЕРЕВЬЕВ (" .. table.concat(qList, ", ") .. ") ===", Color3.fromRGB(120, 210, 255))
 
 			local roots = getScanRoots()
-			local databaseRoot = getDatabaseRoot()
 			local matched = {}
 			local seenInst = {}
 			local priorityScripts = {}
 			local seenPriorityScript = {}
 
+			if ReplicatedStorage then
+				seenInst[ReplicatedStorage] = true
+				table.insert(matched, { inst = ReplicatedStorage, tag = "root:ReplicatedStorage" })
+			end
 			if StarterGui then
 				seenInst[StarterGui] = true
 				table.insert(matched, { inst = StarterGui, tag = "root:StarterGui" })
@@ -638,14 +690,14 @@ local function runQueryStructureScan()
 				if not isAccessibleScript(obj) then
 					return
 				end
-				local inDb = databaseRoot and (obj == databaseRoot or obj:IsDescendantOf(databaseRoot))
-				local inStarter = obj == StarterGui or obj:IsDescendantOf(StarterGui)
-				if inDb or inStarter or isInventoryRelatedScript(obj) then
-					if not seenPriorityScript[obj] then
-						seenPriorityScript[obj] = true
-						table.insert(priorityScripts, obj)
-					end
+				if not seenPriorityScript[obj] then
+					seenPriorityScript[obj] = true
+					table.insert(priorityScripts, obj)
 				end
+			end
+
+			for _, repScript in ipairs(collectAllReplicatedScripts()) do
+				considerScriptPriority(repScript)
 			end
 
 			for _, r in ipairs(roots) do
@@ -662,7 +714,7 @@ local function runQueryStructureScan()
 					end)
 					if okDesc and type(desc) == "table" then
 						for _, obj in ipairs(desc) do
-							yieldStep(500)
+							yieldStep(250)
 							if not seenInst[obj] then
 								local m, tag = matchesQuery(obj, qList)
 								if m then
@@ -682,17 +734,17 @@ local function runQueryStructureScan()
 			for idx, entry in ipairs(matched) do
 				local inst = entry.inst
 				pushUiLine(string.format("▼ #%d [%s] %s (%s)", idx, entry.tag, safeFullName(inst), inst.ClassName), Color3.fromRGB(115, 240, 165))
-				totalNodes += dumpSubtreeFullToUi(inst, dumpedScripts, priorityScripts, seenPriorityScript)
+				totalNodes += dumpSubtreeFastToUi(inst, dumpedScripts, priorityScripts, seenPriorityScript)
 			end
 
-			pushUiLine("=== ВСЕ ДОСТУПНЫЕ СКРИПТЫ И МОДУЛИ (STARTERGUI / DATABASE / INVENTORY) ===", Color3.fromRGB(255, 185, 95))
+			pushUiLine("=== ВСЕ СКРИПТЫ И МОДУЛИ ИЗ REPLICATEDSTORAGE И ВЫБРАННЫХ ВЕТОК ===", Color3.fromRGB(255, 185, 95))
 			local extraScriptCount = 0
 			for _, sc in ipairs(priorityScripts) do
 				if not dumpedScripts[sc] then
 					dumpedScripts[sc] = true
 					extraScriptCount += 1
 					pushUiLine(string.format("  [%s] %s (%s)", sc.ClassName, sc.Name, safeFullName(sc)), Color3.fromRGB(140, 235, 255))
-					extractScriptInnerFullToUi(sc, "  ")
+					extractScriptInnerToUi(sc, "  ")
 				end
 			end
 
@@ -710,7 +762,7 @@ local function runQueryStructureScan()
 	end)
 end
 
--- === 2. ОБХОД СКРИПТОВ И РАЗБОР REQUIRE(MODULE) ===
+-- === 2. ОБХОД ВСЕХ СКРИПТОВ REPLICATEDSTORAGE И ВЫБРАННЫХ ВЕТОК ===
 local function getTargetScriptBranches()
 	local branches = {}
 	local seen = {}
@@ -720,28 +772,14 @@ local function getTargetScriptBranches()
 			table.insert(branches, inst)
 		end
 	end
-	local function addPath(parentObj, childName)
-		if not parentObj then
-			return
-		end
-		local ok, found = pcall(function()
-			return parentObj:FindFirstChild(childName)
-		end)
-		if ok and found then
-			addInst(found)
-		end
-	end
 
+	addInst(ReplicatedStorage)
 	addInst(StarterGui)
 	addInst(getDatabaseRoot())
-	addPath(ReplicatedStorage, "ClientTweenEvents")
-	addPath(ReplicatedStorage, "Database")
-	addPath(ReplicatedStorage, "ClientServices")
-	addPath(ReplicatedStorage, "Modules")
-	local db = getDatabaseRoot()
-	if db then
-		addPath(db, "Sync")
-	end
+	addInst(LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
+	addInst(LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"))
+	addInst(LocalPlayer and LocalPlayer.Character)
+
 	return branches
 end
 
@@ -756,9 +794,10 @@ local function runScriptsBranchesDump()
 
 	task.spawn(function()
 		local ok, err = pcall(function()
-			pushUiLine("=== СКРИПТЫ И МОДУЛИ (STARTERGUI + DATABASE + ВЕТКИ) ===", Color3.fromRGB(185, 130, 255))
+			pushUiLine("=== ВСЕ СКРИПТЫ И МОДУЛИ (REPLICATEDSTORAGE + STARTERGUI + ВЕТКИ) ===", Color3.fromRGB(185, 130, 255))
 			local branches = getTargetScriptBranches()
 			local scriptsFound = 0
+			local seenScripts = {}
 
 			for _, branch in ipairs(branches) do
 				pushUiLine("▼ BRANCH: " .. safeFullName(branch), Color3.fromRGB(255, 205, 95))
@@ -774,11 +813,12 @@ local function runScriptsBranchesDump()
 				end
 
 				for _, obj in ipairs(candidates) do
-					yieldStep(150)
-					if isAccessibleScript(obj) then
+					yieldStep(80)
+					if isAccessibleScript(obj) and not seenScripts[obj] then
+						seenScripts[obj] = true
 						scriptsFound += 1
 						pushUiLine(string.format("  [%s] %s (%s)", obj.ClassName, obj.Name, safeFullName(obj)), Color3.fromRGB(120, 240, 175))
-						extractScriptInnerFullToUi(obj, "  ")
+						extractScriptInnerToUi(obj, "  ")
 					end
 				end
 			end
@@ -828,4 +868,4 @@ CloseBtn.Activated:Connect(function()
 	ScreenGui:Destroy()
 end)
 
-pushUiLine("Готово. Нажми 'Find Tree' или 'Scripts In', затем 'СКОПИРОВАТЬ ВСЁ ИЗ ИНТЕРФЕЙСА'.", Color3.fromRGB(180, 200, 230))
+pushUiLine("Готово. Ищет по Inventory, Inventory2, Item, Claime, sync, Box + дамп ReplicatedStorage и StarterGui.", Color3.fromRGB(180, 200, 230))
