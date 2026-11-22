@@ -1,567 +1,664 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
-local UserInputService = game:GetService("UserInputService")
 
-local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local LocalPlayer = Players.LocalPlayer
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local ClientServices = ReplicatedStorage:WaitForChild("ClientServices")
 
-local GUI_NAME = "ScanNewItemGui"
-if playerGui:FindFirstChild(GUI_NAME) then
-	playerGui[GUI_NAME]:Destroy()
-end
+local ProfileData = require(Modules:WaitForChild("ProfileData"))
+local ItemService = require(ClientServices:WaitForChild("ItemService"))
+local InventoryModule = require(Modules:WaitForChild("InventoryModule"))
 
-local NAME_TARGETS = {
-	"newitem",
-	"claimed",
-	"claim",
-	"inventory2",
-	"inventory",
+local MM2SpawnerSuite = {}
+
+-- ============================================================================
+-- 1. БАЗА ОРУЖИЯ СО СКРИНШОТОВ (С ВКЛАДКАМИ, РЕДКОСТЬЮ, ТЕГАМИ И ИКОНКАМИ)
+-- ============================================================================
+MM2SpawnerSuite.Items = {
+	-- HALLOWEEN
+	{
+		ID = "Raygun",
+		Name = "Raygun",
+		Category = "Weapons",
+		ItemType = "Gun",
+		Event = "Halloween",
+		Rarity = "Godly",
+		Chroma = true,
+		AssetId = 139431943195380,
+		Image = "rbxthumb://type=Asset&w=150&h=150&id=139431943195380",
+	},
+	{
+		ID = "RaygunRed",
+		Name = "Red Raygun",
+		Category = "Weapons",
+		ItemType = "Gun",
+		Event = "Halloween",
+		Rarity = "Unique",
+		AssetId = 132354489228618,
+		Image = "rbxthumb://type=Asset&w=150&h=150&id=132354489228618",
+	},
+	{
+		ID = "Alienbeam_Gun",
+		Name = "Alienbeam",
+		Category = "Weapons",
+		ItemType = "Gun",
+		Event = "Halloween",
+		Rarity = "Godly",
+		AssetId = 79722325448464,
+		Image = "rbxthumb://type=Asset&w=150&h=150&id=79722325448464",
+	},
+	{
+		ID = "Alienbeam_Knife",
+		Name = "Alienbeam",
+		Category = "Weapons",
+		ItemType = "Knife",
+		Event = "Halloween",
+		Rarity = "Godly",
+		AssetId = 77607127867154,
+		Image = "rbxthumb://type=Asset&w=150&h=150&id=77607127867154",
+	},
+	{
+		ID = "Alienbeam_Chroma",
+		Name = "Alienbeam",
+		Category = "Weapons",
+		ItemType = "Knife",
+		Event = "Halloween",
+		Rarity = "Godly",
+		Chroma = true,
+		AssetId = 10425610,
+		Image = "rbxthumb://type=Asset&w=150&h=150&id=10425610",
+	},
+	{
+		ID = "Traveler_G_2023",
+		Name = "Traveler",
+		Category = "Weapons",
+		ItemType = "Gun",
+		Event = "Halloween",
+		Rarity = "Legendary",
+		ItemID = 15091344462,
+	},
+	{
+		ID = "VampireAxe_Silver",
+		Name = "Vampire's Axe",
+		Category = "Weapons",
+		ItemType = "Knife",
+		Event = "Halloween",
+		Rarity = "Unique",
+		ItemID = 130837676383567,
+	},
+
+	-- CHRISTMAS
+	{
+		ID = "Celestial",
+		Name = "Celestial",
+		Category = "Weapons",
+		ItemType = "Knife",
+		Event = "Christmas",
+		Rarity = "Ancient",
+		ItemID = 136673966529736,
+		AssetId = 136673966529736,
+		Image = "rbxthumb://type=Asset&w=150&h=150&id=136673966529736",
+	},
+	{
+		ID = "Constellation",
+		Name = "Constellation",
+		Category = "Weapons",
+		ItemType = "Gun",
+		Event = "Christmas",
+		Rarity = "Godly",
+		ItemID = 114197436469014,
+		AssetId = 114197436469014,
+		Image = "rbxthumb://type=Asset&w=150&h=150&id=114197436469014",
+	},
+	{
+		ID = "Gingerscope",
+		Name = "Gingerscope",
+		Category = "Weapons",
+		ItemType = "Gun",
+		Event = "Christmas",
+		Rarity = "Ancient",
+		FX = true,
+		ItemID = 15666469505,
+		AssetId = 15666596216,
+		Image = "rbxthumb://type=Asset&w=150&h=150&id=15666596216",
+	},
+	{
+		ID = "TreeGun2023",
+		Name = "Evergun",
+		Category = "Weapons",
+		ItemType = "Gun",
+		Event = "Christmas",
+		Rarity = "Godly",
+		FX = true,
+		ItemID = 15682703596,
+		AssetId = 15694357721,
+		Image = "rbxassetid://15694357721",
+	},
+	{
+		ID = "TreeGun2023Chroma",
+		Name = "Evergun",
+		Category = "Weapons",
+		ItemType = "Gun",
+		Event = "Christmas",
+		Rarity = "Godly",
+		FX = true,
+		Chroma = true,
+		ItemID = 15682703596,
+		AssetId = 15694208971,
+		Image = "rbxassetid://15694208971",
+	},
+	{
+		ID = "TreeKnife2023",
+		Name = "Evergreen",
+		Category = "Weapons",
+		ItemType = "Knife",
+		Event = "Christmas",
+		Rarity = "Godly",
+		FX = true,
+		ItemID = 15667157715,
+		AssetId = 15694357137,
+		Image = "rbxassetid://15694357137",
+	},
+	{
+		ID = "TreeKnife2023Chroma",
+		Name = "Evergreen",
+		Category = "Weapons",
+		ItemType = "Knife",
+		Event = "Christmas",
+		Rarity = "Godly",
+		FX = true,
+		Chroma = true,
+		ItemID = 15667157715,
+		AssetId = 15694192241,
+		Image = "rbxassetid://15694192241",
+	},
+
+	-- SEASON 1 / CURRENT
+	{
+		ID = "Turkey2023",
+		Name = "Turkey",
+		Category = "Weapons",
+		ItemType = "Knife",
+		Season = 1,
+		Rarity = "Godly",
+		ItemID = 15413149176,
+		AssetId = 15413162319,
+		Image = "rbxassetid://15413162319",
+	},
 }
 
-local lastTreeReport = ""
-local copyChunks = {}
-local nextChunkIndex = 1
-local isScanning = false
-local scanToken = 0
+local ActiveHandOverride = {
+	Gun = nil,
+	Knife = nil,
+}
 
-local function matchByName(inst)
-	if not inst then
-		return nil
+-- ============================================================================
+-- 2. ПОИСК КОНТЕЙНЕРА, СЕТКА И ЗАЩИТА ОТ СМЕЩЕНИЯ В КУЧУ
+-- ============================================================================
+function MM2SpawnerSuite.GetInventoryMain()
+	local gui = InventoryModule.GUI
+	if gui and gui.MyInventory and gui.MyInventory.Main then
+		return gui.MyInventory.Main
 	end
-	local nameStr = tostring(inst.Name or "")
-	if nameStr == "" then
-		return nil
-	end
-	local low = string.lower(nameStr)
-	for _, term in ipairs(NAME_TARGETS) do
-		if string.find(low, term, 1, true) then
-			return term
+
+	local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then return nil end
+
+	for _, desc in ipairs(playerGui:GetDescendants()) do
+		if desc.Name == "Inventory" and desc:FindFirstChild("Main") then
+			return desc.Main
 		end
 	end
 	return nil
 end
 
-local function safePath(inst)
-	local ok, res = pcall(function()
-		return inst:GetFullName()
-	end)
-	return ok and tostring(res) or tostring(inst.Name)
+local function getTargetSubTab(itemData)
+	local info = type(itemData.Info) == "table" and itemData.Info or {}
+	local category = itemData.Category or info.DataType or "Weapons"
+	local eventName = itemData.Event or info.Event
+
+	if category == "Weapons" and eventName then
+		if eventName == "Christmas" or eventName == "Halloween" then
+			return eventName
+		end
+		return "Current"
+	end
+
+	local season = itemData.Season ~= nil and itemData.Season or info.Season
+	return (season ~= nil) and "Current" or (category == "Weapons" and "Classic" or "Current")
 end
 
-local function formatNode(inst, tag)
-	local extra = ""
-	if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
-		extra = string.format(" | Text=%q | Visible=%s", tostring(inst.Text), tostring(inst.Visible))
-	elseif inst:IsA("ImageLabel") or inst:IsA("ImageButton") then
-		extra = string.format(" | Image=%q | Visible=%s", tostring(inst.Image), tostring(inst.Visible))
-	elseif inst:IsA("GuiObject") then
-		extra = string.format(" | Visible=%s", tostring(inst.Visible))
-	elseif inst:IsA("ValueBase") then
-		extra = string.format(" | Value=%s", tostring(inst.Value))
-	end
+function MM2SpawnerSuite.ResolveContainer(invMain, itemData)
+	if not invMain or not itemData then return nil, nil end
 
-	local okAttrs, attrs = pcall(function()
-		return inst:GetAttributes()
-	end)
-	if okAttrs and type(attrs) == "table" then
-		local list = {}
-		for k, v in pairs(attrs) do
-			table.insert(list, tostring(k) .. "=" .. tostring(v))
+	local info = type(itemData.Info) == "table" and itemData.Info or {}
+	local category = itemData.Category or info.DataType or "Weapons"
+	local subTab = getTargetSubTab(itemData)
+
+	local catNode = invMain:FindFirstChild(category)
+	if catNode and catNode:FindFirstChild("Items") and catNode.Items:FindFirstChild("Container") then
+		local itemsCont = catNode.Items.Container
+		local section = itemsCont:FindFirstChild(subTab)
+			or (itemsCont:FindFirstChild("Holiday") and itemsCont.Holiday:FindFirstChild("Container") and itemsCont.Holiday.Container:FindFirstChild(subTab))
+
+		if section and section:FindFirstChild("Container") then
+			return section.Container, section
 		end
-		if #list > 0 then
-			table.sort(list)
-			extra = extra .. " | Attrs={" .. table.concat(list, ", ") .. "}"
+
+		local fallback = itemsCont:FindFirstChild("Current") or itemsCont:FindFirstChild("Classic")
+		if fallback and fallback:FindFirstChild("Container") then
+			return fallback.Container, fallback
 		end
 	end
 
-	return string.format("    %sPath: %s | Class: %s | Name: %q%s", tag or "", safePath(inst), inst.ClassName, tostring(inst.Name), extra)
+	if subTab == "Halloween" or subTab == "Christmas" then
+		for _, desc in ipairs(invMain:GetDescendants()) do
+			if desc:IsA("GuiObject") and desc.Name == subTab and desc:FindFirstChild("Container") then
+				return desc.Container, desc
+			end
+		end
+	end
+
+	return nil, nil
 end
 
-local function dumpModuleValue(val, indent, depth, visited, outLines)
-	if depth > 4 then
-		table.insert(outLines, indent .. "<max depth>")
-		return
-	end
-	if type(val) ~= "table" then
-		local s = tostring(val)
-		if #s > 300 then
-			s = string.sub(s, 1, 300) .. "..."
+function MM2SpawnerSuite.EnsureGridAndBounds(container, section)
+	if not container then return end
+
+	local grid = container:FindFirstChildOfClass("UIGridLayout")
+	if not grid then
+		local gridSrc = (InventoryModule.GUI and InventoryModule.GUI.ItemGridLayout)
+			or Modules.InventoryModule:FindFirstChild("ItemGridLayout")
+		grid = (gridSrc and gridSrc:IsA("UIGridLayout")) and gridSrc:Clone() or Instance.new("UIGridLayout")
+		grid.SortOrder = Enum.SortOrder.LayoutOrder
+		if not gridSrc then
+			grid.CellSize = UDim2.new(0, 80, 0, 80)
+			grid.CellPadding = UDim2.new(0, 6, 0, 6)
 		end
-		table.insert(outLines, string.format("%s(%s) %s", indent, typeof(val), s))
-		return
+		grid.Parent = container
+	else
+		grid.SortOrder = Enum.SortOrder.LayoutOrder
 	end
-	if visited[val] then
-		table.insert(outLines, indent .. "<circular>")
-		return
-	end
-	visited[val] = true
 
-	local keys = {}
-	for k in pairs(val) do
-		table.insert(keys, k)
+	local function refreshBounds()
+		if section and section:IsA("GuiObject") and section.Parent and section.Parent.Name == "Container" then
+			section.Size = UDim2.new(1, 0, 0, grid.AbsoluteContentSize.Y + 49)
+		elseif section and section:IsA("ScrollingFrame") then
+			section.CanvasSize = UDim2.new(0, 0, 0, grid.AbsoluteContentSize.Y + 5)
+		elseif container:IsA("ScrollingFrame") then
+			container.CanvasSize = UDim2.new(0, 0, 0, grid.AbsoluteContentSize.Y + 5)
+		end
 	end
-	table.sort(keys, function(a, b)
-		return tostring(a) < tostring(b)
-	end)
 
-	for _, k in ipairs(keys) do
-		local v = val[k]
-		local kStr = tostring(k)
-		if type(v) == "table" then
-			table.insert(outLines, string.format("%s[%s] = {", indent, kStr))
-			dumpModuleValue(v, indent .. "  ", depth + 1, visited, outLines)
-			table.insert(outLines, indent .. "}")
+	refreshBounds()
+	if not container:GetAttribute("SpawnerGridSynced") then
+		container:SetAttribute("SpawnerGridSynced", true)
+		grid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refreshBounds)
+	end
+end
+
+local function resolveSafeIcon(itemData, dbInfo)
+	if type(itemData.Image) == "string" and itemData.Image ~= "" then
+		return itemData.Image
+	end
+	if dbInfo and ItemService.GetItemImage then
+		local ok, img = pcall(function()
+			return ItemService:GetItemImage(dbInfo)
+		end)
+		if ok and type(img) == "string" and img ~= "" then
+			return img
+		end
+	end
+	local numId = tonumber(itemData.ItemID or itemData.AssetId or (dbInfo and dbInfo.ItemID))
+	if numId then
+		return "rbxthumb://type=Asset&w=150&h=150&id=" .. tostring(numId)
+	end
+	return ""
+end
+
+-- ============================================================================
+-- 3. ЛОКАЛЬНОЕ НАДЕВАНИЕ В EQUIPPED И ПОДМЕНА МОДЕЛИ В РУКЕ
+-- ============================================================================
+local function detectToolSlotType(tool)
+	local n = string.lower(tool.Name)
+	if string.find(n, "knife", 1, true) or string.find(n, "blade", 1, true) or string.find(n, "dagger", 1, true) then
+		return "Knife"
+	end
+	return "Gun"
+end
+
+local function findSourceModelForItem(itemData)
+	if not itemData then return nil end
+	local targetName = string.lower(tostring(itemData.Name or itemData.ID or ""))
+	local targetId = tostring(itemData.ItemID or itemData.AssetId or itemData.ID or "")
+
+	local searchRoots = {
+		ReplicatedStorage,
+		workspace:FindFirstChild("Weapons") or workspace,
+	}
+
+	for _, root in ipairs(searchRoots) do
+		if not root then continue end
+		for _, inst in ipairs(root:GetDescendants()) do
+			local n = string.lower(inst.Name)
+			local matchesName = targetName ~= "" and (n == targetName or string.find(n, targetName, 1, true) ~= nil)
+			local matchesId = false
+
+			if targetId ~= "" then
+				if tostring(inst:GetAttribute("ItemID") or "") == targetId then
+					matchesId = true
+				elseif inst:IsA("MeshPart") and string.find(tostring(inst.MeshId), targetId, 1, true) then
+					matchesId = true
+				elseif inst:IsA("SpecialMesh") and string.find(tostring(inst.MeshId), targetId, 1, true) then
+					matchesId = true
+				end
+			end
+
+			if (matchesName or matchesId) and (inst:IsA("Tool") or inst:IsA("Model") or inst:IsA("BasePart")) then
+				return inst
+			end
+		end
+	end
+	return nil
+end
+
+function MM2SpawnerSuite.ApplyVisualOverrideToTool(tool, itemData)
+	if not tool or not tool:IsA("Tool") or not itemData then return false end
+	local tagKey = tostring(itemData.ID or itemData.Name)
+	if tool:GetAttribute("SpawnerToolApplied") == tagKey then
+		return true
+	end
+
+	local handle = tool:FindFirstChild("Handle")
+	if not handle or not handle:IsA("BasePart") then
+		for _, child in ipairs(tool:GetChildren()) do
+			if child:IsA("BasePart") then
+				handle = child
+				break
+			end
+		end
+	end
+	if not handle then return false end
+
+	local source = findSourceModelForItem(itemData)
+
+	for _, d in ipairs(handle:GetDescendants()) do
+		if d:IsA("SpecialMesh") or d:IsA("Decal") or d:IsA("Texture") or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Highlight") then
+			d:Destroy()
+		end
+	end
+	if handle:IsA("MeshPart") then
+		handle.TextureID = ""
+	end
+	handle.Transparency = 1
+
+	for _, child in ipairs(tool:GetChildren()) do
+		if child ~= handle and (child:IsA("BasePart") or child:IsA("Model")) then
+			child:Destroy()
+		end
+	end
+
+	if source then
+		local clone = source:Clone()
+		clone.Name = "SpawnerVisual_" .. tagKey
+
+		if clone:IsA("Tool") then
+			for _, item in ipairs(clone:GetChildren()) do
+				if item:IsA("BasePart") or item:IsA("Model") or item:IsA("Folder") then
+					item.Parent = tool
+				end
+			end
+			clone:Destroy()
 		else
-			local vStr = (type(v) == "string") and string.format("%q", v) or tostring(v)
-			if #vStr > 250 then
-				vStr = string.sub(vStr, 1, 250) .. "..."
-			end
-			table.insert(outLines, string.format("%s[%s] = %s", indent, kStr, vStr))
+			clone.Parent = tool
 		end
-	end
 
-	visited[val] = nil
-end
+		local firstPart = nil
+		for _, part in ipairs(tool:GetDescendants()) do
+			if part:IsA("BasePart") and part ~= handle then
+				if not firstPart then firstPart = part end
+				part.Anchored = false
+				part.CanCollide = false
+				part.Massless = true
 
-local function dumpScriptInsideTree(scr, outLines)
-	if not scr:IsA("LuaSourceContainer") then
-		return
-	end
-
-	table.insert(outLines, string.format("      [SCRIPT] Path: %s | Class: %s", safePath(scr), scr.ClassName))
-
-	if type(decompile) == "function" then
-		local okDec, src = pcall(decompile, scr)
-		if okDec and type(src) == "string" and src ~= "" then
-			if #src > 14000 then
-				src = string.sub(src, 1, 14000) .. "\n-- ...<обрезано для защиты памяти>..."
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = handle
+				weld.Part1 = part
+				weld.Parent = part
 			end
-			table.insert(outLines, "      --- DECOMPILE START ---")
-			for line in string.gmatch(src .. "\n", "(.-)\r?\n") do
-				table.insert(outLines, "        " .. line)
-			end
-			table.insert(outLines, "      --- DECOMPILE END ---")
-		else
-			table.insert(outLines, "      [decompile пропущен/ошибка: " .. tostring(src) .. "]")
+		end
+
+		if firstPart then
+			tool:PivotTo(handle.CFrame)
 		end
 	else
-		table.insert(outLines, "      [функция decompile недоступна]")
-	end
-
-	if scr:IsA("ModuleScript") then
-		local okReq, mod = pcall(require, scr)
-		if okReq and mod ~= nil then
-			table.insert(outLines, "      --- MODULE REQUIRE START ---")
-			dumpModuleValue(mod, "        ", 1, {}, outLines)
-			table.insert(outLines, "      --- MODULE REQUIRE END ---")
+		handle.Transparency = 0
+		if itemData.AssetId then
+			local mesh = Instance.new("SpecialMesh")
+			mesh.MeshType = Enum.MeshType.FileMesh
+			mesh.MeshId = "rbxassetid://" .. tostring(itemData.AssetId)
+			mesh.Parent = handle
 		end
 	end
+
+	tool:SetAttribute("SpawnerToolApplied", tagKey)
+	return true
 end
 
-local function dumpWholeTreeAndScripts(rootInst, outLines, seen, token, includeScripts)
-	if not rootInst or seen[rootInst] or token ~= scanToken then
-		return
-	end
-	seen[rootInst] = true
+local function scanToolsForOverride()
+	local char = LocalPlayer.Character
+	local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
 
-	local ok, desc = pcall(function()
-		return rootInst:GetDescendants()
-	end)
-	desc = (ok and type(desc) == "table") and desc or {}
-
-	local scriptsInTree = {}
-	if rootInst:IsA("LuaSourceContainer") then
-		table.insert(scriptsInTree, rootInst)
-	end
-	for _, child in ipairs(desc) do
-		if child:IsA("LuaSourceContainer") then
-			table.insert(scriptsInTree, child)
-		end
-	end
-
-	table.insert(outLines, formatNode(rootInst, "[ROOT] "))
-	if rootInst:IsA("LuaSourceContainer") and includeScripts then
-		dumpScriptInsideTree(rootInst, outLines)
-	end
-
-	table.insert(outLines, string.format("    --- ВСЕ ОБЪЕКТЫ ДЕРЕВА (%d) ---", #desc))
-	for i, child in ipairs(desc) do
-		if token ~= scanToken then
-			return
-		end
-		if i % 400 == 0 then
-			task.wait()
-		end
-		if not seen[child] then
-			seen[child] = true
-			table.insert(outLines, formatNode(child, "[CHILD] "))
-		end
-	end
-
-	if #scriptsInTree > 0 then
-		table.insert(outLines, string.format("    --- ВСЕ СКРИПТЫ В ДЕРЕВЕ (%d) ---", #scriptsInTree))
-		for _, scr in ipairs(scriptsInTree) do
-			if token ~= scanToken then
-				return
-			end
-			if includeScripts then
-				dumpScriptInsideTree(scr, outLines)
-			else
-				table.insert(outLines, string.format("      [SCRIPT FOUND] %s (%s)", safePath(scr), scr.ClassName))
+	for _, container in ipairs({ char, backpack }) do
+		if container then
+			for _, child in ipairs(container:GetChildren()) do
+				if child:IsA("Tool") then
+					local slotType = detectToolSlotType(child)
+					local overrideData = ActiveHandOverride[slotType]
+					if overrideData then
+						MM2SpawnerSuite.ApplyVisualOverrideToTool(child, overrideData)
+					end
+				end
 			end
 		end
 	end
 end
 
-local function scanRootByName(root, rootLabel, outLines, seen, token, includeScripts)
-	if not root or token ~= scanToken then
-		return 0
-	end
+local function hookCharacterTools(char)
+	if not char then return end
+	scanToolsForOverride()
 
-	local ok, desc = pcall(function()
-		return root:GetDescendants()
-	end)
-	if not ok or type(desc) ~= "table" then
-		table.insert(outLines, string.format("-- %s: ошибка GetDescendants --", rootLabel))
-		return 0
-	end
-
-	local foundTrees = 0
-	local ownGui = playerGui:FindFirstChild(GUI_NAME)
-
-	for i, inst in ipairs(desc) do
-		if token ~= scanToken then
-			return foundTrees
-		end
-		if i % 400 == 0 then
-			task.wait()
-		end
-
-		if inst.Name ~= GUI_NAME and not (ownGui and inst:IsDescendantOf(ownGui)) and not seen[inst] then
-			local matchedName = matchByName(inst)
-			if matchedName then
-				foundTrees += 1
-				table.insert(
-					outLines,
-					string.format(
-						"  [%s | NAME:%s] ДЕРЕВО: %s",
-						rootLabel,
-						string.upper(matchedName),
-						safePath(inst)
-					)
-				)
-				dumpWholeTreeAndScripts(inst, outLines, seen, token, includeScripts)
-			end
-		end
-	end
-
-	table.insert(outLines, string.format("-- %s: найдено деревьев по имени %d --", rootLabel, foundTrees))
-	return foundTrees
-end
-
-local function runNameTreesScan(onProgress, includeScripts)
-	scanToken += 1
-	local myToken = scanToken
-	local lines = {
-		"=== BY NAME WHOLE TREES: NewItem, Claim, Claimed, Inventory, Inventory2 ===",
-	}
-	local seen = {}
-	local totalTrees = 0
-
-	local roots = {
-		{ playerGui, "PlayerGui" },
-		{ StarterGui, "StarterGui" },
-		{ ReplicatedStorage, "ReplicatedStorage" },
-	}
-
-	for idx, entry in ipairs(roots) do
-		if myToken ~= scanToken then
-			return "", 0
-		end
-		if onProgress then
-			onProgress(string.format("Ищу деревья по имени в %s (%d/%d)...", entry[2], idx, #roots))
-		end
-		totalTrees += scanRootByName(entry[1], entry[2], lines, seen, myToken, includeScripts)
-		task.wait()
-	end
-
-	table.insert(lines, 2, "Всего найдено деревьев по названиям: " .. tostring(totalTrees))
-	table.insert(lines, 3, "Всего строк в дампе: " .. tostring(#lines))
-	return table.concat(lines, "\n"), totalTrees
-end
-
-local function prepareChunks(reportText)
-	copyChunks = {}
-	nextChunkIndex = 1
-	if not reportText or reportText == "" then
-		return
-	end
-
-	local CHUNK_SIZE = 50000
-	local totalParts = math.ceil(#reportText / CHUNK_SIZE)
-	for part = 1, totalParts do
-		local startPos = (part - 1) * CHUNK_SIZE + 1
-		local endPos = math.min(part * CHUNK_SIZE, #reportText)
-		local piece = string.format(
-			"[ЧАСТЬ %d/%d]\n%s",
-			part,
-			totalParts,
-			string.sub(reportText, startPos, endPos)
-		)
-		table.insert(copyChunks, piece)
-	end
-end
-
-local function copyNextChunk()
-	if #copyChunks == 0 then
-		return false, "Сначала нажми «начать сканирование»"
-	end
-
-	local idx = nextChunkIndex
-	local piece = copyChunks[idx]
-	nextChunkIndex += 1
-	if nextChunkIndex > #copyChunks then
-		nextChunkIndex = 1
-	end
-
-	if type(setclipboard) == "function" then
-		local ok = pcall(setclipboard, piece)
-		if ok then
-			return true, string.format(
-				"Скопирована часть %d/%d (%d симв.). Вставь в заметки/чат и нажми ещё раз для следующей части.",
-				idx,
-				#copyChunks,
-				#piece
-			)
-		end
-	end
-
-	print(piece)
-	return false, string.format("setclipboard недоступен — часть %d/%d выведена в консоль", idx, #copyChunks)
-end
-
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = GUI_NAME
-screenGui.ResetOnSpawn = false
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.Parent = playerGui
-
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 326, 0, 324)
-mainFrame.Position = UDim2.new(0.5, -163, 0.14, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 19)
-mainFrame.BorderSizePixel = 0
-mainFrame.Active = true
-mainFrame.ClipsDescendants = true
-mainFrame.Parent = screenGui
-
-Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
-local mainStroke = Instance.new("UIStroke")
-mainStroke.Color = Color3.fromRGB(220, 175, 45)
-mainStroke.Thickness = 1.5
-mainStroke.Parent = mainFrame
-
-local topBar = Instance.new("Frame")
-topBar.Size = UDim2.new(1, 0, 0, 34)
-topBar.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
-topBar.BorderSizePixel = 0
-topBar.Parent = mainFrame
-Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
-
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, -76, 1, 0)
-titleLabel.Position = UDim2.new(0, 10, 0, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "scan NewItem"
-titleLabel.TextColor3 = Color3.fromRGB(255, 215, 90)
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 14
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-titleLabel.Parent = topBar
-
-local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.new(0, 28, 0, 24)
-minBtn.Position = UDim2.new(1, -64, 0.5, -12)
-minBtn.BackgroundColor3 = Color3.fromRGB(38, 38, 48)
-minBtn.Text = "-"
-minBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
-minBtn.Font = Enum.Font.GothamBold
-minBtn.TextSize = 16
-minBtn.Parent = topBar
-Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 6)
-
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 28, 0, 24)
-closeBtn.Position = UDim2.new(1, -32, 0.5, -12)
-closeBtn.BackgroundColor3 = Color3.fromRGB(155, 38, 52)
-closeBtn.Text = "X"
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 13
-closeBtn.Parent = topBar
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
-
-local bodyFrame = Instance.new("Frame")
-bodyFrame.Size = UDim2.new(1, -16, 1, -42)
-bodyFrame.Position = UDim2.new(0, 8, 0, 38)
-bodyFrame.BackgroundTransparency = 1
-bodyFrame.Parent = mainFrame
-
-local startScanBtn = Instance.new("TextButton")
-startScanBtn.Size = UDim2.new(0.68, -4, 0, 34)
-startScanBtn.Position = UDim2.new(0, 0, 0, 0)
-startScanBtn.BackgroundColor3 = Color3.fromRGB(210, 155, 25)
-startScanBtn.Text = "начать сканирование"
-startScanBtn.TextColor3 = Color3.fromRGB(15, 15, 19)
-startScanBtn.Font = Enum.Font.GothamBold
-startScanBtn.TextSize = 12
-startScanBtn.Parent = bodyFrame
-Instance.new("UICorner", startScanBtn).CornerRadius = UDim.new(0, 7)
-
-local scriptsToggleBtn = Instance.new("TextButton")
-scriptsToggleBtn.Size = UDim2.new(0.32, -4, 0, 34)
-scriptsToggleBtn.Position = UDim2.new(0.68, 4, 0, 0)
-scriptsToggleBtn.BackgroundColor3 = Color3.fromRGB(92, 62, 195)
-scriptsToggleBtn.Text = "Скрипты: ON"
-scriptsToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-scriptsToggleBtn.Font = Enum.Font.GothamBold
-scriptsToggleBtn.TextSize = 11
-scriptsToggleBtn.Parent = bodyFrame
-Instance.new("UICorner", scriptsToggleBtn).CornerRadius = UDim.new(0, 7)
-
-local copyTreeBtn = Instance.new("TextButton")
-copyTreeBtn.Size = UDim2.new(1, 0, 0, 34)
-copyTreeBtn.Position = UDim2.new(0, 0, 0, 40)
-copyTreeBtn.BackgroundColor3 = Color3.fromRGB(36, 118, 86)
-copyTreeBtn.Text = "скопировать все в буфер из дерева"
-copyTreeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-copyTreeBtn.Font = Enum.Font.GothamBold
-copyTreeBtn.TextSize = 12
-copyTreeBtn.Parent = bodyFrame
-Instance.new("UICorner", copyTreeBtn).CornerRadius = UDim.new(0, 7)
-
-local resultBox = Instance.new("TextBox")
-resultBox.Size = UDim2.new(1, 0, 1, -80)
-resultBox.Position = UDim2.new(0, 0, 0, 80)
-resultBox.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
-resultBox.TextColor3 = Color3.fromRGB(190, 255, 210)
-resultBox.Text = "Копирует отчёт частями по 50000 символов."
-resultBox.TextWrapped = true
-resultBox.MultiLine = true
-resultBox.TextEditable = false
-resultBox.ClearTextOnFocus = false
-resultBox.TextXAlignment = Enum.TextXAlignment.Left
-resultBox.TextYAlignment = Enum.TextYAlignment.Top
-resultBox.Font = Enum.Font.Code
-resultBox.TextSize = 10
-resultBox.Parent = bodyFrame
-Instance.new("UICorner", resultBox).CornerRadius = UDim.new(0, 7)
-
-local includeScripts = true
-scriptsToggleBtn.MouseButton1Click:Connect(function()
-	includeScripts = not includeScripts
-	scriptsToggleBtn.Text = includeScripts and "Скрипты: ON" or "Скрипты: OFF"
-	scriptsToggleBtn.BackgroundColor3 = includeScripts and Color3.fromRGB(92, 62, 195) or Color3.fromRGB(52, 52, 66)
-end)
-
-startScanBtn.MouseButton1Click:Connect(function()
-	if isScanning then
-		scanToken += 1
-		isScanning = false
-		startScanBtn.Text = "начать сканирование"
-		resultBox.TextColor3 = Color3.fromRGB(255, 215, 110)
-		resultBox.Text = "Сканирование остановлено"
-		return
-	end
-
-	isScanning = true
-	startScanBtn.Text = "стоп"
-	resultBox.TextColor3 = Color3.fromRGB(255, 220, 120)
-	resultBox.Text = "Сканирую деревья по названиям..."
-
-	task.spawn(function()
-		local ok, report, total = pcall(function()
-			return runNameTreesScan(function(msg)
-				resultBox.Text = msg
-			end, includeScripts)
-		end)
-
-		isScanning = false
-		startScanBtn.Text = "начать сканирование"
-
-		if not ok then
-			resultBox.TextColor3 = Color3.fromRGB(255, 110, 120)
-			resultBox.Text = "Ошибка сканирования: " .. tostring(report)
-			return
-		end
-
-		lastTreeReport = report
-		getgenv().LastNameTreesReport = report
-		prepareChunks(report)
-
-		resultBox.TextColor3 = Color3.fromRGB(190, 255, 210)
-		resultBox.Text = string.format(
-			"Готово! Деревьев: %d | Частей (по 50000): %d\n\n%s",
-			total,
-			#copyChunks,
-			string.sub(report, 1, 700)
-		)
-	end)
-end)
-
-copyTreeBtn.MouseButton1Click:Connect(function()
-	local ok, msg = copyNextChunk()
-	resultBox.TextColor3 = ok and Color3.fromRGB(140, 255, 195) or Color3.fromRGB(255, 215, 110)
-	resultBox.Text = msg
-end)
-
-local minimized = false
-minBtn.MouseButton1Click:Connect(function()
-	minimized = not minimized
-	bodyFrame.Visible = not minimized
-	mainFrame.Size = minimized and UDim2.new(0, 326, 0, 34) or UDim2.new(0, 326, 0, 324)
-	minBtn.Text = minimized and "+" or "-"
-end)
-
-closeBtn.MouseButton1Click:Connect(function()
-	scanToken += 1
-	screenGui:Destroy()
-end)
-
-do
-	local dragging = false
-	local dragInput, dragStart, startPos
-
-	topBar.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			dragStart = input.Position
-			startPos = mainFrame.Position
-
-			input.Changed:Connect(function()
-				if input.UserInputState == Enum.UserInputState.End then
-					dragging = false
+	char.ChildAdded:Connect(function(child)
+		if child:IsA("Tool") then
+			task.defer(function()
+				local slotType = detectToolSlotType(child)
+				local overrideData = ActiveHandOverride[slotType]
+				if overrideData then
+					MM2SpawnerSuite.ApplyVisualOverrideToTool(child, overrideData)
 				end
 			end)
 		end
 	end)
 
-	topBar.InputChanged:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-			dragInput = input
-		end
-	end)
-
-	UserInputService.InputChanged:Connect(function(input)
-		if input == dragInput and dragging then
-			local delta = input.Position - dragStart
-			mainFrame.Position = UDim2.new(
-				startPos.X.Scale,
-				startPos.X.Offset + delta.X,
-				startPos.Y.Scale,
-				startPos.Y.Offset + delta.Y
-			)
-		end
-	end)
+	local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+	if backpack then
+		scanToolsForOverride()
+		backpack.ChildAdded:Connect(function(child)
+			if child:IsA("Tool") then
+				task.defer(function()
+					local slotType = detectToolSlotType(child)
+					local overrideData = ActiveHandOverride[slotType]
+					if overrideData then
+						MM2SpawnerSuite.ApplyVisualOverrideToTool(child, overrideData)
+					end
+				end)
+			end
+		end)
+	end
 end
+
+if LocalPlayer.Character then
+	hookCharacterTools(LocalPlayer.Character)
+end
+LocalPlayer.CharacterAdded:Connect(hookCharacterTools)
+
+function MM2SpawnerSuite.EquipItem(itemData, invMain)
+	if not itemData then return false end
+	invMain = invMain or MM2SpawnerSuite.GetInventoryMain()
+
+	local category = itemData.Category or "Weapons"
+	local itemType = itemData.ItemType or "Gun"
+	local itemId = itemData.ItemID or itemData.ID
+	local displayName = itemData.Name or tostring(itemId)
+	local iconImage = resolveSafeIcon(itemData, nil)
+
+	if category == "Weapons" and ProfileData.Weapons and ProfileData.Weapons.Equipped then
+		ProfileData.Weapons.Equipped[itemType] = itemId
+	end
+
+	if invMain then
+		local weaponsEquippedCont = invMain:FindFirstChild("Weapons")
+			and invMain.Weapons:FindFirstChild("Equipped")
+			and invMain.Weapons.Equipped:FindFirstChild("Container")
+
+		local slotHolder = weaponsEquippedCont and weaponsEquippedCont:FindFirstChild(itemType)
+		local slotContainer = slotHolder and slotHolder:FindFirstChild("Container")
+
+		if slotContainer then
+			slotContainer.Visible = true
+			if slotContainer:FindFirstChild("Icon") and iconImage ~= "" then
+				slotContainer.Icon.Image = iconImage
+			end
+			if slotContainer:FindFirstChild("ItemName") and slotContainer.ItemName:FindFirstChild("Label") then
+				slotContainer.ItemName.Label.Text = displayName
+			end
+
+			local mergedInfo = {
+				Name = displayName,
+				Rarity = itemData.Rarity or "Godly",
+				Chroma = itemData.Chroma,
+				FX = itemData.FX,
+				Image = iconImage,
+			}
+			if ItemService.ApplyItemToFrame then
+				pcall(function()
+					ItemService:ApplyItemToFrame(slotContainer, mergedInfo, 1)
+				end)
+				if slotContainer:FindFirstChild("Icon") and iconImage ~= "" then
+					slotContainer.Icon.Image = iconImage
+				end
+				if slotContainer:FindFirstChild("ItemName") and slotContainer.ItemName:FindFirstChild("Label") then
+					slotContainer.ItemName.Label.Text = displayName
+				end
+			end
+			if slotContainer:FindFirstChild("Tags") and ItemService.UpdateTags then
+				pcall(function()
+					ItemService:UpdateTags(slotContainer, mergedInfo)
+				end)
+			end
+		end
+	end
+
+	-- Подменяем модель в руке/рюкзаке
+	if itemType == "Gun" or itemType == "Knife" then
+		ActiveHandOverride[itemType] = itemData
+		scanToolsForOverride()
+	end
+
+	return true
+end
+
+-- ============================================================================
+-- 4. ДОБАВЛЕНИЕ / НАРАЩИВАНИЕ КАРТОЧКИ В ИНВЕНТАРЕ ПОСЛЕ CLAIM
+-- ============================================================================
+function MM2SpawnerSuite.ClaimItem(itemData, addAmount, autoEquip)
+	if not itemData then return nil end
+	addAmount = addAmount or 1
+
+	local invMain = MM2SpawnerSuite.GetInventoryMain()
+	local container, section = MM2SpawnerSuite.ResolveContainer(invMain, itemData)
+	if not container then return nil end
+
+	MM2SpawnerSuite.EnsureGridAndBounds(container, section)
+
+	local slot = nil
+	for _, child in ipairs(container:GetChildren()) do
+		if child:IsA("GuiObject") and tostring(child:GetAttribute("SpawnerItemKey") or "") == tostring(itemData.ID) then
+			slot = child
+			break
+		end
+	end
+
+	local dbInfo = nil
+	if ItemService.FindItemInfo then
+		pcall(function()
+			dbInfo = ItemService:FindItemInfo(itemData.ItemID or itemData.ID, itemData.Category or "Weapons")
+		end)
+	end
+
+	if not slot then
+		local template = Modules.InventoryModule:FindFirstChild("NewItem") or ItemService.BaseItemFrame
+		if not template then return nil end
+
+		slot = template:Clone()
+		slot:SetAttribute("SpawnerItemKey", tostring(itemData.ID))
+		slot:SetAttribute("SpawnCount", 0)
+		slot.AnchorPoint = Vector2.new(0, 0)
+		slot.Position = UDim2.new(0, 0, 0, 0)
+
+		local mergedInfo = {}
+		if type(dbInfo) == "table" then
+			for k, v in pairs(dbInfo) do mergedInfo[k] = v end
+		end
+		mergedInfo.Name = itemData.Name or mergedInfo.Name or tostring(itemData.ID)
+		mergedInfo.Rarity = itemData.Rarity or mergedInfo.Rarity or "Godly"
+		mergedInfo.Chroma = itemData.Chroma or mergedInfo.Chroma
+		mergedInfo.FX = itemData.FX or mergedInfo.FX
+		mergedInfo.Image = resolveSafeIcon(itemData, dbInfo)
+
+		if ItemService.ApplyItemToFrame then
+			pcall(function()
+				ItemService:ApplyItemToFrame(slot, mergedInfo, 1)
+			end)
+		end
+		if slot:FindFirstChild("Container") and slot.Container:FindFirstChild("Icon") and mergedInfo.Image ~= "" then
+			slot.Container.Icon.Image = mergedInfo.Image
+		end
+		if slot:FindFirstChild("ItemName") and slot.ItemName:FindFirstChild("Label") then
+			slot.ItemName.Label.Text = mergedInfo.Name
+		end
+		if slot:FindFirstChild("Tags") and ItemService.ApplyTags then
+			pcall(function()
+				ItemService:ApplyTags(slot, mergedInfo)
+			end)
+		end
+
+		slot.LayoutOrder = ItemService:GetLayoutOrder(itemData.ID, itemData.Category or "Weapons")
+		slot.Visible = true
+		slot.Parent = container
+
+		-- При клике на карточку надеваем предмет в слот Equipped и подменяем модель в руке
+		for _, d in ipairs(slot:GetDescendants()) do
+			if d:IsA("GuiButton") then
+				d.Activated:Connect(function()
+					MM2SpawnerSuite.EquipItem(itemData, invMain)
+				end)
+			end
+		end
+	end
+
+	local nextCount = (tonumber(slot:GetAttribute("SpawnCount")) or 0) + addAmount
+	slot:SetAttribute("SpawnCount", nextCount)
+
+	if slot:FindFirstChild("Container") and slot.Container:FindFirstChild("Amount") then
+		slot.Container.Amount.Text = nextCount > 1 and ("x" .. tostring(nextCount)) or ""
+	end
+
+	if autoEquip then
+		MM2SpawnerSuite.EquipItem(itemData, invMain)
+	end
+
+	return slot
+end
+
+return MM2SpawnerSuite
