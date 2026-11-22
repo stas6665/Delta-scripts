@@ -11,7 +11,6 @@ if playerGui:FindFirstChild(GUI_NAME) then
 	playerGui[GUI_NAME]:Destroy()
 end
 
--- Поиск целых деревьев по названиям (Name)
 local NAME_TARGETS = {
 	"newitem",
 	"claimed",
@@ -21,6 +20,8 @@ local NAME_TARGETS = {
 }
 
 local lastTreeReport = ""
+local copyChunks = {}
+local nextChunkIndex = 1
 local isScanning = false
 local scanToken = 0
 
@@ -290,21 +291,54 @@ local function runNameTreesScan(onProgress, includeScripts)
 	return table.concat(lines, "\n"), totalTrees
 end
 
-local function copyReportToClipboard(text)
-	if not text or text == "" then
+local function prepareChunks(reportText)
+	copyChunks = {}
+	nextChunkIndex = 1
+	if not reportText or reportText == "" then
+		return
+	end
+
+	local CHUNK_SIZE = 50000
+	local totalParts = math.ceil(#reportText / CHUNK_SIZE)
+	for part = 1, totalParts do
+		local startPos = (part - 1) * CHUNK_SIZE + 1
+		local endPos = math.min(part * CHUNK_SIZE, #reportText)
+		local piece = string.format(
+			"[ЧАСТЬ %d/%d]\n%s",
+			part,
+			totalParts,
+			string.sub(reportText, startPos, endPos)
+		)
+		table.insert(copyChunks, piece)
+	end
+end
+
+local function copyNextChunk()
+	if #copyChunks == 0 then
 		return false, "Сначала нажми «начать сканирование»"
 	end
+
+	local idx = nextChunkIndex
+	local piece = copyChunks[idx]
+	nextChunkIndex += 1
+	if nextChunkIndex > #copyChunks then
+		nextChunkIndex = 1
+	end
+
 	if type(setclipboard) == "function" then
-		local ok = pcall(setclipboard, text)
+		local ok = pcall(setclipboard, piece)
 		if ok then
-			return true, string.format("Скопировано в буфер (%d симв.)", #text)
+			return true, string.format(
+				"Скопирована часть %d/%d (%d симв.). Вставь в заметки/чат и нажми ещё раз для следующей части.",
+				idx,
+				#copyChunks,
+				#piece
+			)
 		end
 	end
-	local CHUNK = 3500
-	for i = 1, #text, CHUNK do
-		print(string.sub(text, i, i + CHUNK - 1))
-	end
-	return false, "setclipboard недоступен — дамп выведен в консоль"
+
+	print(piece)
+	return false, string.format("setclipboard недоступен — часть %d/%d выведена в консоль", idx, #copyChunks)
 end
 
 local screenGui = Instance.new("ScreenGui")
@@ -412,7 +446,7 @@ resultBox.Size = UDim2.new(1, 0, 1, -80)
 resultBox.Position = UDim2.new(0, 0, 0, 80)
 resultBox.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
 resultBox.TextColor3 = Color3.fromRGB(190, 255, 210)
-resultBox.Text = "Ищет целые деревья по названиям NewItem, Claim, Claimed, Inventory, Inventory2 (без привязки к тексту)."
+resultBox.Text = "Копирует отчёт частями по 50000 символов."
 resultBox.TextWrapped = true
 resultBox.MultiLine = true
 resultBox.TextEditable = false
@@ -464,13 +498,20 @@ startScanBtn.MouseButton1Click:Connect(function()
 
 		lastTreeReport = report
 		getgenv().LastNameTreesReport = report
+		prepareChunks(report)
+
 		resultBox.TextColor3 = Color3.fromRGB(190, 255, 210)
-		resultBox.Text = string.format("Готово! Деревьев по названиям: %d\n\n%s", total, string.sub(report, 1, 800))
+		resultBox.Text = string.format(
+			"Готово! Деревьев: %d | Частей (по 50000): %d\n\n%s",
+			total,
+			#copyChunks,
+			string.sub(report, 1, 700)
+		)
 	end)
 end)
 
 copyTreeBtn.MouseButton1Click:Connect(function()
-	local ok, msg = copyReportToClipboard(lastTreeReport)
+	local ok, msg = copyNextChunk()
 	resultBox.TextColor3 = ok and Color3.fromRGB(140, 255, 195) or Color3.fromRGB(255, 215, 110)
 	resultBox.Text = msg
 end)
