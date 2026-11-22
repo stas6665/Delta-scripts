@@ -1,664 +1,400 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
 
 local LocalPlayer = Players.LocalPlayer
-local Modules = ReplicatedStorage:WaitForChild("Modules")
-local ClientServices = ReplicatedStorage:WaitForChild("ClientServices")
 
-local ProfileData = require(Modules:WaitForChild("ProfileData"))
-local ItemService = require(ClientServices:WaitForChild("ItemService"))
-local InventoryModule = require(Modules:WaitForChild("InventoryModule"))
+local CHUNK_SIZE = 170000
+local COPY_DELAY = 2.0 -- Пауза между автоматическими кусками (сек)
 
-local MM2SpawnerSuite = {}
-
--- ============================================================================
--- 1. БАЗА ОРУЖИЯ СО СКРИНШОТОВ (С ВКЛАДКАМИ, РЕДКОСТЬЮ, ТЕГАМИ И ИКОНКАМИ)
--- ============================================================================
-MM2SpawnerSuite.Items = {
-	-- HALLOWEEN
-	{
-		ID = "Raygun",
-		Name = "Raygun",
-		Category = "Weapons",
-		ItemType = "Gun",
-		Event = "Halloween",
-		Rarity = "Godly",
-		Chroma = true,
-		AssetId = 139431943195380,
-		Image = "rbxthumb://type=Asset&w=150&h=150&id=139431943195380",
-	},
-	{
-		ID = "RaygunRed",
-		Name = "Red Raygun",
-		Category = "Weapons",
-		ItemType = "Gun",
-		Event = "Halloween",
-		Rarity = "Unique",
-		AssetId = 132354489228618,
-		Image = "rbxthumb://type=Asset&w=150&h=150&id=132354489228618",
-	},
-	{
-		ID = "Alienbeam_Gun",
-		Name = "Alienbeam",
-		Category = "Weapons",
-		ItemType = "Gun",
-		Event = "Halloween",
-		Rarity = "Godly",
-		AssetId = 79722325448464,
-		Image = "rbxthumb://type=Asset&w=150&h=150&id=79722325448464",
-	},
-	{
-		ID = "Alienbeam_Knife",
-		Name = "Alienbeam",
-		Category = "Weapons",
-		ItemType = "Knife",
-		Event = "Halloween",
-		Rarity = "Godly",
-		AssetId = 77607127867154,
-		Image = "rbxthumb://type=Asset&w=150&h=150&id=77607127867154",
-	},
-	{
-		ID = "Alienbeam_Chroma",
-		Name = "Alienbeam",
-		Category = "Weapons",
-		ItemType = "Knife",
-		Event = "Halloween",
-		Rarity = "Godly",
-		Chroma = true,
-		AssetId = 10425610,
-		Image = "rbxthumb://type=Asset&w=150&h=150&id=10425610",
-	},
-	{
-		ID = "Traveler_G_2023",
-		Name = "Traveler",
-		Category = "Weapons",
-		ItemType = "Gun",
-		Event = "Halloween",
-		Rarity = "Legendary",
-		ItemID = 15091344462,
-	},
-	{
-		ID = "VampireAxe_Silver",
-		Name = "Vampire's Axe",
-		Category = "Weapons",
-		ItemType = "Knife",
-		Event = "Halloween",
-		Rarity = "Unique",
-		ItemID = 130837676383567,
-	},
-
-	-- CHRISTMAS
-	{
-		ID = "Celestial",
-		Name = "Celestial",
-		Category = "Weapons",
-		ItemType = "Knife",
-		Event = "Christmas",
-		Rarity = "Ancient",
-		ItemID = 136673966529736,
-		AssetId = 136673966529736,
-		Image = "rbxthumb://type=Asset&w=150&h=150&id=136673966529736",
-	},
-	{
-		ID = "Constellation",
-		Name = "Constellation",
-		Category = "Weapons",
-		ItemType = "Gun",
-		Event = "Christmas",
-		Rarity = "Godly",
-		ItemID = 114197436469014,
-		AssetId = 114197436469014,
-		Image = "rbxthumb://type=Asset&w=150&h=150&id=114197436469014",
-	},
-	{
-		ID = "Gingerscope",
-		Name = "Gingerscope",
-		Category = "Weapons",
-		ItemType = "Gun",
-		Event = "Christmas",
-		Rarity = "Ancient",
-		FX = true,
-		ItemID = 15666469505,
-		AssetId = 15666596216,
-		Image = "rbxthumb://type=Asset&w=150&h=150&id=15666596216",
-	},
-	{
-		ID = "TreeGun2023",
-		Name = "Evergun",
-		Category = "Weapons",
-		ItemType = "Gun",
-		Event = "Christmas",
-		Rarity = "Godly",
-		FX = true,
-		ItemID = 15682703596,
-		AssetId = 15694357721,
-		Image = "rbxassetid://15694357721",
-	},
-	{
-		ID = "TreeGun2023Chroma",
-		Name = "Evergun",
-		Category = "Weapons",
-		ItemType = "Gun",
-		Event = "Christmas",
-		Rarity = "Godly",
-		FX = true,
-		Chroma = true,
-		ItemID = 15682703596,
-		AssetId = 15694208971,
-		Image = "rbxassetid://15694208971",
-	},
-	{
-		ID = "TreeKnife2023",
-		Name = "Evergreen",
-		Category = "Weapons",
-		ItemType = "Knife",
-		Event = "Christmas",
-		Rarity = "Godly",
-		FX = true,
-		ItemID = 15667157715,
-		AssetId = 15694357137,
-		Image = "rbxassetid://15694357137",
-	},
-	{
-		ID = "TreeKnife2023Chroma",
-		Name = "Evergreen",
-		Category = "Weapons",
-		ItemType = "Knife",
-		Event = "Christmas",
-		Rarity = "Godly",
-		FX = true,
-		Chroma = true,
-		ItemID = 15667157715,
-		AssetId = 15694192241,
-		Image = "rbxassetid://15694192241",
-	},
-
-	-- SEASON 1 / CURRENT
-	{
-		ID = "Turkey2023",
-		Name = "Turkey",
-		Category = "Weapons",
-		ItemType = "Knife",
-		Season = 1,
-		Rarity = "Godly",
-		ItemID = 15413149176,
-		AssetId = 15413162319,
-		Image = "rbxassetid://15413162319",
-	},
+local KEYWORDS = {
+	"inventory",
+	"box",
+	"newitem",
+	"claim",
+	"claimed",
+	"itemtype",
+	"itemname",
+	"item",
 }
 
-local ActiveHandOverride = {
-	Gun = nil,
-	Knife = nil,
+local ATTR_KEYWORDS = {
+	"inventory",
+	"item",
 }
 
--- ============================================================================
--- 2. ПОИСК КОНТЕЙНЕРА, СЕТКА И ЗАЩИТА ОТ СМЕЩЕНИЯ В КУЧУ
--- ============================================================================
-function MM2SpawnerSuite.GetInventoryMain()
-	local gui = InventoryModule.GUI
-	if gui and gui.MyInventory and gui.MyInventory.Main then
-		return gui.MyInventory.Main
+local fullReport = ""
+local isScanning = false
+local isAutoCopying = false
+
+local function matchKeyword(text, keywords)
+	if type(text) ~= "string" or text == "" then
+		return false, nil
 	end
-
-	local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-	if not playerGui then return nil end
-
-	for _, desc in ipairs(playerGui:GetDescendants()) do
-		if desc.Name == "Inventory" and desc:FindFirstChild("Main") then
-			return desc.Main
+	local lower = string.lower(text)
+	for _, kw in ipairs(keywords) do
+		if string.find(lower, kw, 1, true) then
+			return true, kw
 		end
 	end
-	return nil
+	return false, nil
 end
 
-local function getTargetSubTab(itemData)
-	local info = type(itemData.Info) == "table" and itemData.Info or {}
-	local category = itemData.Category or info.DataType or "Weapons"
-	local eventName = itemData.Event or info.Event
-
-	if category == "Weapons" and eventName then
-		if eventName == "Christmas" or eventName == "Halloween" then
-			return eventName
-		end
-		return "Current"
-	end
-
-	local season = itemData.Season ~= nil and itemData.Season or info.Season
-	return (season ~= nil) and "Current" or (category == "Weapons" and "Classic" or "Current")
-end
-
-function MM2SpawnerSuite.ResolveContainer(invMain, itemData)
-	if not invMain or not itemData then return nil, nil end
-
-	local info = type(itemData.Info) == "table" and itemData.Info or {}
-	local category = itemData.Category or info.DataType or "Weapons"
-	local subTab = getTargetSubTab(itemData)
-
-	local catNode = invMain:FindFirstChild(category)
-	if catNode and catNode:FindFirstChild("Items") and catNode.Items:FindFirstChild("Container") then
-		local itemsCont = catNode.Items.Container
-		local section = itemsCont:FindFirstChild(subTab)
-			or (itemsCont:FindFirstChild("Holiday") and itemsCont.Holiday:FindFirstChild("Container") and itemsCont.Holiday.Container:FindFirstChild(subTab))
-
-		if section and section:FindFirstChild("Container") then
-			return section.Container, section
-		end
-
-		local fallback = itemsCont:FindFirstChild("Current") or itemsCont:FindFirstChild("Classic")
-		if fallback and fallback:FindFirstChild("Container") then
-			return fallback.Container, fallback
-		end
-	end
-
-	if subTab == "Halloween" or subTab == "Christmas" then
-		for _, desc in ipairs(invMain:GetDescendants()) do
-			if desc:IsA("GuiObject") and desc.Name == subTab and desc:FindFirstChild("Container") then
-				return desc.Container, desc
-			end
-		end
-	end
-
-	return nil, nil
-end
-
-function MM2SpawnerSuite.EnsureGridAndBounds(container, section)
-	if not container then return end
-
-	local grid = container:FindFirstChildOfClass("UIGridLayout")
-	if not grid then
-		local gridSrc = (InventoryModule.GUI and InventoryModule.GUI.ItemGridLayout)
-			or Modules.InventoryModule:FindFirstChild("ItemGridLayout")
-		grid = (gridSrc and gridSrc:IsA("UIGridLayout")) and gridSrc:Clone() or Instance.new("UIGridLayout")
-		grid.SortOrder = Enum.SortOrder.LayoutOrder
-		if not gridSrc then
-			grid.CellSize = UDim2.new(0, 80, 0, 80)
-			grid.CellPadding = UDim2.new(0, 6, 0, 6)
-		end
-		grid.Parent = container
-	else
-		grid.SortOrder = Enum.SortOrder.LayoutOrder
-	end
-
-	local function refreshBounds()
-		if section and section:IsA("GuiObject") and section.Parent and section.Parent.Name == "Container" then
-			section.Size = UDim2.new(1, 0, 0, grid.AbsoluteContentSize.Y + 49)
-		elseif section and section:IsA("ScrollingFrame") then
-			section.CanvasSize = UDim2.new(0, 0, 0, grid.AbsoluteContentSize.Y + 5)
-		elseif container:IsA("ScrollingFrame") then
-			container.CanvasSize = UDim2.new(0, 0, 0, grid.AbsoluteContentSize.Y + 5)
-		end
-	end
-
-	refreshBounds()
-	if not container:GetAttribute("SpawnerGridSynced") then
-		container:SetAttribute("SpawnerGridSynced", true)
-		grid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refreshBounds)
-	end
-end
-
-local function resolveSafeIcon(itemData, dbInfo)
-	if type(itemData.Image) == "string" and itemData.Image ~= "" then
-		return itemData.Image
-	end
-	if dbInfo and ItemService.GetItemImage then
-		local ok, img = pcall(function()
-			return ItemService:GetItemImage(dbInfo)
-		end)
-		if ok and type(img) == "string" and img ~= "" then
-			return img
-		end
-	end
-	local numId = tonumber(itemData.ItemID or itemData.AssetId or (dbInfo and dbInfo.ItemID))
-	if numId then
-		return "rbxthumb://type=Asset&w=150&h=150&id=" .. tostring(numId)
-	end
-	return ""
-end
-
--- ============================================================================
--- 3. ЛОКАЛЬНОЕ НАДЕВАНИЕ В EQUIPPED И ПОДМЕНА МОДЕЛИ В РУКЕ
--- ============================================================================
-local function detectToolSlotType(tool)
-	local n = string.lower(tool.Name)
-	if string.find(n, "knife", 1, true) or string.find(n, "blade", 1, true) or string.find(n, "dagger", 1, true) then
-		return "Knife"
-	end
-	return "Gun"
-end
-
-local function findSourceModelForItem(itemData)
-	if not itemData then return nil end
-	local targetName = string.lower(tostring(itemData.Name or itemData.ID or ""))
-	local targetId = tostring(itemData.ItemID or itemData.AssetId or itemData.ID or "")
-
-	local searchRoots = {
-		ReplicatedStorage,
-		workspace:FindFirstChild("Weapons") or workspace,
-	}
-
-	for _, root in ipairs(searchRoots) do
-		if not root then continue end
-		for _, inst in ipairs(root:GetDescendants()) do
-			local n = string.lower(inst.Name)
-			local matchesName = targetName ~= "" and (n == targetName or string.find(n, targetName, 1, true) ~= nil)
-			local matchesId = false
-
-			if targetId ~= "" then
-				if tostring(inst:GetAttribute("ItemID") or "") == targetId then
-					matchesId = true
-				elseif inst:IsA("MeshPart") and string.find(tostring(inst.MeshId), targetId, 1, true) then
-					matchesId = true
-				elseif inst:IsA("SpecialMesh") and string.find(tostring(inst.MeshId), targetId, 1, true) then
-					matchesId = true
-				end
-			end
-
-			if (matchesName or matchesId) and (inst:IsA("Tool") or inst:IsA("Model") or inst:IsA("BasePart")) then
-				return inst
-			end
-		end
-	end
-	return nil
-end
-
-function MM2SpawnerSuite.ApplyVisualOverrideToTool(tool, itemData)
-	if not tool or not tool:IsA("Tool") or not itemData then return false end
-	local tagKey = tostring(itemData.ID or itemData.Name)
-	if tool:GetAttribute("SpawnerToolApplied") == tagKey then
-		return true
-	end
-
-	local handle = tool:FindFirstChild("Handle")
-	if not handle or not handle:IsA("BasePart") then
-		for _, child in ipairs(tool:GetChildren()) do
-			if child:IsA("BasePart") then
-				handle = child
-				break
-			end
-		end
-	end
-	if not handle then return false end
-
-	local source = findSourceModelForItem(itemData)
-
-	for _, d in ipairs(handle:GetDescendants()) do
-		if d:IsA("SpecialMesh") or d:IsA("Decal") or d:IsA("Texture") or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Highlight") then
-			d:Destroy()
-		end
-	end
-	if handle:IsA("MeshPart") then
-		handle.TextureID = ""
-	end
-	handle.Transparency = 1
-
-	for _, child in ipairs(tool:GetChildren()) do
-		if child ~= handle and (child:IsA("BasePart") or child:IsA("Model")) then
-			child:Destroy()
-		end
-	end
-
-	if source then
-		local clone = source:Clone()
-		clone.Name = "SpawnerVisual_" .. tagKey
-
-		if clone:IsA("Tool") then
-			for _, item in ipairs(clone:GetChildren()) do
-				if item:IsA("BasePart") or item:IsA("Model") or item:IsA("Folder") then
-					item.Parent = tool
-				end
-			end
-			clone:Destroy()
-		else
-			clone.Parent = tool
-		end
-
-		local firstPart = nil
-		for _, part in ipairs(tool:GetDescendants()) do
-			if part:IsA("BasePart") and part ~= handle then
-				if not firstPart then firstPart = part end
-				part.Anchored = false
-				part.CanCollide = false
-				part.Massless = true
-
-				local weld = Instance.new("WeldConstraint")
-				weld.Part0 = handle
-				weld.Part1 = part
-				weld.Parent = part
-			end
-		end
-
-		if firstPart then
-			tool:PivotTo(handle.CFrame)
-		end
-	else
-		handle.Transparency = 0
-		if itemData.AssetId then
-			local mesh = Instance.new("SpecialMesh")
-			mesh.MeshType = Enum.MeshType.FileMesh
-			mesh.MeshId = "rbxassetid://" .. tostring(itemData.AssetId)
-			mesh.Parent = handle
-		end
-	end
-
-	tool:SetAttribute("SpawnerToolApplied", tagKey)
-	return true
-end
-
-local function scanToolsForOverride()
-	local char = LocalPlayer.Character
-	local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-
-	for _, container in ipairs({ char, backpack }) do
-		if container then
-			for _, child in ipairs(container:GetChildren()) do
-				if child:IsA("Tool") then
-					local slotType = detectToolSlotType(child)
-					local overrideData = ActiveHandOverride[slotType]
-					if overrideData then
-						MM2SpawnerSuite.ApplyVisualOverrideToTool(child, overrideData)
-					end
-				end
-			end
-		end
-	end
-end
-
-local function hookCharacterTools(char)
-	if not char then return end
-	scanToolsForOverride()
-
-	char.ChildAdded:Connect(function(child)
-		if child:IsA("Tool") then
-			task.defer(function()
-				local slotType = detectToolSlotType(child)
-				local overrideData = ActiveHandOverride[slotType]
-				if overrideData then
-					MM2SpawnerSuite.ApplyVisualOverrideToTool(child, overrideData)
-				end
-			end)
-		end
+local function safeFullName(inst)
+	local ok, res = pcall(function()
+		return inst:GetFullName()
 	end)
+	return ok and res or inst.Name
+end
 
-	local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-	if backpack then
-		scanToolsForOverride()
-		backpack.ChildAdded:Connect(function(child)
-			if child:IsA("Tool") then
-				task.defer(function()
-					local slotType = detectToolSlotType(child)
-					local overrideData = ActiveHandOverride[slotType]
-					if overrideData then
-						MM2SpawnerSuite.ApplyVisualOverrideToTool(child, overrideData)
+local function collectAttrs(inst)
+	local ok, attrs = pcall(function()
+		return inst:GetAttributes()
+	end)
+	if not ok or type(attrs) ~= "table" then
+		return {}, {}
+	end
+	local matched = {}
+	local allPairs = {}
+	for k, v in pairs(attrs) do
+		local pairText = string.format("%s=%s (%s)", tostring(k), tostring(v), typeof(v))
+		table.insert(allPairs, pairText)
+		if matchKeyword(tostring(k), ATTR_KEYWORDS) or matchKeyword(tostring(v), ATTR_KEYWORDS) then
+			table.insert(matched, pairText)
+		end
+	end
+	return matched, allPairs
+end
+
+local function gatherRoots()
+	local roots = {}
+	local seen = {}
+	local function add(obj)
+		if obj and not seen[obj] then
+			seen[obj] = true
+			table.insert(roots, obj)
+		end
+	end
+
+	add(LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui"))
+	add(ReplicatedStorage)
+	add(LocalPlayer and LocalPlayer:FindFirstChildOfClass("Backpack"))
+	add(LocalPlayer and LocalPlayer.Character)
+
+	for _, srv in ipairs(game:GetChildren()) do
+		local nameLower = string.lower(srv.Name)
+		if nameLower == "startergui" or nameLower == "starterpack" or nameLower == "workspace" then
+			add(srv)
+		end
+	end
+
+	return roots
+end
+
+local function splitIntoChunks(text, chunkSize)
+	local chunks = {}
+	local totalLen = #text
+	if totalLen == 0 then
+		return chunks
+	end
+
+	local index = 1
+	local partNum = 1
+	local totalParts = math.ceil(totalLen / chunkSize)
+
+	while index <= totalLen do
+		local stopPos = math.min(index + chunkSize - 1, totalLen)
+		local rawPart = string.sub(text, index, stopPos)
+		local header = string.format("--- [ЧАСТЬ %d/%d | %d СИМВ.] ---\n", partNum, totalParts, #rawPart)
+		table.insert(chunks, header .. rawPart)
+		index = stopPos + 1
+		partNum += 1
+	end
+
+	return chunks
+end
+
+local function createAutoCopyScannerUI()
+	local pg = LocalPlayer:WaitForChild("PlayerGui")
+	local old = pg:FindFirstChild("MM2AutoChunkScannerGUI")
+	if old then
+		old:Destroy()
+	end
+
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "MM2AutoChunkScannerGUI"
+	screenGui.ResetOnSpawn = false
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.Parent = pg
+
+	local mainFrame = Instance.new("Frame")
+	mainFrame.Name = "MainPanel"
+	mainFrame.Size = UDim2.new(0, 316, 0, 180)
+	mainFrame.Position = UDim2.new(0.5, -158, 0.2, 0)
+	mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 19)
+	mainFrame.BorderSizePixel = 0
+	mainFrame.Active = true
+	mainFrame.Draggable = true
+	mainFrame.Parent = screenGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = mainFrame
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(95, 95, 125)
+	stroke.Thickness = 1.5
+	stroke.Parent = mainFrame
+
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(1, -16, 0, 26)
+	titleLabel.Position = UDim2.new(0, 8, 0, 6)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "MM2 Auto-Chunk Scanner"
+	titleLabel.TextColor3 = Color3.fromRGB(242, 242, 248)
+	titleLabel.TextSize = 15
+	titleLabel.Font = Enum.Font.GothamBold
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	titleLabel.Parent = mainFrame
+
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.Size = UDim2.new(1, -16, 0, 46)
+	statusLabel.Position = UDim2.new(0, 8, 0, 36)
+	statusLabel.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
+	statusLabel.BorderSizePixel = 0
+	statusLabel.Text = "Нажми Start Scan, затем Copy All."
+	statusLabel.TextColor3 = Color3.fromRGB(190, 195, 210)
+	statusLabel.TextSize = 12
+	statusLabel.Font = Enum.Font.Gotham
+	statusLabel.TextWrapped = true
+	statusLabel.Parent = mainFrame
+
+	local statusCorner = Instance.new("UICorner")
+	statusCorner.CornerRadius = UDim.new(0, 6)
+	statusCorner.Parent = statusLabel
+
+	local startBtn = Instance.new("TextButton")
+	startBtn.Name = "StartScanBtn"
+	startBtn.Size = UDim2.new(0.48, -10, 0, 42)
+	startBtn.Position = UDim2.new(0, 8, 0, 92)
+	startBtn.BackgroundColor3 = Color3.fromRGB(45, 125, 210)
+	startBtn.BorderSizePixel = 0
+	startBtn.Text = "Start Scan"
+	startBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	startBtn.TextSize = 14
+	startBtn.Font = Enum.Font.GothamBold
+	startBtn.Parent = mainFrame
+
+	local startCorner = Instance.new("UICorner")
+	startCorner.CornerRadius = UDim.new(0, 8)
+	startCorner.Parent = startBtn
+
+	local copyBtn = Instance.new("TextButton")
+	copyBtn.Name = "CopyAllBtn"
+	copyBtn.Size = UDim2.new(0.48, -10, 0, 42)
+	copyBtn.Position = UDim2.new(0.52, 2, 0, 92)
+	copyBtn.BackgroundColor3 = Color3.fromRGB(48, 150, 90)
+	copyBtn.BorderSizePixel = 0
+	copyBtn.Text = "Copy All"
+	copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	copyBtn.TextSize = 14
+	copyBtn.Font = Enum.Font.GothamBold
+	copyBtn.Parent = mainFrame
+
+	local copyCorner = Instance.new("UICorner")
+	copyCorner.CornerRadius = UDim.new(0, 8)
+	copyCorner.Parent = copyBtn
+
+	local infoLabel = Instance.new("TextLabel")
+	infoLabel.Size = UDim2.new(1, -16, 0, 24)
+	infoLabel.Position = UDim2.new(0, 8, 0, 144)
+	infoLabel.BackgroundTransparency = 1
+	infoLabel.Text = "Символов: 0 | Лимит куска: 170000"
+	infoLabel.TextColor3 = Color3.fromRGB(145, 150, 165)
+	infoLabel.TextSize = 11
+	infoLabel.Font = Enum.Font.Gotham
+	infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+	infoLabel.Parent = mainFrame
+
+	local function runDeepScan()
+		if isScanning or isAutoCopying then return end
+		isScanning = true
+		startBtn.Text = "Scanning..."
+		startBtn.BackgroundColor3 = Color3.fromRGB(185, 120, 30)
+		statusLabel.Text = "Сканирую PlayerGui, MainGUI и доступные ветки..."
+
+		local lines = {}
+		local function addLine(s)
+			table.insert(lines, s)
+		end
+
+		addLine("=== MM2 AUTO-CHUNK TREE & ATTRIBUTES SCAN ===")
+		local roots = gatherRoots()
+		local visited = {}
+		local checked = 0
+		local serverRefs = 0
+		local clientHits = 0
+		local treeHits = 0
+		local attrHits = 0
+
+		for _, root in ipairs(roots) do
+			if visited[root] then continue end
+
+			local okDesc, desc = pcall(function()
+				return root:GetDescendants()
+			end)
+
+			local queue = { root }
+			if okDesc and type(desc) == "table" then
+				for _, d in ipairs(desc) do
+					table.insert(queue, d)
+				end
+			end
+
+			for _, inst in ipairs(queue) do
+				if visited[inst] then continue end
+				visited[inst] = true
+				checked += 1
+
+				local fullName = safeFullName(inst)
+				local nameHit, nameKw = matchKeyword(inst.Name, KEYWORDS)
+				local pathHit, pathKw = matchKeyword(fullName, KEYWORDS)
+				local matchedAttrs, allAttrs = collectAttrs(inst)
+
+				local metaParts = {}
+				if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
+					local txt = tostring(inst.Text or "")
+					if txt ~= "" and matchKeyword(txt, KEYWORDS) then
+						table.insert(metaParts, "Text='" .. txt .. "'")
 					end
-				end)
-			end
-		end)
-	end
-end
-
-if LocalPlayer.Character then
-	hookCharacterTools(LocalPlayer.Character)
-end
-LocalPlayer.CharacterAdded:Connect(hookCharacterTools)
-
-function MM2SpawnerSuite.EquipItem(itemData, invMain)
-	if not itemData then return false end
-	invMain = invMain or MM2SpawnerSuite.GetInventoryMain()
-
-	local category = itemData.Category or "Weapons"
-	local itemType = itemData.ItemType or "Gun"
-	local itemId = itemData.ItemID or itemData.ID
-	local displayName = itemData.Name or tostring(itemId)
-	local iconImage = resolveSafeIcon(itemData, nil)
-
-	if category == "Weapons" and ProfileData.Weapons and ProfileData.Weapons.Equipped then
-		ProfileData.Weapons.Equipped[itemType] = itemId
-	end
-
-	if invMain then
-		local weaponsEquippedCont = invMain:FindFirstChild("Weapons")
-			and invMain.Weapons:FindFirstChild("Equipped")
-			and invMain.Weapons.Equipped:FindFirstChild("Container")
-
-		local slotHolder = weaponsEquippedCont and weaponsEquippedCont:FindFirstChild(itemType)
-		local slotContainer = slotHolder and slotHolder:FindFirstChild("Container")
-
-		if slotContainer then
-			slotContainer.Visible = true
-			if slotContainer:FindFirstChild("Icon") and iconImage ~= "" then
-				slotContainer.Icon.Image = iconImage
-			end
-			if slotContainer:FindFirstChild("ItemName") and slotContainer.ItemName:FindFirstChild("Label") then
-				slotContainer.ItemName.Label.Text = displayName
-			end
-
-			local mergedInfo = {
-				Name = displayName,
-				Rarity = itemData.Rarity or "Godly",
-				Chroma = itemData.Chroma,
-				FX = itemData.FX,
-				Image = iconImage,
-			}
-			if ItemService.ApplyItemToFrame then
-				pcall(function()
-					ItemService:ApplyItemToFrame(slotContainer, mergedInfo, 1)
-				end)
-				if slotContainer:FindFirstChild("Icon") and iconImage ~= "" then
-					slotContainer.Icon.Image = iconImage
+				elseif inst:IsA("ValueBase") then
+					local valStr = tostring(inst.Value)
+					if matchKeyword(valStr, KEYWORDS) then
+						table.insert(metaParts, "Value=" .. valStr .. " (" .. typeof(inst.Value) .. ")")
+					end
 				end
-				if slotContainer:FindFirstChild("ItemName") and slotContainer.ItemName:FindFirstChild("Label") then
-					slotContainer.ItemName.Label.Text = displayName
+
+				local okTags, tags = pcall(function()
+					return CollectionService:GetTags(inst)
+				end)
+				if okTags and type(tags) == "table" then
+					for _, tag in ipairs(tags) do
+						if matchKeyword(tostring(tag), KEYWORDS) then
+							table.insert(metaParts, "Tag=" .. tostring(tag))
+						end
+					end
+				end
+
+				local isServerScript = (inst.ClassName == "Script")
+				local isClientScript = inst:IsA("LocalScript") or inst:IsA("ModuleScript")
+
+				if isServerScript and (nameHit or pathHit or #allAttrs > 0) then
+					serverRefs += 1
+					addLine(string.format("[SERVER_SCRIPT_REF #%d] %s [Script]", serverRefs, fullName))
+				elseif isClientScript and (nameHit or pathHit or #allAttrs > 0 or #metaParts > 0) then
+					clientHits += 1
+					local extra = {}
+					if #allAttrs > 0 then table.insert(extra, "Attrs: " .. table.concat(allAttrs, ", ")) end
+					if #metaParts > 0 then table.insert(extra, table.concat(metaParts, ", ")) end
+					addLine(string.format("[CLIENT_SCRIPT #%d] %s [%s]%s",
+						clientHits, fullName, inst.ClassName,
+						#extra > 0 and (" | " .. table.concat(extra, " | ")) or ""
+					))
+				elseif nameHit or pathHit or #metaParts > 0 then
+					treeHits += 1
+					local reason = (nameHit and ("Name:" .. tostring(nameKw)))
+						or (pathHit and ("Path:" .. tostring(pathKw)))
+						or "Meta"
+					local extra = {}
+					if #allAttrs > 0 then table.insert(extra, "Attrs: " .. table.concat(allAttrs, ", ")) end
+					if #metaParts > 0 then table.insert(extra, table.concat(metaParts, ", ")) end
+					addLine(string.format("[TREE #%d] (%s) %s [%s]%s",
+						treeHits, reason, fullName, inst.ClassName,
+						#extra > 0 and (" | " .. table.concat(extra, " | ")) or ""
+					))
+				end
+
+				if #matchedAttrs > 0 then
+					attrHits += 1
+					addLine(string.format("[ATTR #%d] %s [%s] -> %s",
+						attrHits, fullName, inst.ClassName, table.concat(matchedAttrs, " | ")
+					))
+				end
+
+				if checked % 450 == 0 then
+					statusLabel.Text = string.format("Проверено: %d | TREE:%d ATTR:%d SCRIPTS:%d",
+						checked, treeHits, attrHits, clientHits + serverRefs)
+					task.wait()
 				end
 			end
-			if slotContainer:FindFirstChild("Tags") and ItemService.UpdateTags then
-				pcall(function()
-					ItemService:UpdateTags(slotContainer, mergedInfo)
-				end)
-			end
 		end
-	end
 
-	-- Подменяем модель в руке/рюкзаке
-	if itemType == "Gun" or itemType == "Knife" then
-		ActiveHandOverride[itemType] = itemData
-		scanToolsForOverride()
-	end
+		addLine(string.format(
+			"=== ИТОГ: проверено=%d | SERVER_REF=%d | CLIENT_SCRIPT=%d | TREE=%d | ATTR=%d ===",
+			checked, serverRefs, clientHits, treeHits, attrHits
+		))
 
-	return true
-end
+		fullReport = table.concat(lines, "\n")
 
--- ============================================================================
--- 4. ДОБАВЛЕНИЕ / НАРАЩИВАНИЕ КАРТОЧКИ В ИНВЕНТАРЕ ПОСЛЕ CLAIM
--- ============================================================================
-function MM2SpawnerSuite.ClaimItem(itemData, addAmount, autoEquip)
-	if not itemData then return nil end
-	addAmount = addAmount or 1
-
-	local invMain = MM2SpawnerSuite.GetInventoryMain()
-	local container, section = MM2SpawnerSuite.ResolveContainer(invMain, itemData)
-	if not container then return nil end
-
-	MM2SpawnerSuite.EnsureGridAndBounds(container, section)
-
-	local slot = nil
-	for _, child in ipairs(container:GetChildren()) do
-		if child:IsA("GuiObject") and tostring(child:GetAttribute("SpawnerItemKey") or "") == tostring(itemData.ID) then
-			slot = child
-			break
-		end
-	end
-
-	local dbInfo = nil
-	if ItemService.FindItemInfo then
-		pcall(function()
-			dbInfo = ItemService:FindItemInfo(itemData.ItemID or itemData.ID, itemData.Category or "Weapons")
-		end)
-	end
-
-	if not slot then
-		local template = Modules.InventoryModule:FindFirstChild("NewItem") or ItemService.BaseItemFrame
-		if not template then return nil end
-
-		slot = template:Clone()
-		slot:SetAttribute("SpawnerItemKey", tostring(itemData.ID))
-		slot:SetAttribute("SpawnCount", 0)
-		slot.AnchorPoint = Vector2.new(0, 0)
-		slot.Position = UDim2.new(0, 0, 0, 0)
-
-		local mergedInfo = {}
-		if type(dbInfo) == "table" then
-			for k, v in pairs(dbInfo) do mergedInfo[k] = v end
-		end
-		mergedInfo.Name = itemData.Name or mergedInfo.Name or tostring(itemData.ID)
-		mergedInfo.Rarity = itemData.Rarity or mergedInfo.Rarity or "Godly"
-		mergedInfo.Chroma = itemData.Chroma or mergedInfo.Chroma
-		mergedInfo.FX = itemData.FX or mergedInfo.FX
-		mergedInfo.Image = resolveSafeIcon(itemData, dbInfo)
-
-		if ItemService.ApplyItemToFrame then
+		if type(writefile) == "function" then
 			pcall(function()
-				ItemService:ApplyItemToFrame(slot, mergedInfo, 1)
-			end)
-		end
-		if slot:FindFirstChild("Container") and slot.Container:FindFirstChild("Icon") and mergedInfo.Image ~= "" then
-			slot.Container.Icon.Image = mergedInfo.Image
-		end
-		if slot:FindFirstChild("ItemName") and slot.ItemName:FindFirstChild("Label") then
-			slot.ItemName.Label.Text = mergedInfo.Name
-		end
-		if slot:FindFirstChild("Tags") and ItemService.ApplyTags then
-			pcall(function()
-				ItemService:ApplyTags(slot, mergedInfo)
+				writefile("MM2_AutoChunk_Report.txt", fullReport)
 			end)
 		end
 
-		slot.LayoutOrder = ItemService:GetLayoutOrder(itemData.ID, itemData.Category or "Weapons")
-		slot.Visible = true
-		slot.Parent = container
+		local totalChunks = math.max(1, math.ceil(#fullReport / CHUNK_SIZE))
+		statusLabel.Text = string.format("Готово! Кусков по 170000: %d. Жми Copy All.", totalChunks)
+		infoLabel.Text = string.format("Символов: %d | Кусков: %d", #fullReport, totalChunks)
 
-		-- При клике на карточку надеваем предмет в слот Equipped и подменяем модель в руке
-		for _, d in ipairs(slot:GetDescendants()) do
-			if d:IsA("GuiButton") then
-				d.Activated:Connect(function()
-					MM2SpawnerSuite.EquipItem(itemData, invMain)
-				end)
-			end
+		startBtn.Text = "Start Scan"
+		startBtn.BackgroundColor3 = Color3.fromRGB(45, 125, 210)
+		isScanning = false
+	end
+
+	local function copyAllChunksAutomatically()
+		if isAutoCopying or isScanning then return end
+		if #fullReport == 0 then
+			statusLabel.Text = "Сначала нажми Start Scan — отчёт пуст."
+			return
 		end
+		if type(setclipboard) ~= "function" then
+			statusLabel.Text = "setclipboard недоступен в этом экзекуторе."
+			return
+		end
+
+		local chunks = splitIntoChunks(fullReport, CHUNK_SIZE)
+		if #chunks == 0 then return end
+
+		isAutoCopying = true
+		copyBtn.BackgroundColor3 = Color3.fromRGB(185, 120, 30)
+
+		task.spawn(function()
+			for i, chunkText in ipairs(chunks) do
+				copyBtn.Text = string.format("Auto %d/%d", i, #chunks)
+				local ok = pcall(function()
+					setclipboard(chunkText)
+				end)
+
+				statusLabel.Text = ok
+					and string.format("Авто-копирование: кусок %d из %d (пауза %.1fс)", i, #chunks, COPY_DELAY)
+					or string.format("Ошибка на куске %d из %d", i, #chunks)
+
+				print(string.format("[AutoCopyAll] Отправлен кусок %d/%d (%d символов).", i, #chunks, #chunkText))
+
+				if i < #chunks then
+					task.wait(COPY_DELAY)
+				end
+			end
+
+			statusLabel.Text = string.format("Все %d кусков автоматически отправлены в буфер!", #chunks)
+			copyBtn.Text = "Copy All"
+			copyBtn.BackgroundColor3 = Color3.fromRGB(48, 150, 90)
+			isAutoCopying = false
+		end)
 	end
 
-	local nextCount = (tonumber(slot:GetAttribute("SpawnCount")) or 0) + addAmount
-	slot:SetAttribute("SpawnCount", nextCount)
-
-	if slot:FindFirstChild("Container") and slot.Container:FindFirstChild("Amount") then
-		slot.Container.Amount.Text = nextCount > 1 and ("x" .. tostring(nextCount)) or ""
-	end
-
-	if autoEquip then
-		MM2SpawnerSuite.EquipItem(itemData, invMain)
-	end
-
-	return slot
+	startBtn.MouseButton1Click:Connect(runDeepScan)
+	copyBtn.MouseButton1Click:Connect(copyAllChunksAutomatically)
 end
 
-return MM2SpawnerSuite
+createAutoCopyScannerUI()
