@@ -149,7 +149,7 @@ local function isYearObject(obj)
     if not obj:IsA("TextLabel") then return false end
     if obj.Name == "TagName" then return false end
     local lowerName = string.lower(obj.Name)
-    if lowerName == "year" or string.find(lowerName, "year", 1, true) then
+    if lowerName == "year" or lowerName == "year2" or string.find(lowerName, "year", 1, true) then
         return true
     end
     local txt = trim(obj.Text)
@@ -169,10 +169,15 @@ local function applySingleYear(card, info, activeEventName)
         local tags = card:FindFirstChild("Tags")
         local activeFrame = tags and tags:FindFirstChild(activeEventName)
         if activeFrame then
-            for _, obj in ipairs(activeFrame:GetDescendants()) do
-                if isYearObject(obj) then
-                    chosen = obj
-                    break
+            local primaryYear = activeFrame:FindFirstChild("Year", true)
+            if primaryYear and isYearObject(primaryYear) then
+                chosen = primaryYear
+            else
+                for _, obj in ipairs(activeFrame:GetDescendants()) do
+                    if isYearObject(obj) then
+                        chosen = obj
+                        break
+                    end
                 end
             end
         end
@@ -209,46 +214,41 @@ local function applyEventFrame(eventFrame, info, itemName, eventType, active)
     end
 end
 
+local function enableFxOnCard(card, showFx)
+    if not card then return end
+    for _, desc in ipairs(card:GetDescendants()) do
+        if desc.Name == "FX" and desc:IsA("GuiObject") then
+            desc.Visible = showFx
+            local img = desc:FindFirstChild("ImageLabel")
+            if img and img:IsA("GuiObject") then
+                img.Visible = showFx
+            end
+        end
+    end
+end
+
 local function applyTags(card, info, itemName)
     if not card then return end
-    local tags = card:FindFirstChild("Tags")
-    if not tags then return end
-
     local eventName = info and info.Event
     local showFx = hasFxEnabled(info, itemName)
 
-    local hallowFrame = tags:FindFirstChild("Halloween")
-    local xmasFrame = tags:FindFirstChild("Christmas")
-    local chromaFrame = tags:FindFirstChild("Chroma")
-    local fxFrame = tags:FindFirstChild("FX")
+    enableFxOnCard(card, showFx)
 
-    if chromaFrame then
-        chromaFrame.Visible = (info and info.Chroma == true) or false
-    end
+    local tags = card:FindFirstChild("Tags")
+    if tags then
+        local hallowFrame = tags:FindFirstChild("Halloween")
+        local xmasFrame = tags:FindFirstChild("Christmas")
+        local chromaFrame = tags:FindFirstChild("Chroma")
 
-    if fxFrame then
-        fxFrame.Visible = showFx
-        local fxImg = fxFrame:FindFirstChild("ImageLabel")
-        if fxImg then
-            fxImg.Visible = showFx
+        if chromaFrame then
+            chromaFrame.Visible = (info and info.Chroma == true) or false
         end
+
+        applyEventFrame(hallowFrame, info, itemName, "Halloween", eventName == "Halloween")
+        applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
     end
 
-    applyEventFrame(hallowFrame, info, itemName, "Halloween", eventName == "Halloween")
-    applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
     applySingleYear(card, info, eventName)
-end
-
-local function applyStarburstColor(popupFrame, info)
-    if not popupFrame or not info or not info.Rarity then return end
-    local cont = popupFrame:FindFirstChild("Container")
-    local starburst = cont and cont:FindFirstChild("Starburst")
-    if starburst and starburst:IsA("ImageLabel") and type(syncDb) == "table" and type(syncDb.Rarities) == "table" then
-        local rData = syncDb.Rarities[info.Rarity]
-        if rData and rData.Color then
-            starburst.ImageColor3 = Color3.fromRGB(rData.Color.r, rData.Color.g, rData.Color.b)
-        end
-    end
 end
 
 local function fillCardVisuals(card, info, itemName)
@@ -440,7 +440,7 @@ local function addCardToContainers(info, itemName)
 end
 
 local function playNativeInventoryAnimation(popupFrame)
-    if not type(itemModule) == "table" or not itemModule.AnimateItemIconIntoInventory then return end
+    if type(itemModule) ~= "table" or not itemModule.AnimateItemIconIntoInventory then return end
     if not gameGui then return end
     local dock = gameGui:FindFirstChild("Dock")
     local invDock = dock and dock:FindFirstChild("Inventory")
@@ -492,7 +492,6 @@ local function hookClaimButton(popup)
                     if card then
                         fillCardVisuals(card, nextEntry.Info, nextEntry.Name)
                     end
-                    applyStarburstColor(popup, nextEntry.Info)
                     popup.Visible = true
                     local claimObj = cont and cont:FindFirstChild("Claim")
                     if claimObj and claimObj:IsA("TextButton") then
@@ -525,7 +524,6 @@ local function openPopupForItem(itemKey, category, info)
                 if card then
                     fillCardVisuals(card, info, itemKey)
                 end
-                applyStarburstColor(popup, info)
             end)
             return true, "Spawned: " .. tostring(info.ItemName or itemKey)
         end
@@ -557,7 +555,6 @@ local function openPopupForItem(itemKey, category, info)
         card.Visible = true
         fillCardVisuals(card, info, itemKey)
     end
-    applyStarburstColor(popup, info)
 
     return true, "Spawned: " .. tostring(info.ItemName or itemKey)
 end
