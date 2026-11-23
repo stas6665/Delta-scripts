@@ -124,8 +124,12 @@ local function resolveExactItem(rawName)
     return nil, nil, nil, "Item not found"
 end
 
-local function hasFxEnabled(info)
-    return type(info) == "table" and info.FX == true
+local function hasFxEnabled(info, itemName)
+    if itemName == "Gingerscope" or (info and info.ItemName == "Gingerscope") then
+        return true
+    end
+    if not info then return false end
+    return info.FX == true or info.HasFX == true or info.Effect == true
 end
 
 local function shouldShowEventBg(info, itemName, eventType)
@@ -205,14 +209,37 @@ local function applyEventFrame(eventFrame, info, itemName, eventType, active)
     end
 end
 
-local function setFxFolderVisibility(fxObj, showFx)
-    if not fxObj then return end
-    if fxObj:IsA("GuiObject") then
-        fxObj.Visible = showFx
+local function applyFxTag(fxFrame, enabled)
+    if not fxFrame then return end
+    if fxFrame:IsA("GuiObject") then
+        fxFrame.Visible = enabled
     end
-    for _, desc in ipairs(fxObj:GetDescendants()) do
-        if desc:IsA("GuiObject") then
-            desc.Visible = showFx
+    local img = fxFrame:FindFirstChild("ImageLabel")
+    if img and img:IsA("GuiObject") then
+        img.Visible = enabled
+    end
+    local tagName = fxFrame:FindFirstChild("TagName")
+    if tagName and tagName:IsA("GuiObject") then
+        tagName.Visible = enabled
+    end
+end
+
+local function applyUniqueTag(uniqueFrame, enabled, ownerName)
+    if not uniqueFrame then return end
+    if uniqueFrame:IsA("GuiObject") then
+        uniqueFrame.Visible = enabled
+    end
+    local bg = uniqueFrame:FindFirstChild("BG")
+    if bg and bg:IsA("GuiObject") then
+        bg.Visible = enabled
+    end
+    local playerName = uniqueFrame:FindFirstChild("PlayerName")
+    if playerName then
+        if playerName:IsA("GuiObject") then
+            playerName.Visible = enabled
+        end
+        if playerName:IsA("TextLabel") and ownerName and ownerName ~= "" then
+            playerName.Text = tostring(ownerName)
         end
     end
 end
@@ -220,34 +247,26 @@ end
 local function applyTags(card, info, itemName)
     if not card then return end
     local tags = card:FindFirstChild("Tags")
+    if not tags then return end
 
     local eventName = info and info.Event
-    local showFx = hasFxEnabled(info)
+    local showFx = hasFxEnabled(info, itemName)
 
-    if tags then
-        local hallowFrame = tags:FindFirstChild("Halloween")
-        local xmasFrame = tags:FindFirstChild("Christmas")
-        local chromaFrame = tags:FindFirstChild("Chroma")
-        local fxFrame = tags:FindFirstChild("FX")
+    local hallowFrame = tags:FindFirstChild("Halloween")
+    local xmasFrame = tags:FindFirstChild("Christmas")
+    local chromaFrame = tags:FindFirstChild("Chroma")
+    local fxFrame = tags:FindFirstChild("FX") or card:FindFirstChild("FX", true)
+    local uniqueFrame = tags:FindFirstChild("Unique") or card:FindFirstChild("Unique", true)
 
-        if chromaFrame then
-            chromaFrame.Visible = (info and info.Chroma == true) or false
-        end
-
-        if fxFrame then
-            setFxFolderVisibility(fxFrame, showFx)
-        end
-
-        applyEventFrame(hallowFrame, info, itemName, "Halloween", eventName == "Halloween")
-        applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
+    if chromaFrame then
+        chromaFrame.Visible = (info and info.Chroma == true) or false
     end
 
-    for _, desc in ipairs(card:GetDescendants()) do
-        if desc.Name == "FX" then
-            setFxFolderVisibility(desc, showFx)
-        end
-    end
+    applyFxTag(fxFrame, showFx)
+    applyUniqueTag(uniqueFrame, showFx, info and info.PlayerName)
 
+    applyEventFrame(hallowFrame, info, itemName, "Halloween", eventName == "Halloween")
+    applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
     applySingleYear(card, info, eventName)
 end
 
