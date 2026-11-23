@@ -34,6 +34,7 @@ local mainGui = nil
 local gameGui = nil
 local gameNewItem = nil
 local pendingQueue = {}
+local claimedItems = {}
 local hookedButtons = {}
 
 local function trim(str)
@@ -169,15 +170,10 @@ local function applySingleYear(card, info, activeEventName)
         local tags = card:FindFirstChild("Tags")
         local activeFrame = tags and tags:FindFirstChild(activeEventName)
         if activeFrame then
-            local primaryYear = activeFrame:FindFirstChild("Year", true)
-            if primaryYear and isYearObject(primaryYear) then
-                chosen = primaryYear
-            else
-                for _, obj in ipairs(activeFrame:GetDescendants()) do
-                    if isYearObject(obj) then
-                        chosen = obj
-                        break
-                    end
+            for _, obj in ipairs(activeFrame:GetDescendants()) do
+                if isYearObject(obj) then
+                    chosen = obj
+                    break
                 end
             end
         end
@@ -214,27 +210,58 @@ local function applyEventFrame(eventFrame, info, itemName, eventType, active)
     end
 end
 
-local function enableFxOnCard(card, showFx)
+local function applyFxElement(card, showFx)
     if not card then return end
+    local foundFx = false
+
     for _, desc in ipairs(card:GetDescendants()) do
         if desc.Name == "FX" and desc:IsA("GuiObject") then
+            foundFx = true
             desc.Visible = showFx
-            local img = desc:FindFirstChild("ImageLabel")
-            if img and img:IsA("GuiObject") then
-                img.Visible = showFx
+            for _, sub in ipairs(desc:GetDescendants()) do
+                if sub:IsA("GuiObject") then
+                    sub.Visible = showFx
+                end
             end
         end
+    end
+
+    if showFx and not foundFx then
+        local parentFrame = card:FindFirstChild("Tags") or card
+        local fxFrame = Instance.new("Frame")
+        fxFrame.Name = "FX"
+        fxFrame.Size = UDim2.new(0, 34, 0, 16)
+        fxFrame.Position = UDim2.new(1, -38, 0, 4)
+        fxFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+        fxFrame.BackgroundTransparency = 0.2
+        fxFrame.BorderSizePixel = 0
+        fxFrame.ZIndex = 15
+        fxFrame.Parent = parentFrame
+
+        local fxCorner = Instance.new("UICorner")
+        fxCorner.CornerRadius = UDim.new(0, 4)
+        fxCorner.Parent = fxFrame
+
+        local fxText = Instance.new("TextLabel")
+        fxText.Name = "TagName"
+        fxText.Size = UDim2.fromScale(1, 1)
+        fxText.BackgroundTransparency = 1
+        fxText.Text = "FX"
+        fxText.TextColor3 = Color3.fromRGB(255, 220, 90)
+        fxText.Font = Enum.Font.GothamBold
+        fxText.TextSize = 10
+        fxText.ZIndex = 16
+        fxText.Parent = fxFrame
     end
 end
 
 local function applyTags(card, info, itemName)
     if not card then return end
+    local tags = card:FindFirstChild("Tags")
+
     local eventName = info and info.Event
     local showFx = hasFxEnabled(info, itemName)
 
-    enableFxOnCard(card, showFx)
-
-    local tags = card:FindFirstChild("Tags")
     if tags then
         local hallowFrame = tags:FindFirstChild("Halloween")
         local xmasFrame = tags:FindFirstChild("Christmas")
@@ -248,7 +275,20 @@ local function applyTags(card, info, itemName)
         applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
     end
 
+    applyFxElement(card, showFx)
     applySingleYear(card, info, eventName)
+end
+
+local function applyStarburstColor(popupFrame, info)
+    if not popupFrame or not info or not info.Rarity then return end
+    local cont = popupFrame:FindFirstChild("Container")
+    local starburst = cont and cont:FindFirstChild("Starburst")
+    if starburst and starburst:IsA("ImageLabel") and type(syncDb) == "table" and type(syncDb.Rarities) == "table" then
+        local rData = syncDb.Rarities[info.Rarity]
+        if rData and rData.Color then
+            starburst.ImageColor3 = Color3.fromRGB(rData.Color.r, rData.Color.g, rData.Color.b)
+        end
+    end
 end
 
 local function fillCardVisuals(card, info, itemName)
@@ -303,6 +343,10 @@ local function scoreContainerForItem(container, info)
     local eventName = info and string.lower(tostring(info.Event or "")) or ""
     local rarityPresent = hasRarity(info)
 
+    if string.find(path, "inventory", 1, true) then
+        score += 15
+    end
+
     if string.find(path, "weapons", 1, true) then
         score += 10
     end
@@ -351,45 +395,65 @@ local function scoreContainerForItem(container, info)
     return score
 end
 
+local function isIgnoredPath(path)
+    if string.find(path, "newitem", 1, true) then return true end
+    if string.find(path, "godlyspawnergui", 1, true) then return true end
+    return false
+end
+
+local function isGridHolder(obj)
+    if not (obj:IsA("ScrollingFrame") or obj:IsA("Frame")) then return false end
+    for _, child in ipairs(obj:GetChildren()) do
+        if child:IsA("UIGridLayout") or child:IsA("UIListLayout") then
+            return true
+        end
+    end
+    if obj.Name == "Container" then return true end
+    return false
+end
+
+local function scanEverywhereForContainers(allContainers, seen)
+    local roots = { playerGui, workspace }
+    local checked = 0
+    local maxChecks = 12000
+
+    for _, root in ipairs(roots) do
+        pcall(function()
+            for _, desc in ipairs(root:GetDescendants()) do
+                checked += 1
+                if checked > maxChecks then break end
+                if isGridHolder(desc) and not seen[desc] then
+                    local path = string.lower(getAncestryPath(desc))
+                    if not isIgnoredPath(path) then
+                        if string.find(path, "weapon", 1, true)
+                            or string.find(path, "gun", 1, true)
+                            or string.find(path, "knife", 1, true)
+                            or string.find(path, "inventory", 1, true)
+                            or string.find(path, "trade", 1, true)
+                            or string.find(path, "item", 1, true)
+                            or desc.Name == "Container" then
+                            seen[desc] = true
+                            table.insert(allContainers, desc)
+                        end
+                    end
+                end
+            end
+        end)
+        if checked > maxChecks then break end
+    end
+end
+
 local function collectWeaponContainers()
     local allContainers = {}
-
-    local tradeGui = playerGui:FindFirstChild("TradeGUI")
-    local tradeItems = tradeGui and tradeGui:FindFirstChild("Container") and tradeGui.Container:FindFirstChild("Items")
-    if tradeItems then
-        for _, child in ipairs(tradeItems:GetChildren()) do
-            local cat = child:FindFirstChild("Weapons")
-            if cat then
-                for _, desc in ipairs(cat:GetDescendants()) do
-                    if desc.Name == "Container" then
-                        table.insert(allContainers, desc)
-                    end
-                end
-            end
-        end
-    end
-
-    if mainGui then
-        local invRoot = mainGui:FindFirstChild("Inventory")
-        if invRoot then
-            for _, desc in ipairs(invRoot:GetDescendants()) do
-                if desc.Name == "Container" then
-                    local path = string.lower(getAncestryPath(desc))
-                    if string.find(path, "weapon", 1, true) or string.find(path, "gun", 1, true) then
-                        table.insert(allContainers, desc)
-                    end
-                end
-            end
-        end
-    end
-
+    local seen = {}
+    scanEverywhereForContainers(allContainers, seen)
     return allContainers
 end
 
 local function findWeaponCardTemplate(allContainers)
     for _, cont in ipairs(allContainers) do
         for _, child in ipairs(cont:GetChildren()) do
-            if child:IsA("GuiObject") and child.Name == "NewItem" then
+            if child:IsA("GuiObject") and (child.Name == "NewItem" or child.Name == "ItemFrame" or child.Name == "Weapon") then
                 return child
             end
         end
@@ -397,9 +461,41 @@ local function findWeaponCardTemplate(allContainers)
 
     for _, cont in ipairs(allContainers) do
         for _, child in ipairs(cont:GetChildren()) do
-            if child:IsA("GuiObject") and not child:IsA("UILayout") and not child:IsA("UIPadding") then
+            if child:IsA("GuiObject") and not child:IsA("UILayout") and not child:IsA("UIPadding") and not child:IsA("UIAspectRatioConstraint") then
                 return child
             end
+        end
+    end
+
+    local foundAnywhere = nil
+    local roots = { playerGui, workspace }
+    local checked = 0
+    local maxChecks = 12000
+
+    for _, root in ipairs(roots) do
+        pcall(function()
+            for _, desc in ipairs(root:GetDescendants()) do
+                checked += 1
+                if checked > maxChecks then break end
+                if desc:IsA("GuiObject") and not string.find(string.lower(getAncestryPath(desc)), "godlyspawnergui", 1, true) then
+                    if desc.Name == "NewItem" or desc.Name == "ItemFrame" or desc.Name == "Weapon" then
+                        foundAnywhere = desc
+                        break
+                    end
+                end
+            end
+        end)
+        if foundAnywhere or checked > maxChecks then break end
+    end
+
+    if foundAnywhere then
+        return foundAnywhere
+    end
+
+    if gameNewItem then
+        local popCard = gameNewItem:FindFirstChild("NewItem", true)
+        if popCard and popCard:IsA("GuiObject") then
+            return popCard
         end
     end
 
@@ -483,6 +579,7 @@ local function hookClaimButton(popup)
                     end
                 end)
                 if entry then
+                    table.insert(claimedItems, entry)
                     addCardToContainers(entry.Info, entry.Name)
                 end
                 if #pendingQueue > 0 then
@@ -492,6 +589,7 @@ local function hookClaimButton(popup)
                     if card then
                         fillCardVisuals(card, nextEntry.Info, nextEntry.Name)
                     end
+                    applyStarburstColor(popup, nextEntry.Info)
                     popup.Visible = true
                     local claimObj = cont and cont:FindFirstChild("Claim")
                     if claimObj and claimObj:IsA("TextButton") then
@@ -524,6 +622,7 @@ local function openPopupForItem(itemKey, category, info)
                 if card then
                     fillCardVisuals(card, info, itemKey)
                 end
+                applyStarburstColor(popup, info)
             end)
             return true, "Spawned: " .. tostring(info.ItemName or itemKey)
         end
@@ -555,6 +654,7 @@ local function openPopupForItem(itemKey, category, info)
         card.Visible = true
         fillCardVisuals(card, info, itemKey)
     end
+    applyStarburstColor(popup, info)
 
     return true, "Spawned: " .. tostring(info.ItemName or itemKey)
 end
@@ -660,7 +760,7 @@ closeBtn.Parent = topBar
 
 local closeCorner = Instance.new("UICorner")
 closeCorner.CornerRadius = UDim.new(0, 5)
-closeCorner.Parent = closeBtn
+closeBtn.Parent = closeBtn
 
 local bodyFrame = Instance.new("Frame")
 bodyFrame.Name = "Body"
@@ -772,4 +872,16 @@ end)
 pcall(function()
     initGameRefs()
     hookClaimButton(getActivePopup())
+    if mainGui then
+        local invRoot = mainGui:FindFirstChild("Inventory")
+        if invRoot and invRoot:IsA("GuiObject") then
+            invRoot:GetPropertyChangedSignal("Visible"):Connect(function()
+                if invRoot.Visible and #claimedItems > 0 then
+                    for _, item in ipairs(claimedItems) do
+                        addCardToContainers(item.Info, item.Name)
+                    end
+                end
+            end)
+        end
+    end
 end)
