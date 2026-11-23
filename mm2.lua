@@ -31,7 +31,7 @@ local syncDb = nil
 local itemModule = nil
 local mainGui = nil
 local pendingQueue = {}
-local hookedClaims = {}
+local hookedButtons = {}
 
 local function trim(str)
     return tostring(str or ""):match("^%s*(.-)%s*$")
@@ -182,6 +182,34 @@ local function applyTags(card, info, itemName)
 
     applyEventFrame(hallowFrame, info, itemName, "Halloween", eventName == "Halloween")
     applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
+end
+
+local function fillCardVisuals(card, info, itemName)
+    if not card or not info then return end
+    if type(itemModule) == "table" and itemModule.DisplayItem then
+        pcall(function()
+            itemModule.DisplayItem(card, info)
+        end)
+    end
+
+    local displayName = tostring(info.ItemName or itemName or "")
+    local iconAsset = info.Image and tostring(info.Image) or ""
+
+    for _, desc in ipairs(card:GetDescendants()) do
+        if desc:IsA("ImageLabel") or desc:IsA("ImageButton") then
+            if iconAsset ~= "" and (desc.Name == "Icon" or desc.Name == "ItemIcon" or desc.Name == "Image" or desc:FindFirstAncestor("Tags") == nil) then
+                if desc.Image == "" or desc.Name == "Icon" or desc.Name == "ItemIcon" or desc.Name == "Image" then
+                    desc.Image = iconAsset
+                end
+            end
+        elseif desc:IsA("TextLabel") then
+            if desc.Name == "ItemName" or desc.Name == "TitleName" or desc.Name == "NameLabel" then
+                desc.Text = displayName
+            end
+        end
+    end
+
+    applyTags(card, info, itemName)
 end
 
 local function getAncestryPath(instance)
@@ -338,107 +366,75 @@ local function addCardToContainers(info, itemName)
             local clone = template:Clone()
             clone.Name = "NewItem"
             clone.Visible = true
-            if info and type(itemModule) == "table" and itemModule.DisplayItem then
-                pcall(function()
-                    itemModule.DisplayItem(clone, info)
-                end)
-            end
-            applyTags(clone, info, itemName)
+            fillCardVisuals(clone, info, itemName)
             clone.Parent = cont
         end
     end
 end
 
-local function findNewItemPopups()
-    local popups = {}
-    local seen = {}
-
-    local function scanRoot(root)
-        if not root then return end
-        for _, desc in ipairs(root:GetDescendants()) do
-            if desc.Name == "NewItem" and not seen[desc] then
-                local path = string.lower(getAncestryPath(desc))
-                local isInventoryGridCard = string.find(path, "items/container", 1, true)
-                if not isInventoryGridCard then
-                    seen[desc] = true
-                    table.insert(popups, desc)
-                end
-            end
-        end
+local function getCrossPlatformPopup()
+    local cp = playerGui:FindFirstChild("CrossPlatform")
+    if not cp then return nil end
+    local popup = cp:FindFirstChild("NewItem")
+    if popup and popup:IsA("GuiObject") then
+        return popup
     end
-
-    scanRoot(playerGui)
-    scanRoot(workspace)
-    return popups
+    return nil
 end
 
-local function hookClaimButtons(popups)
-    for _, popup in ipairs(popups) do
-        for _, desc in ipairs(popup:GetDescendants()) do
-            if desc:IsA("GuiButton") and desc.Name == "Claim" and not hookedClaims[desc] then
-                hookedClaims[desc] = true
+local function hookCrossPlatformClaim(popup)
+    if not popup then return end
+    for _, desc in ipairs(popup:GetDescendants()) do
+        if desc:IsA("GuiButton") and not hookedButtons[desc] then
+            local lower = string.lower(desc.Name)
+            if lower == "claim" or lower == "ok" or lower == "accept" or lower == "close" then
+                hookedButtons[desc] = true
                 desc.MouseButton1Click:Connect(function()
                     local entry = table.remove(pendingQueue, 1)
                     if entry then
                         addCardToContainers(entry.Info, entry.Name)
                     end
+                    popup.Visible = false
                 end)
             end
         end
     end
 end
 
-local function triggerNewItemPopups(itemKey, info)
-    local popups = findNewItemPopups()
-    if #popups == 0 then
-        return false, "NewItem not found"
+local function openCrossPlatformPopup(itemKey, info)
+    local popup = getCrossPlatformPopup()
+    if not popup then
+        return false, "CrossPlatform.NewItem not found"
     end
 
-    hookClaimButtons(popups)
+    hookCrossPlatformClaim(popup)
 
-    local triggered = false
-    for _, popup in ipairs(popups) do
-        if popup:IsA("GuiObject") then
-            popup.Visible = true
-            local ancestor = popup.Parent
-            while ancestor and ancestor ~= game do
-                if ancestor:IsA("LayerCollector") then
-                    ancestor.Enabled = true
-                elseif ancestor:IsA("GuiObject") then
-                    ancestor.Visible = true
-                end
-                ancestor = ancestor.Parent
-            end
+    popup.Visible = true
+    local medium = popup:FindFirstChild("Medium")
+    if medium and medium:IsA("GuiObject") then
+        medium.Visible = true
+    end
 
-            for _, desc in ipairs(popup:GetDescendants()) do
-                if desc:IsA("TextLabel") and desc.Name == "Title" then
-                    desc.Text = "You Got..."
-                end
-            end
+    local container = medium and medium:FindFirstChild("Container")
+    if container and container:IsA("GuiObject") then
+        container.Visible = true
+    end
 
-            local innerCard = popup:FindFirstChild("NewItem", true)
-            if innerCard and innerCard:IsA("GuiObject") then
-                innerCard.Visible = true
-                if info and type(itemModule) == "table" and itemModule.DisplayItem then
-                    pcall(function()
-                        itemModule.DisplayItem(innerCard, info)
-                    end)
-                end
-                applyTags(innerCard, info, itemKey)
-            end
-            triggered = true
-        elseif popup:IsA("BindableEvent") then
-            pcall(function()
-                popup:Fire(itemKey, info)
-            end)
-            triggered = true
+    for _, desc in ipairs(popup:GetDescendants()) do
+        if desc:IsA("TextLabel") and desc.Name == "Title" then
+            desc.Text = "You Got..."
         end
     end
 
-    if triggered then
-        return true, "Spawned: " .. tostring(info.ItemName or itemKey)
+    local card = container and container:FindFirstChild("NewItem")
+    if card and card:IsA("GuiObject") then
+        card.Visible = true
+        fillCardVisuals(card, info, itemKey)
+    else
+        fillCardVisuals(popup, info, itemKey)
     end
-    return false, "NewItem not usable"
+
+    return true, "Spawned: " .. tostring(info.ItemName or itemKey)
 end
 
 local function spawnItemPopup(rawName)
@@ -452,7 +448,7 @@ local function spawnItemPopup(rawName)
         Info = info
     })
 
-    return triggerNewItemPopups(itemKey, info)
+    return openCrossPlatformPopup(itemKey, info)
 end
 
 local oldGui = playerGui:FindFirstChild("GodlySpawnerGUI")
@@ -653,5 +649,5 @@ end)
 
 pcall(function()
     initGameRefs()
-    hookClaimButtons(findNewItemPopups())
+    hookCrossPlatformClaim(getCrossPlatformPopup())
 end)
