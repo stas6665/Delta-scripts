@@ -209,41 +209,6 @@ local function applyEventFrame(eventFrame, info, itemName, eventType, active)
     end
 end
 
-local function applyFxTag(fxFrame, enabled)
-    if not fxFrame then return end
-    if fxFrame:IsA("GuiObject") then
-        fxFrame.Visible = enabled
-    end
-    local img = fxFrame:FindFirstChild("ImageLabel")
-    if img and img:IsA("GuiObject") then
-        img.Visible = enabled
-    end
-    local tagName = fxFrame:FindFirstChild("TagName")
-    if tagName and tagName:IsA("GuiObject") then
-        tagName.Visible = enabled
-    end
-end
-
-local function applyUniqueTag(uniqueFrame, enabled, ownerName)
-    if not uniqueFrame then return end
-    if uniqueFrame:IsA("GuiObject") then
-        uniqueFrame.Visible = enabled
-    end
-    local bg = uniqueFrame:FindFirstChild("BG")
-    if bg and bg:IsA("GuiObject") then
-        bg.Visible = enabled
-    end
-    local playerName = uniqueFrame:FindFirstChild("PlayerName")
-    if playerName then
-        if playerName:IsA("GuiObject") then
-            playerName.Visible = enabled
-        end
-        if playerName:IsA("TextLabel") and ownerName and ownerName ~= "" then
-            playerName.Text = tostring(ownerName)
-        end
-    end
-end
-
 local function applyTags(card, info, itemName)
     if not card then return end
     local tags = card:FindFirstChild("Tags")
@@ -255,15 +220,19 @@ local function applyTags(card, info, itemName)
     local hallowFrame = tags:FindFirstChild("Halloween")
     local xmasFrame = tags:FindFirstChild("Christmas")
     local chromaFrame = tags:FindFirstChild("Chroma")
-    local fxFrame = tags:FindFirstChild("FX") or card:FindFirstChild("FX", true)
-    local uniqueFrame = tags:FindFirstChild("Unique") or card:FindFirstChild("Unique", true)
+    local fxFrame = tags:FindFirstChild("FX")
 
     if chromaFrame then
         chromaFrame.Visible = (info and info.Chroma == true) or false
     end
 
-    applyFxTag(fxFrame, showFx)
-    applyUniqueTag(uniqueFrame, showFx, info and info.PlayerName)
+    if fxFrame then
+        fxFrame.Visible = showFx
+        local fxImg = fxFrame:FindFirstChild("ImageLabel")
+        if fxImg then
+            fxImg.Visible = showFx
+        end
+    end
 
     applyEventFrame(hallowFrame, info, itemName, "Halloween", eventName == "Halloween")
     applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
