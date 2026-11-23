@@ -27,17 +27,52 @@ local fallbackItems = {
     }
 }
 
-local syncDb = require(ReplicatedStorage:WaitForChild("Database"):WaitForChild("Sync"))
-local itemModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ItemModule"))
-
-local mainGui = playerGui:WaitForChild("MainGUI")
-local newItemGui = mainGui:WaitForChild("Inventory"):WaitForChild("NewItem")
-local claimBtn = newItemGui:WaitForChild("Container"):WaitForChild("Claim")
-
+local syncDb = nil
+local itemModule = nil
+local mainGui = nil
+local newItemGui = nil
+local claimBtn = nil
 local pendingQueue = {}
+local claimHooked = false
 
 local function trim(str)
     return tostring(str or ""):match("^%s*(.-)%s*$")
+end
+
+local function initGameRefs()
+    if not syncDb then
+        pcall(function()
+            local dbFolder = ReplicatedStorage:FindFirstChild("Database")
+            local syncMod = dbFolder and dbFolder:FindFirstChild("Sync")
+            if syncMod then
+                syncDb = require(syncMod)
+            end
+        end)
+    end
+
+    if not itemModule then
+        pcall(function()
+            local modsFolder = ReplicatedStorage:FindFirstChild("Modules")
+            local itemMod = modsFolder and modsFolder:FindFirstChild("ItemModule")
+            if itemMod then
+                itemModule = require(itemMod)
+            end
+        end)
+    end
+
+    if not mainGui then
+        mainGui = playerGui:FindFirstChild("MainGUI")
+    end
+
+    if mainGui and not newItemGui then
+        local inv = mainGui:FindFirstChild("Inventory")
+        newItemGui = inv and inv:FindFirstChild("NewItem")
+    end
+
+    if newItemGui and not claimBtn then
+        local cont = newItemGui:FindFirstChild("Container")
+        claimBtn = cont and cont:FindFirstChild("Claim")
+    end
 end
 
 local function findExactItemInTable(tbl, exactName)
@@ -59,26 +94,30 @@ local function resolveExactItem(rawName)
         return nil, nil, nil, "Enter exact item name"
     end
 
-    local key, info = findExactItemInTable(syncDb.Item, exactName)
-    if key and info then
-        return key, "Item", info, nil
-    end
+    initGameRefs()
 
-    key, info = findExactItemInTable(syncDb.Weapons, exactName)
-    if key and info then
-        return key, "Weapons", info, nil
-    end
+    if type(syncDb) == "table" then
+        local key, info = findExactItemInTable(syncDb.Item, exactName)
+        if key and info then
+            return key, "Item", info, nil
+        end
 
-    for catName, catTable in pairs(syncDb) do
-        if type(catTable) == "table" and catName ~= "Item" and catName ~= "Weapons" then
-            key, info = findExactItemInTable(catTable, exactName)
-            if key and info and type(info) == "table" and (info.ItemName or info.Image or info.Rarity) then
-                return key, catName, info, nil
+        key, info = findExactItemInTable(syncDb.Weapons, exactName)
+        if key and info then
+            return key, "Weapons", info, nil
+        end
+
+        for catName, catTable in pairs(syncDb) do
+            if type(catTable) == "table" and catName ~= "Item" and catName ~= "Weapons" then
+                key, info = findExactItemInTable(catTable, exactName)
+                if key and info and type(info) == "table" and (info.ItemName or info.Image or info.Rarity) then
+                    return key, catName, info, nil
+                end
             end
         end
     end
 
-    key, info = findExactItemInTable(fallbackItems, exactName)
+    local key, info = findExactItemInTable(fallbackItems, exactName)
     if key and info then
         return key, "Weapons", info, nil
     end
@@ -247,13 +286,15 @@ local function collectWeaponContainers()
         end
     end
 
-    local invRoot = mainGui:FindFirstChild("Inventory")
-    if invRoot then
-        for _, desc in ipairs(invRoot:GetDescendants()) do
-            if desc.Name == "Container" then
-                local path = string.lower(getAncestryPath(desc))
-                if string.find(path, "weapon", 1, true) or string.find(path, "gun", 1, true) then
-                    table.insert(allContainers, desc)
+    if mainGui then
+        local invRoot = mainGui:FindFirstChild("Inventory")
+        if invRoot then
+            for _, desc in ipairs(invRoot:GetDescendants()) do
+                if desc.Name == "Container" then
+                    local path = string.lower(getAncestryPath(desc))
+                    if string.find(path, "weapon", 1, true) or string.find(path, "gun", 1, true) then
+                        table.insert(allContainers, desc)
+                    end
                 end
             end
         end
@@ -309,7 +350,7 @@ local function addCardToContainers(info, itemName)
             local clone = template:Clone()
             clone.Name = "NewItem"
             clone.Visible = true
-            if info and itemModule.DisplayItem then
+            if info and type(itemModule) == "table" and itemModule.DisplayItem then
                 pcall(function()
                     itemModule.DisplayItem(clone, info)
                 end)
@@ -320,10 +361,12 @@ local function addCardToContainers(info, itemName)
     end
 end
 
-if not claimBtn:GetAttribute("ClaimHooked") then
-    claimBtn:SetAttribute("ClaimHooked", true)
+local function ensureClaimHook()
+    if claimHooked or not claimBtn or not newItemGui then return end
+    claimHooked = true
     claimBtn.MouseButton1Click:Connect(function()
-        local currentTitle = newItemGui:FindFirstChild("Container") and newItemGui.Container:FindFirstChild("Title")
+        local cont = newItemGui:FindFirstChild("Container")
+        local currentTitle = cont and cont:FindFirstChild("Title")
         if currentTitle and currentTitle.Text == "You Got..." then
             local entry = table.remove(pendingQueue, 1)
             if entry then
@@ -339,15 +382,20 @@ local function spawnItemPopup(rawName)
         return false, errMsg or "Enter exact item name"
     end
 
+    ensureClaimHook()
+
     table.insert(pendingQueue, {
         Name = itemKey,
         Info = info
     })
 
     if typeof(_G.NewItem) == "function" then
-        _G.NewItem(itemKey, "You Got...", nil, category)
+        pcall(function()
+            _G.NewItem(itemKey, "You Got...", nil, category)
+        end)
         task.delay(0.05, function()
-            local popupCard = newItemGui:FindFirstChild("Container") and newItemGui.Container:FindFirstChild("NewItem")
+            local cont = newItemGui and newItemGui:FindFirstChild("Container")
+            local popupCard = cont and cont:FindFirstChild("NewItem")
             applyTags(popupCard, info, itemKey)
         end)
         return true, "Spawned: " .. tostring(info.ItemName or itemKey)
@@ -356,7 +404,24 @@ local function spawnItemPopup(rawName)
     return false, "_G.NewItem unavailable"
 end
 
-local guiParent = pcall(function() return CoreGui.Name end) and CoreGui or playerGui
+local function getGuiContainer()
+    local target = nil
+    pcall(function()
+        if gethui then
+            target = gethui()
+        end
+    end)
+    if target then return target end
+
+    pcall(function()
+        if CoreGui and CoreGui:FindFirstChild("RobloxGui") then
+            target = CoreGui
+        end
+    end)
+    return target or playerGui
+end
+
+local guiParent = getGuiContainer()
 local oldGui = guiParent:FindFirstChild("GodlySpawnerGUI")
 if oldGui then
     oldGui:Destroy()
@@ -521,4 +586,9 @@ spawnBtn.MouseButton1Click:Connect(function()
     local ok, msg = spawnItemPopup(nameBox.Text)
     statusLabel.Text = msg
     statusLabel.TextColor3 = ok and Color3.fromRGB(110, 220, 130) or Color3.fromRGB(240, 100, 100)
+end)
+
+task.defer(function()
+    initGameRefs()
+    ensureClaimHook()
 end)
