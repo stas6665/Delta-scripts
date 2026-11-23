@@ -217,46 +217,6 @@ local function setFxFolderVisibility(fxObj, showFx)
     end
 end
 
-local function applyFxElement(card, showFx)
-    if not card then return end
-    local foundFx = false
-
-    for _, desc in ipairs(card:GetDescendants()) do
-        if desc.Name == "FX" then
-            foundFx = true
-            setFxFolderVisibility(desc, showFx)
-        end
-    end
-
-    if showFx and not foundFx then
-        local parentFrame = card:FindFirstChild("Tags") or card
-        local fxFrame = Instance.new("Frame")
-        fxFrame.Name = "FX"
-        fxFrame.Size = UDim2.new(0, 34, 0, 16)
-        fxFrame.Position = UDim2.new(1, -38, 0, 4)
-        fxFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-        fxFrame.BackgroundTransparency = 0.2
-        fxFrame.BorderSizePixel = 0
-        fxFrame.ZIndex = 15
-        fxFrame.Parent = parentFrame
-
-        local fxCorner = Instance.new("UICorner")
-        fxCorner.CornerRadius = UDim.new(0, 4)
-        fxCorner.Parent = fxFrame
-
-        local fxText = Instance.new("TextLabel")
-        fxText.Name = "TagName"
-        fxText.Size = UDim2.fromScale(1, 1)
-        fxText.BackgroundTransparency = 1
-        fxText.Text = "FX"
-        fxText.TextColor3 = Color3.fromRGB(255, 220, 90)
-        fxText.Font = Enum.Font.GothamBold
-        fxText.TextSize = 10
-        fxText.ZIndex = 16
-        fxText.Parent = fxFrame
-    end
-end
-
 local function applyTags(card, info, itemName)
     if not card then return end
     local tags = card:FindFirstChild("Tags")
@@ -268,16 +228,26 @@ local function applyTags(card, info, itemName)
         local hallowFrame = tags:FindFirstChild("Halloween")
         local xmasFrame = tags:FindFirstChild("Christmas")
         local chromaFrame = tags:FindFirstChild("Chroma")
+        local fxFrame = tags:FindFirstChild("FX")
 
         if chromaFrame then
             chromaFrame.Visible = (info and info.Chroma == true) or false
+        end
+
+        if fxFrame then
+            setFxFolderVisibility(fxFrame, showFx)
         end
 
         applyEventFrame(hallowFrame, info, itemName, "Halloween", eventName == "Halloween")
         applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
     end
 
-    applyFxElement(card, showFx)
+    for _, desc in ipairs(card:GetDescendants()) do
+        if desc.Name == "FX" then
+            setFxFolderVisibility(desc, showFx)
+        end
+    end
+
     applySingleYear(card, info, eventName)
 end
 
@@ -482,7 +452,7 @@ local function addCardToContainers(info, itemName)
 end
 
 local function playNativeInventoryAnimation(popupFrame)
-    if type(itemModule) ~= "table" or not itemModule.AnimateItemIconIntoInventory then return end
+    if not type(itemModule) == "table" or not itemModule.AnimateItemIconIntoInventory then return end
     if not gameGui then return end
     local dock = gameGui:FindFirstChild("Dock")
     local invDock = dock and dock:FindFirstChild("Inventory")
