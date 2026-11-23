@@ -1,6 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -30,10 +30,8 @@ local fallbackItems = {
 local syncDb = nil
 local itemModule = nil
 local mainGui = nil
-local newItemGui = nil
-local claimBtn = nil
 local pendingQueue = {}
-local claimHooked = false
+local hookedClaims = {}
 
 local function trim(str)
     return tostring(str or ""):match("^%s*(.-)%s*$")
@@ -62,16 +60,6 @@ local function initGameRefs()
 
     if not mainGui then
         mainGui = playerGui:FindFirstChild("MainGUI")
-    end
-
-    if mainGui and not newItemGui then
-        local inv = mainGui:FindFirstChild("Inventory")
-        newItemGui = inv and inv:FindFirstChild("NewItem")
-    end
-
-    if newItemGui and not claimBtn then
-        local cont = newItemGui:FindFirstChild("Container")
-        claimBtn = cont and cont:FindFirstChild("Claim")
     end
 end
 
@@ -199,7 +187,7 @@ end
 local function getAncestryPath(instance)
     local parts = {}
     local current = instance
-    while current and current ~= playerGui do
+    while current and current ~= game do
         table.insert(parts, 1, string.lower(current.Name))
         current = current.Parent
     end
@@ -361,68 +349,113 @@ local function addCardToContainers(info, itemName)
     end
 end
 
-local function ensureClaimHook()
-    if claimHooked or not claimBtn or not newItemGui then return end
-    claimHooked = true
-    claimBtn.MouseButton1Click:Connect(function()
-        local cont = newItemGui:FindFirstChild("Container")
-        local currentTitle = cont and cont:FindFirstChild("Title")
-        if currentTitle and currentTitle.Text == "You Got..." then
-            local entry = table.remove(pendingQueue, 1)
-            if entry then
-                addCardToContainers(entry.Info, entry.Name)
+local function findNewItemPopups()
+    local popups = {}
+    local seen = {}
+
+    local function scanRoot(root)
+        if not root then return end
+        for _, desc in ipairs(root:GetDescendants()) do
+            if desc.Name == "NewItem" and not seen[desc] then
+                local path = string.lower(getAncestryPath(desc))
+                local isInventoryGridCard = string.find(path, "items/container", 1, true)
+                if not isInventoryGridCard then
+                    seen[desc] = true
+                    table.insert(popups, desc)
+                end
             end
         end
-    end)
+    end
+
+    scanRoot(playerGui)
+    scanRoot(workspace)
+    return popups
+end
+
+local function hookClaimButtons(popups)
+    for _, popup in ipairs(popups) do
+        for _, desc in ipairs(popup:GetDescendants()) do
+            if desc:IsA("GuiButton") and desc.Name == "Claim" and not hookedClaims[desc] then
+                hookedClaims[desc] = true
+                desc.MouseButton1Click:Connect(function()
+                    local entry = table.remove(pendingQueue, 1)
+                    if entry then
+                        addCardToContainers(entry.Info, entry.Name)
+                    end
+                end)
+            end
+        end
+    end
+end
+
+local function triggerNewItemPopups(itemKey, info)
+    local popups = findNewItemPopups()
+    if #popups == 0 then
+        return false, "NewItem not found"
+    end
+
+    hookClaimButtons(popups)
+
+    local triggered = false
+    for _, popup in ipairs(popups) do
+        if popup:IsA("GuiObject") then
+            popup.Visible = true
+            local ancestor = popup.Parent
+            while ancestor and ancestor ~= game do
+                if ancestor:IsA("LayerCollector") then
+                    ancestor.Enabled = true
+                elseif ancestor:IsA("GuiObject") then
+                    ancestor.Visible = true
+                end
+                ancestor = ancestor.Parent
+            end
+
+            for _, desc in ipairs(popup:GetDescendants()) do
+                if desc:IsA("TextLabel") and desc.Name == "Title" then
+                    desc.Text = "You Got..."
+                end
+            end
+
+            local innerCard = popup:FindFirstChild("NewItem", true)
+            if innerCard and innerCard:IsA("GuiObject") then
+                innerCard.Visible = true
+                if info and type(itemModule) == "table" and itemModule.DisplayItem then
+                    pcall(function()
+                        itemModule.DisplayItem(innerCard, info)
+                    end)
+                end
+                applyTags(innerCard, info, itemKey)
+            end
+            triggered = true
+        elseif popup:IsA("BindableEvent") then
+            pcall(function()
+                popup:Fire(itemKey, info)
+            end)
+            triggered = true
+        end
+    end
+
+    if triggered then
+        return true, "Spawned: " .. tostring(info.ItemName or itemKey)
+    end
+    return false, "NewItem not usable"
 end
 
 local function spawnItemPopup(rawName)
-    local itemKey, category, info, errMsg = resolveExactItem(rawName)
+    local itemKey, _, info, errMsg = resolveExactItem(rawName)
     if not itemKey or not info then
         return false, errMsg or "Enter exact item name"
     end
-
-    ensureClaimHook()
 
     table.insert(pendingQueue, {
         Name = itemKey,
         Info = info
     })
 
-    if typeof(_G.NewItem) == "function" then
-        pcall(function()
-            _G.NewItem(itemKey, "You Got...", nil, category)
-        end)
-        task.delay(0.05, function()
-            local cont = newItemGui and newItemGui:FindFirstChild("Container")
-            local popupCard = cont and cont:FindFirstChild("NewItem")
-            applyTags(popupCard, info, itemKey)
-        end)
-        return true, "Spawned: " .. tostring(info.ItemName or itemKey)
-    end
-
-    return false, "_G.NewItem unavailable"
+    return triggerNewItemPopups(itemKey, info)
 end
 
-local function getGuiContainer()
-    local target = nil
-    pcall(function()
-        if gethui then
-            target = gethui()
-        end
-    end)
-    if target then return target end
-
-    pcall(function()
-        if CoreGui and CoreGui:FindFirstChild("RobloxGui") then
-            target = CoreGui
-        end
-    end)
-    return target or playerGui
-end
-
-local guiParent = getGuiContainer()
-local oldGui = guiParent:FindFirstChild("GodlySpawnerGUI")
+local oldGui = playerGui:FindFirstChild("GodlySpawnerGUI")
 if oldGui then
     oldGui:Destroy()
 end
@@ -430,17 +463,17 @@ end
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "GodlySpawnerGUI"
 screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.DisplayOrder = 999
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.Parent = guiParent
+screenGui.Parent = playerGui
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 230, 0, 128)
-mainFrame.Position = UDim2.new(0.5, -115, 0.25, 0)
+mainFrame.Size = UDim2.new(0, 224, 0, 126)
+mainFrame.Position = UDim2.new(0.5, -112, 0.22, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 14)
 mainFrame.BorderSizePixel = 0
-mainFrame.Active = true
-mainFrame.Draggable = true
 mainFrame.Parent = screenGui
 
 local mainCorner = Instance.new("UICorner")
@@ -569,13 +602,43 @@ statusLabel.TextSize = 11
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 statusLabel.Parent = bodyFrame
 
+local dragging = false
+local dragStart = Vector2.zero
+local startPos = UDim2.zero
+
+topBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+    end
+end)
+
+topBar.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
 local minimized = false
 minBtn.MouseButton1Click:Connect(function()
     minimized = not minimized
     bodyFrame.Visible = not minimized
     topFix.Visible = not minimized
     minBtn.Text = minimized and "+" or "-"
-    mainFrame.Size = minimized and UDim2.new(0, 230, 0, 28) or UDim2.new(0, 230, 0, 128)
+    mainFrame.Size = minimized and UDim2.new(0, 224, 0, 28) or UDim2.new(0, 224, 0, 126)
 end)
 
 closeBtn.MouseButton1Click:Connect(function()
@@ -588,7 +651,7 @@ spawnBtn.MouseButton1Click:Connect(function()
     statusLabel.TextColor3 = ok and Color3.fromRGB(110, 220, 130) or Color3.fromRGB(240, 100, 100)
 end)
 
-task.defer(function()
+pcall(function()
     initGameRefs()
-    ensureClaimHook()
+    hookClaimButtons(findNewItemPopups())
 end)
