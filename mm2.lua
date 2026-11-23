@@ -3,621 +3,522 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 
 local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
-local CONFIG = {
-	DefaultRoot = "PlayerGui",
-	MaxResults = 60,
-	MaxVisited = 150000,
-	NodesPerYield = 1500,
-	MinSimilarity = 0.42,
-	OnlyBranches = true,
-	MaxCopyChars = 120000,
+local fallbackItems = {
+    Raygun = {
+        ItemName = "Raygun",
+        Image = "rbxthumb://type=Asset&w=150&h=150&id=139431943195380",
+        ItemType = "Gun",
+        Rarity = "Godly",
+        ItemID = 139431943195380,
+        Event = "Halloween",
+        Year = "2025"
+    },
+    Gingerscope = {
+        ItemName = "Gingerscope",
+        Image = "http://www.roblox.com/Thumbs/Asset.ashx?format=png&width=250&height=250&assetId=15666596216",
+        ItemType = "Gun",
+        Rarity = "Ancient",
+        ItemID = 15666469505,
+        Event = "Christmas",
+        Year = "2023",
+        FX = true
+    }
 }
 
-local function getUiParent(): Instance
-	local ok, res = pcall(function()
-		return gethui and gethui()
-	end)
-	if ok and typeof(res) == "Instance" then
-		return res
-	end
-	local okCore, core = pcall(function()
-		return CoreGui
-	end)
-	if okCore and core then
-		return core
-	end
-	return player:WaitForChild("PlayerGui")
+local syncDb = require(ReplicatedStorage:WaitForChild("Database"):WaitForChild("Sync"))
+local itemModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ItemModule"))
+
+local mainGui = playerGui:WaitForChild("MainGUI")
+local newItemGui = mainGui:WaitForChild("Inventory"):WaitForChild("NewItem")
+local claimBtn = newItemGui:WaitForChild("Container"):WaitForChild("Claim")
+
+local pendingQueue = {}
+
+local function trim(str)
+    return tostring(str or ""):match("^%s*(.-)%s*$")
 end
 
-local function copyToClipboard(text: string): boolean
-	local payload = text
-	if #payload > CONFIG.MaxCopyChars then
-		payload = string.sub(payload, 1, CONFIG.MaxCopyChars) .. "\n...[обрезано по лимиту символов]"
-	end
-
-	local funcs = {
-		setclipboard,
-		toclipboard,
-		set_clipboard,
-		Clipboard and Clipboard.set,
-	}
-
-	for _, fn in ipairs(funcs) do
-		if type(fn) == "function" then
-			local ok = pcall(fn, payload)
-			if ok then
-				return true
-			end
-		end
-	end
-	return false
+local function findExactItemInTable(tbl, exactName)
+    if type(tbl) ~= "table" then return nil, nil end
+    if type(tbl[exactName]) == "table" then
+        return exactName, tbl[exactName]
+    end
+    for k, v in pairs(tbl) do
+        if type(v) == "table" and v.ItemName == exactName then
+            return tostring(k), v
+        end
+    end
+    return nil, nil
 end
 
-local function resolveRoot(target: string): Instance?
-	if target == "PlayerGui" then
-		return player:FindFirstChild("PlayerGui") or player:WaitForChild("PlayerGui")
-	elseif target == "ReplicatedStorage" then
-		return ReplicatedStorage
-	elseif target == "Backpack" then
-		return player:FindFirstChild("Backpack")
-	end
-	return game:FindFirstChild(target)
+local function resolveExactItem(rawName)
+    local exactName = trim(rawName)
+    if exactName == "" then
+        return nil, nil, nil, "Enter exact item name"
+    end
+
+    local key, info = findExactItemInTable(syncDb.Item, exactName)
+    if key and info then
+        return key, "Item", info, nil
+    end
+
+    key, info = findExactItemInTable(syncDb.Weapons, exactName)
+    if key and info then
+        return key, "Weapons", info, nil
+    end
+
+    for catName, catTable in pairs(syncDb) do
+        if type(catTable) == "table" and catName ~= "Item" and catName ~= "Weapons" then
+            key, info = findExactItemInTable(catTable, exactName)
+            if key and info and type(info) == "table" and (info.ItemName or info.Image or info.Rarity) then
+                return key, catName, info, nil
+            end
+        end
+    end
+
+    key, info = findExactItemInTable(fallbackItems, exactName)
+    if key and info then
+        return key, "Weapons", info, nil
+    end
+
+    return nil, nil, nil, "Item not found"
 end
 
-local function normalizeName(str: string): string
-	local lower = string.lower(str)
-	return string.gsub(lower, "[%s_%-%.]+", "")
+local function hasFxEnabled(info, itemName)
+    if itemName == "Gingerscope" or (info and info.ItemName == "Gingerscope") then
+        return true
+    end
+    if not info then return false end
+    return info.FX == true or info.HasFX == true or info.Effect == true
 end
 
-local function similarity(a: string, b: string): number
-	if a == "" or b == "" then
-		return 0
-	end
-	if a == b then
-		return 1
-	end
-	if string.find(a, b, 1, true) or string.find(b, a, 1, true) then
-		return 0.85
-	end
-
-	local function getBigrams(s: string)
-		local map = {}
-		local count = 0
-		for i = 1, #s - 1 do
-			local bg = string.sub(s, i, i + 1)
-			map[bg] = (map[bg] or 0) + 1
-			count += 1
-		end
-		return map, count
-	end
-
-	local mapA, countA = getBigrams(a)
-	local mapB, countB = getBigrams(b)
-	if countA == 0 or countB == 0 then
-		return 0
-	end
-
-	local intersection = 0
-	for bg, cA in pairs(mapA) do
-		local cB = mapB[bg]
-		if cB then
-			intersection += math.min(cA, cB)
-		end
-	end
-
-	return (2 * intersection) / (countA + countB)
+local function shouldShowEventBg(info, itemName, eventType)
+    if eventType == "Halloween" then
+        if itemName == "Raygun" or (info and info.ItemName == "Raygun") then
+            return true
+        end
+    elseif eventType == "Christmas" then
+        if itemName == "Gingerscope" or (info and info.ItemName == "Gingerscope") then
+            return false
+        end
+    end
+    return true
 end
 
-local function parseQueries(rawText: string): { string }
-	local list = {}
-	for token in string.gmatch(rawText, "[^,;/]+") do
-		local trimmed = string.match(token, "^%s*(.-)%s*$")
-		if trimmed and trimmed ~= "" then
-			table.insert(list, trimmed)
-		end
-	end
-	return list
+local function applyEventFrame(eventFrame, info, itemName, eventType, active)
+    if not eventFrame then return end
+    eventFrame.Visible = active
+
+    local bg = eventFrame:FindFirstChild("BG")
+    if bg then
+        bg.Visible = active and shouldShowEventBg(info, itemName, eventType)
+    end
+
+    local itemYear = (info and info.Year) and tostring(info.Year) or ""
+    local hasYear = active and itemYear ~= ""
+    for _, obj in ipairs(eventFrame:GetDescendants()) do
+        if obj:IsA("TextLabel") and obj.Name ~= "TagName" then
+            if hasYear then
+                obj.Text = itemYear
+            end
+            obj.Visible = hasYear
+        end
+    end
 end
 
-local function matchSingleQuery(rawName: string, normName: string, lowerName: string, q: string)
-	local lowerQ = string.lower(q)
-	local normQ = normalizeName(q)
+local function applyTags(card, info, itemName)
+    if not card then return end
+    local tags = card:FindFirstChild("Tags")
+    if not tags then return end
 
-	if lowerName == lowerQ or (normQ ~= "" and normName == normQ) then
-		return "ТОЧНОЕ", 1.0
-	end
+    local eventName = info and info.Event
+    local showFx = hasFxEnabled(info, itemName)
 
-	if (lowerQ ~= "" and string.find(lowerName, lowerQ, 1, true))
-		or (normQ ~= "" and string.find(normName, normQ, 1, true)) then
-		return "ПОДСТРОКА", 0.90
-	end
+    local hallowFrame = tags:FindFirstChild("Halloween")
+    local xmasFrame = tags:FindFirstChild("Christmas")
+    local chromaFrame = tags:FindFirstChild("Chroma")
+    local fxFrame = tags:FindFirstChild("FX")
 
-	local score = similarity(normName, normQ)
-	if score >= CONFIG.MinSimilarity then
-		return "СХОЖЕЕ", score
-	end
+    if chromaFrame then
+        chromaFrame.Visible = (info and info.Chroma == true) or false
+    end
 
-	return nil, 0
+    if fxFrame then
+        fxFrame.Visible = showFx
+        local fxImg = fxFrame:FindFirstChild("ImageLabel")
+        if fxImg then
+            fxImg.Visible = showFx
+        end
+    end
+
+    applyEventFrame(hallowFrame, info, itemName, "Halloween", eventName == "Halloween")
+    applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
 end
 
-local function scoreInstance(inst: Instance, queries: { string })
-	local rawName = inst.Name
-	local normName = normalizeName(rawName)
-	local lowerName = string.lower(rawName)
-
-	local bestKind, bestScore, bestQuery = nil, 0, nil
-	for _, q in ipairs(queries) do
-		local kind, sc = matchSingleQuery(rawName, normName, lowerName, q)
-		if kind and sc > bestScore then
-			bestKind = kind
-			bestScore = sc
-			bestQuery = q
-		end
-	end
-
-	return bestKind, bestScore, bestQuery
+local function getAncestryPath(instance)
+    local parts = {}
+    local current = instance
+    while current and current ~= playerGui do
+        table.insert(parts, 1, string.lower(current.Name))
+        current = current.Parent
+    end
+    return table.concat(parts, "/")
 end
 
-local function collectRelated(entry, allEntries)
-	local inst: Instance = entry.instance
-	local related = {}
-	local seen = { [inst] = true }
-
-	local parent = inst.Parent
-	if parent and parent ~= game then
-		seen[parent] = true
-		table.insert(related, string.format("[РОДИТЕЛЬ] %s (%s)", parent:GetFullName(), parent.ClassName))
-
-		for _, sib in ipairs(parent:GetChildren()) do
-			if not seen[sib] and #sib:GetChildren() > 0 then
-				local sibKind = scoreInstance(sib, { entry.query })
-				if sibKind or similarity(normalizeName(sib.Name), normalizeName(inst.Name)) >= 0.45 then
-					seen[sib] = true
-					table.insert(related, string.format(
-						"[СВЯЗАННАЯ ВЕТКА] %s (%s, детей: %d)",
-						sib:GetFullName(),
-						sib.ClassName,
-						#sib:GetChildren()
-					))
-				end
-			end
-		end
-	end
-
-	local targetNorm = normalizeName(inst.Name)
-	for _, other in ipairs(allEntries) do
-		if other.instance ~= inst and not seen[other.instance] then
-			local sim = similarity(targetNorm, normalizeName(other.instance.Name))
-			if sim >= 0.55 then
-				seen[other.instance] = true
-				table.insert(related, string.format(
-					"[ПОХОЖАЯ %.2f] %s (%s, детей: %d)",
-					sim,
-					other.path,
-					other.className,
-					other.childrenCount
-				))
-			end
-		end
-		if #related >= 14 then
-			break
-		end
-	end
-
-	local childrenLines = {}
-	for _, ch in ipairs(inst:GetChildren()) do
-		table.insert(childrenLines, string.format("  • %s [%s] (детей: %d)", ch.Name, ch.ClassName, #ch:GetChildren()))
-		if #childrenLines >= 25 then
-			table.insert(childrenLines, "  ... ещё дети скрыты")
-			break
-		end
-	end
-
-	return related, childrenLines
+local function hasRarity(info)
+    local r = info and tostring(info.Rarity or "") or ""
+    r = string.lower(trim(r))
+    return r ~= "" and r ~= "none" and r ~= "default" and r ~= "common"
 end
 
-local function buildEntryTreeText(entry, allEntries): string
-	local related, childrenLines = collectRelated(entry, allEntries)
-	local lines = {
-		string.format("ВЕТКА: %s", entry.path),
-		string.format("Класс: %s | Тип: %s (%.2f) | Детей: %d", entry.className, entry.kind, entry.score, entry.childrenCount),
-		"--- СВЯЗАННЫЕ ВЕТКИ ---",
-	}
+local function scoreContainerForItem(container, info)
+    local path = getAncestryPath(container)
+    local score = 0
 
-	if #related > 0 then
-		for _, r in ipairs(related) do
-			table.insert(lines, r)
-		end
-	else
-		table.insert(lines, "Явных связанных веток рядом не найдено.")
-	end
+    local itemType = info and string.lower(tostring(info.ItemType or "")) or ""
+    local eventName = info and string.lower(tostring(info.Event or "")) or ""
+    local rarityPresent = hasRarity(info)
 
-	table.insert(lines, "--- ПРЯМЫЕ ДЕТИ ---")
-	if #childrenLines > 0 then
-		for _, c in ipairs(childrenLines) do
-			table.insert(lines, c)
-		end
-	else
-		table.insert(lines, "Потомков нет.")
-	end
+    if string.find(path, "weapons", 1, true) then
+        score += 10
+    end
 
-	return table.concat(lines, "\n")
+    if itemType == "gun" or itemType == "knife" then
+        if string.find(path, "pet", 1, true) or string.find(path, "emote", 1, true) or string.find(path, "effect", 1, true) or string.find(path, "radio", 1, true) then
+            score -= 25
+        end
+    end
+
+    if eventName == "halloween" then
+        if string.find(path, "halloween", 1, true) then
+            score += 40
+        else
+            score -= 20
+        end
+        if string.find(path, "christmas", 1, true) or string.find(path, "classic", 1, true) then
+            score -= 30
+        end
+    elseif eventName == "christmas" then
+        if string.find(path, "christmas", 1, true) then
+            score += 40
+        else
+            score -= 20
+        end
+        if string.find(path, "halloween", 1, true) or string.find(path, "classic", 1, true) then
+            score -= 30
+        end
+    else
+        if string.find(path, "halloween", 1, true) or string.find(path, "christmas", 1, true) or string.find(path, "holiday", 1, true) then
+            score -= 35
+        end
+        if not rarityPresent then
+            if string.find(path, "classic", 1, true) then
+                score += 40
+            elseif string.find(path, "current", 1, true) then
+                score -= 10
+            end
+        else
+            if string.find(path, "classic", 1, true) then
+                score -= 35
+            end
+        end
+    end
+
+    return score
 end
 
-local function runScan(rawQuery: string, rootName: string, onDone: (boolean, string, { any }) -> ())
-	local queries = parseQueries(rawQuery)
-	if #queries == 0 then
-		onDone(false, "Введи ключевое слово (например: NewItem, Inventory)", {})
-		return
-	end
+local function collectWeaponContainers()
+    local allContainers = {}
 
-	local root = resolveRoot(rootName)
-	if not root then
-		onDone(false, "Корень не найден: " .. tostring(rootName), {})
-		return
-	end
+    local tradeGui = playerGui:FindFirstChild("TradeGUI")
+    local tradeItems = tradeGui and tradeGui:FindFirstChild("Container") and tradeGui.Container:FindFirstChild("Items")
+    if tradeItems then
+        for _, child in ipairs(tradeItems:GetChildren()) do
+            local cat = child:FindFirstChild("Weapons")
+            if cat then
+                for _, desc in ipairs(cat:GetDescendants()) do
+                    if desc.Name == "Container" then
+                        table.insert(allContainers, desc)
+                    end
+                end
+            end
+        end
+    end
 
-	local results = {}
-	local visitedObjects = {}
-	local visitedCount = 0
-	local stoppedByLimit = false
+    local invRoot = mainGui:FindFirstChild("Inventory")
+    if invRoot then
+        for _, desc in ipairs(invRoot:GetDescendants()) do
+            if desc.Name == "Container" then
+                local path = string.lower(getAncestryPath(desc))
+                if string.find(path, "weapon", 1, true) or string.find(path, "gun", 1, true) then
+                    table.insert(allContainers, desc)
+                end
+            end
+        end
+    end
 
-	local function walk(inst: Instance)
-		if #results >= CONFIG.MaxResults or visitedCount >= CONFIG.MaxVisited then
-			if visitedCount >= CONFIG.MaxVisited then
-				stoppedByLimit = true
-			end
-			return
-		end
-
-		for _, child in ipairs(inst:GetChildren()) do
-			if #results >= CONFIG.MaxResults or visitedCount >= CONFIG.MaxVisited then
-				if visitedCount >= CONFIG.MaxVisited then
-					stoppedByLimit = true
-				end
-				break
-			end
-
-			if not visitedObjects[child] then
-				visitedObjects[child] = true
-				visitedCount += 1
-
-				if visitedCount % CONFIG.NodesPerYield == 0 then
-					task.wait()
-				end
-
-				local children = child:GetChildren()
-				local hasChildren = #children > 0
-
-				if not CONFIG.OnlyBranches or hasChildren then
-					local kind, score, matchedQuery = scoreInstance(child, queries)
-					if kind then
-						table.insert(results, {
-							instance = child,
-							kind = kind,
-							score = score,
-							query = matchedQuery,
-							path = child:GetFullName(),
-							name = child.Name,
-							className = child.ClassName,
-							childrenCount = #children,
-						})
-					end
-				end
-
-				if hasChildren and #results < CONFIG.MaxResults and not stoppedByLimit then
-					walk(child)
-				end
-			end
-		end
-	end
-
-	walk(root)
-
-	table.sort(results, function(a, b)
-		if a.score == b.score then
-			return a.path < b.path
-		end
-		return a.score > b.score
-	end)
-
-	local status = string.format(
-		"%s | Проверено: %d | Найдено: %d%s",
-		rootName,
-		visitedCount,
-		#results,
-		stoppedByLimit and " [лимит]" or ""
-	)
-	onDone(true, status, results)
+    return allContainers
 end
 
-local oldGui = getUiParent():FindFirstChild("BranchFinderUI")
+local function findWeaponCardTemplate(allContainers)
+    for _, cont in ipairs(allContainers) do
+        for _, child in ipairs(cont:GetChildren()) do
+            if child:IsA("GuiObject") and child.Name == "NewItem" then
+                return child
+            end
+        end
+    end
+
+    for _, cont in ipairs(allContainers) do
+        for _, child in ipairs(cont:GetChildren()) do
+            if child:IsA("GuiObject") and not child:IsA("UILayout") and not child:IsA("UIPadding") then
+                return child
+            end
+        end
+    end
+
+    return nil
+end
+
+local function addCardToContainers(info, itemName)
+    local allContainers = collectWeaponContainers()
+    local fallbackTemplate = findWeaponCardTemplate(allContainers)
+    if not fallbackTemplate then return end
+
+    local bestScore = -math.huge
+    for _, cont in ipairs(allContainers) do
+        local s = scoreContainerForItem(cont, info)
+        if s > bestScore then
+            bestScore = s
+        end
+    end
+
+    local targetContainers = {}
+    for _, cont in ipairs(allContainers) do
+        if scoreContainerForItem(cont, info) == bestScore then
+            table.insert(targetContainers, cont)
+        end
+    end
+
+    for _, cont in ipairs(targetContainers) do
+        local localTemplate = cont:FindFirstChild("NewItem")
+        local template = (localTemplate and localTemplate:IsA("GuiObject")) and localTemplate or fallbackTemplate
+        if template and template:IsA("GuiObject") then
+            local clone = template:Clone()
+            clone.Name = "NewItem"
+            clone.Visible = true
+            if info and itemModule.DisplayItem then
+                pcall(function()
+                    itemModule.DisplayItem(clone, info)
+                end)
+            end
+            applyTags(clone, info, itemName)
+            clone.Parent = cont
+        end
+    end
+end
+
+if not claimBtn:GetAttribute("ClaimHooked") then
+    claimBtn:SetAttribute("ClaimHooked", true)
+    claimBtn.MouseButton1Click:Connect(function()
+        local currentTitle = newItemGui:FindFirstChild("Container") and newItemGui.Container:FindFirstChild("Title")
+        if currentTitle and currentTitle.Text == "You Got..." then
+            local entry = table.remove(pendingQueue, 1)
+            if entry then
+                addCardToContainers(entry.Info, entry.Name)
+            end
+        end
+    end)
+end
+
+local function spawnItemPopup(rawName)
+    local itemKey, category, info, errMsg = resolveExactItem(rawName)
+    if not itemKey or not info then
+        return false, errMsg or "Enter exact item name"
+    end
+
+    table.insert(pendingQueue, {
+        Name = itemKey,
+        Info = info
+    })
+
+    if typeof(_G.NewItem) == "function" then
+        _G.NewItem(itemKey, "You Got...", nil, category)
+        task.delay(0.05, function()
+            local popupCard = newItemGui:FindFirstChild("Container") and newItemGui.Container:FindFirstChild("NewItem")
+            applyTags(popupCard, info, itemKey)
+        end)
+        return true, "Spawned: " .. tostring(info.ItemName or itemKey)
+    end
+
+    return false, "_G.NewItem unavailable"
+end
+
+local guiParent = pcall(function() return CoreGui.Name end) and CoreGui or playerGui
+local oldGui = guiParent:FindFirstChild("GodlySpawnerGUI")
 if oldGui then
-	oldGui:Destroy()
+    oldGui:Destroy()
 end
 
-local gui = Instance.new("ScreenGui")
-gui.Name = "BranchFinderUI"
-gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = getUiParent()
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "GodlySpawnerGUI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = guiParent
 
-local main = Instance.new("Frame")
-main.Size = UDim2.new(0.94, 0, 0.82, 0)
-main.Position = UDim2.new(0.03, 0, 0.09, 0)
-main.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
-main.BorderSizePixel = 0
-main.Parent = gui
-Instance.new("UICorner", main).CornerRadius = UDim.new(0, 10)
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 230, 0, 128)
+mainFrame.Position = UDim2.new(0.5, -115, 0.25, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 14)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 8)
+mainCorner.Parent = mainFrame
 
 local mainStroke = Instance.new("UIStroke")
-mainStroke.Color = Color3.fromRGB(65, 65, 82)
-mainStroke.Thickness = 1
-mainStroke.Parent = main
+mainStroke.Color = Color3.fromRGB(170, 35, 55)
+mainStroke.Thickness = 1.5
+mainStroke.Parent = mainFrame
 
 local topBar = Instance.new("Frame")
-topBar.Size = UDim2.new(1, 0, 0, 38)
-topBar.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
+topBar.Name = "TopBar"
+topBar.Size = UDim2.new(1, 0, 0, 28)
+topBar.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
 topBar.BorderSizePixel = 0
-topBar.Parent = main
-Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
+topBar.Parent = mainFrame
 
-local titleLbl = Instance.new("TextLabel")
-titleLbl.Size = UDim2.new(1, -80, 1, 0)
-titleLbl.Position = UDim2.new(0, 10, 0, 0)
-titleLbl.BackgroundTransparency = 1
-titleLbl.Text = "Поиск и копирование веток"
-titleLbl.TextColor3 = Color3.fromRGB(235, 235, 245)
-titleLbl.TextSize = 14
-titleLbl.Font = Enum.Font.GothamBold
-titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-titleLbl.Parent = topBar
+local topCorner = Instance.new("UICorner")
+topCorner.CornerRadius = UDim.new(0, 8)
+topCorner.Parent = topBar
+
+local topFix = Instance.new("Frame")
+topFix.Size = UDim2.new(1, 0, 0, 8)
+topFix.Position = UDim2.new(0, 0, 1, -8)
+topFix.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+topFix.BorderSizePixel = 0
+topFix.Parent = topBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -56, 1, 0)
+titleLabel.Position = UDim2.new(0, 10, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "godly spawner"
+titleLabel.TextColor3 = Color3.fromRGB(245, 245, 245)
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 13
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = topBar
+
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.new(0, 22, 0, 22)
+minBtn.Position = UDim2.new(1, -48, 0.5, -11)
+minBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 36)
+minBtn.Text = "-"
+minBtn.TextColor3 = Color3.fromRGB(235, 235, 235)
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 14
+minBtn.BorderSizePixel = 0
+minBtn.Parent = topBar
+
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 5)
+minCorner.Parent = minBtn
 
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 34, 0, 26)
-closeBtn.Position = UDim2.new(1, -40, 0.5, -13)
-closeBtn.BackgroundColor3 = Color3.fromRGB(145, 38, 48)
+closeBtn.Size = UDim2.new(0, 22, 0, 22)
+closeBtn.Position = UDim2.new(1, -24, 0.5, -11)
+closeBtn.BackgroundColor3 = Color3.fromRGB(150, 30, 45)
 closeBtn.Text = "X"
 closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.TextSize = 13
 closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 12
+closeBtn.BorderSizePixel = 0
 closeBtn.Parent = topBar
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 5)
+closeCorner.Parent = closeBtn
+
+local bodyFrame = Instance.new("Frame")
+bodyFrame.Name = "Body"
+bodyFrame.Size = UDim2.new(1, 0, 1, -28)
+bodyFrame.Position = UDim2.new(0, 0, 0, 28)
+bodyFrame.BackgroundTransparency = 1
+bodyFrame.Parent = mainFrame
+
+local nameBox = Instance.new("TextBox")
+nameBox.Name = "ItemInput"
+nameBox.Size = UDim2.new(1, -20, 0, 32)
+nameBox.Position = UDim2.new(0, 10, 0, 8)
+nameBox.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+nameBox.BorderSizePixel = 0
+nameBox.PlaceholderText = "Enter exact item name"
+nameBox.PlaceholderColor3 = Color3.fromRGB(130, 130, 140)
+nameBox.Text = ""
+nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+nameBox.Font = Enum.Font.Gotham
+nameBox.TextSize = 13
+nameBox.ClearTextOnFocus = false
+nameBox.Parent = bodyFrame
+
+local boxCorner = Instance.new("UICorner")
+boxCorner.CornerRadius = UDim.new(0, 6)
+boxCorner.Parent = nameBox
+
+local boxStroke = Instance.new("UIStroke")
+boxStroke.Color = Color3.fromRGB(65, 65, 75)
+boxStroke.Thickness = 1
+boxStroke.Parent = nameBox
+
+local spawnBtn = Instance.new("TextButton")
+spawnBtn.Name = "SpawnButton"
+spawnBtn.Size = UDim2.new(1, -20, 0, 32)
+spawnBtn.Position = UDim2.new(0, 10, 0, 46)
+spawnBtn.BackgroundColor3 = Color3.fromRGB(170, 35, 55)
+spawnBtn.BorderSizePixel = 0
+spawnBtn.Text = "Spawn"
+spawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+spawnBtn.Font = Enum.Font.GothamBold
+spawnBtn.TextSize = 13
+spawnBtn.Parent = bodyFrame
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 6)
+btnCorner.Parent = spawnBtn
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -20, 0, 16)
+statusLabel.Position = UDim2.new(0, 10, 0, 80)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Enter exact item name"
+statusLabel.TextColor3 = Color3.fromRGB(160, 160, 170)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 11
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = bodyFrame
+
+local minimized = false
+minBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    bodyFrame.Visible = not minimized
+    topFix.Visible = not minimized
+    minBtn.Text = minimized and "+" or "-"
+    mainFrame.Size = minimized and UDim2.new(0, 230, 0, 28) or UDim2.new(0, 230, 0, 128)
+end)
+
 closeBtn.MouseButton1Click:Connect(function()
-	gui:Destroy()
+    screenGui:Destroy()
 end)
 
-local currentRoot = CONFIG.DefaultRoot
-local rootBtn = Instance.new("TextButton")
-rootBtn.Size = UDim2.new(1, -16, 0, 30)
-rootBtn.Position = UDim2.new(0, 8, 0, 44)
-rootBtn.BackgroundColor3 = Color3.fromRGB(30, 32, 42)
-rootBtn.Text = "Корень: " .. currentRoot .. " (сменить)"
-rootBtn.TextColor3 = Color3.fromRGB(165, 205, 255)
-rootBtn.TextSize = 12
-rootBtn.Font = Enum.Font.GothamMedium
-rootBtn.Parent = main
-Instance.new("UICorner", rootBtn).CornerRadius = UDim.new(0, 6)
-
-local rootsOrder = { "PlayerGui", "ReplicatedStorage", "Backpack" }
-rootBtn.MouseButton1Click:Connect(function()
-	local idx = table.find(rootsOrder, currentRoot) or 1
-	currentRoot = rootsOrder[(idx % #rootsOrder) + 1]
-	rootBtn.Text = "Корень: " .. currentRoot .. " (сменить)"
-end)
-
-local inputBox = Instance.new("TextBox")
-inputBox.Size = UDim2.new(1, -86, 0, 34)
-inputBox.Position = UDim2.new(0, 8, 0, 80)
-inputBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
-inputBox.PlaceholderText = "Ключи: NewItem, Inventory..."
-inputBox.PlaceholderColor3 = Color3.fromRGB(125, 125, 145)
-inputBox.Text = ""
-inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-inputBox.TextSize = 13
-inputBox.Font = Enum.Font.Gotham
-inputBox.ClearTextOnFocus = false
-inputBox.Parent = main
-Instance.new("UICorner", inputBox).CornerRadius = UDim.new(0, 6)
-
-local searchBtn = Instance.new("TextButton")
-searchBtn.Size = UDim2.new(0, 66, 0, 34)
-searchBtn.Position = UDim2.new(1, -74, 0, 80)
-searchBtn.BackgroundColor3 = Color3.fromRGB(52, 110, 215)
-searchBtn.Text = "Найти"
-searchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-searchBtn.TextSize = 13
-searchBtn.Font = Enum.Font.GothamBold
-searchBtn.Parent = main
-Instance.new("UICorner", searchBtn).CornerRadius = UDim.new(0, 6)
-
-local copyBranchBtn = Instance.new("TextButton")
-copyBranchBtn.Size = UDim2.new(0.5, -12, 0, 28)
-copyBranchBtn.Position = UDim2.new(0, 8, 0, 118)
-copyBranchBtn.BackgroundColor3 = Color3.fromRGB(36, 92, 62)
-copyBranchBtn.Text = "Копир. ветку"
-copyBranchBtn.TextColor3 = Color3.fromRGB(235, 255, 240)
-copyBranchBtn.TextSize = 12
-copyBranchBtn.Font = Enum.Font.GothamBold
-copyBranchBtn.Parent = main
-Instance.new("UICorner", copyBranchBtn).CornerRadius = UDim.new(0, 6)
-
-local copyAllBtn = Instance.new("TextButton")
-copyAllBtn.Size = UDim2.new(0.5, -12, 0, 28)
-copyAllBtn.Position = UDim2.new(0.5, 4, 0, 118)
-copyAllBtn.BackgroundColor3 = Color3.fromRGB(48, 68, 115)
-copyAllBtn.Text = "Копир. всё"
-copyAllBtn.TextColor3 = Color3.fromRGB(235, 242, 255)
-copyAllBtn.TextSize = 12
-copyAllBtn.Font = Enum.Font.GothamBold
-copyAllBtn.Parent = main
-Instance.new("UICorner", copyAllBtn).CornerRadius = UDim.new(0, 6)
-
-local statusLbl = Instance.new("TextLabel")
-statusLbl.Size = UDim2.new(1, -16, 0, 20)
-statusLbl.Position = UDim2.new(0, 8, 0, 150)
-statusLbl.BackgroundTransparency = 1
-statusLbl.Text = "Введи слово и нажми «Найти»"
-statusLbl.TextColor3 = Color3.fromRGB(170, 175, 195)
-statusLbl.TextSize = 11
-statusLbl.Font = Enum.Font.Gotham
-statusLbl.TextXAlignment = Enum.TextXAlignment.Left
-statusLbl.TextTruncate = Enum.TextTruncate.AtEnd
-statusLbl.Parent = main
-
-local dropdownFrame = Instance.new("ScrollingFrame")
-dropdownFrame.Size = UDim2.new(1, -16, 0.40, -68)
-dropdownFrame.Position = UDim2.new(0, 8, 0, 174)
-dropdownFrame.BackgroundColor3 = Color3.fromRGB(21, 21, 27)
-dropdownFrame.BorderSizePixel = 0
-dropdownFrame.ScrollBarThickness = 5
-dropdownFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-dropdownFrame.Parent = main
-Instance.new("UICorner", dropdownFrame).CornerRadius = UDim.new(0, 6)
-
-local dropLayout = Instance.new("UIListLayout")
-dropLayout.Padding = UDim.new(0, 4)
-dropLayout.Parent = dropdownFrame
-
-local detailsFrame = Instance.new("ScrollingFrame")
-detailsFrame.Size = UDim2.new(1, -16, 0.60, -112)
-detailsFrame.Position = UDim2.new(0, 8, 0.40, 106)
-detailsFrame.BackgroundColor3 = Color3.fromRGB(21, 21, 27)
-detailsFrame.BorderSizePixel = 0
-detailsFrame.ScrollBarThickness = 5
-detailsFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-detailsFrame.Parent = main
-Instance.new("UICorner", detailsFrame).CornerRadius = UDim.new(0, 6)
-
-local detailsBox = Instance.new("TextBox")
-detailsBox.Size = UDim2.new(1, -12, 0, 24)
-detailsBox.Position = UDim2.new(0, 6, 0, 6)
-detailsBox.BackgroundTransparency = 1
-detailsBox.Text = "Выбери ветку в списке, чтобы увидеть дерево, связанные ветки и скопировать."
-detailsBox.TextColor3 = Color3.fromRGB(215, 220, 235)
-detailsBox.TextSize = 11
-detailsBox.Font = Enum.Font.Code
-detailsBox.TextXAlignment = Enum.TextXAlignment.Left
-detailsBox.TextYAlignment = Enum.TextYAlignment.Top
-detailsBox.TextWrapped = true
-detailsBox.MultiLine = true
-detailsBox.ClearTextOnFocus = false
-detailsBox.Parent = detailsFrame
-
-local lastEntries = {}
-local lastSelectedTree = ""
-local lastAllTreesText = ""
-
-local function updateCanvas(scroll: ScrollingFrame, contentHeight: number)
-	scroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight + 16)
-end
-
-local function renderTextInDetails(text: string)
-	local lineCount = 1
-	for _ in string.gmatch(text, "\n") do
-		lineCount += 1
-	end
-	detailsBox.Text = text
-	detailsBox.Size = UDim2.new(1, -12, 0, math.max(120, lineCount * 15))
-	updateCanvas(detailsFrame, detailsBox.Size.Y.Offset + 12)
-end
-
-local function clearDropdown()
-	for _, ch in ipairs(dropdownFrame:GetChildren()) do
-		if ch:IsA("TextButton") then
-			ch:Destroy()
-		end
-	end
-	updateCanvas(dropdownFrame, 0)
-end
-
-local function selectEntry(entry, allEntries)
-	local treeText = buildEntryTreeText(entry, allEntries)
-	lastSelectedTree = treeText
-	renderTextInDetails(treeText)
-end
-
-copyBranchBtn.MouseButton1Click:Connect(function()
-	if lastSelectedTree == "" then
-		statusLbl.Text = "Сначала выбери ветку из списка"
-		return
-	end
-	renderTextInDetails(lastSelectedTree)
-	if copyToClipboard(lastSelectedTree) then
-		statusLbl.Text = "Дерево ветки скопировано в буфер"
-	else
-		statusLbl.Text = "Буфер недоступен — выдели текст в окне ниже"
-	end
-end)
-
-copyAllBtn.MouseButton1Click:Connect(function()
-	if #lastEntries == 0 then
-		statusLbl.Text = "Нет найденных веток для копирования"
-		return
-	end
-	if lastAllTreesText == "" then
-		local chunks = {}
-		for i, item in ipairs(lastEntries) do
-			table.insert(chunks, string.format("=== [%d] ===\n%s", i, buildEntryTreeText(item, lastEntries)))
-		end
-		lastAllTreesText = table.concat(chunks, "\n\n")
-	end
-	renderTextInDetails(lastAllTreesText)
-	if copyToClipboard(lastAllTreesText) then
-		statusLbl.Text = "Все найденные деревья скопированы"
-	else
-		statusLbl.Text = "Буфер недоступен — выдели текст в окне ниже"
-	end
-end)
-
-local busy = false
-local function triggerSearch()
-	if busy then
-		return
-	end
-	busy = true
-	clearDropdown()
-	lastEntries = {}
-	lastSelectedTree = ""
-	lastAllTreesText = ""
-	statusLbl.Text = "Ищу ветки..."
-
-	runScan(inputBox.Text, currentRoot, function(ok, statusMsg, entries)
-		busy = false
-		statusLbl.Text = statusMsg
-		if not ok or #entries == 0 then
-			return
-		end
-
-		lastEntries = entries
-		local totalH = 0
-		for i, item in ipairs(entries) do
-			local btn = Instance.new("TextButton")
-			btn.Size = UDim2.new(1, -8, 0, 34)
-			btn.BackgroundColor3 = Color3.fromRGB(32, 34, 45)
-			btn.Text = string.format("%d. [%s] %s (%s, детей:%d)", i, item.kind, item.name, item.className, item.childrenCount)
-			btn.TextColor3 = Color3.fromRGB(235, 240, 255)
-			btn.TextSize = 11
-			btn.Font = Enum.Font.Gotham
-			btn.TextXAlignment = Enum.TextXAlignment.Left
-			btn.TextTruncate = Enum.TextTruncate.AtEnd
-			btn.Parent = dropdownFrame
-			Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
-
-			btn.MouseButton1Click:Connect(function()
-				selectEntry(item, entries)
-			end)
-			totalH += 38
-		end
-
-		updateCanvas(dropdownFrame, totalH)
-	end)
-end
-
-searchBtn.MouseButton1Click:Connect(triggerSearch)
-inputBox.FocusLost:Connect(function(enterPressed)
-	if enterPressed then
-		triggerSearch()
-	end
+spawnBtn.MouseButton1Click:Connect(function()
+    local ok, msg = spawnItemPopup(nameBox.Text)
+    statusLabel.Text = msg
+    statusLabel.TextColor3 = ok and Color3.fromRGB(110, 220, 130) or Color3.fromRGB(240, 100, 100)
 end)
