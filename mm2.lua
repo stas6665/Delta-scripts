@@ -1,620 +1,534 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
-local StarterPack = game:GetService("StarterPack")
-local StarterPlayer = game:GetService("StarterPlayer")
-local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local player = Players.LocalPlayer
 
-local DEFAULT_KEYWORDS = {
-	"Inventory",
-	"NewItem",
-	"Claim",
-	"Claimed",
-	"TextName",
-	"Button",
-	"Item",
-	"MainGUI",
-	"PlayerGui",
-	"StarterPlayer",
-	"StarterPack",
+local CONFIG = {
+	DefaultRoot = "PlayerGui", -- "PlayerGui" | "ReplicatedStorage" | "Backpack"
+	MaxResults = 60,           -- Макс. совпадений в выпадающем списке
+	MaxVisited = 150000,       -- Предохранитель обхода без ограничения глубины
+	NodesPerYield = 1500,      -- Пауза для плавности на мобильном устройстве
+	MinSimilarity = 0.42,      -- Порог схожести (0..1)
+	OnlyBranches = true,       -- true = показывать ветки (с потомками)
 }
 
-local SIMILAR_MAP = {
-	inventory = { "inv", "inventory", "inventory2", "weapons", "items", "backpack", "bag", "storage", "container", "vault", "locker" },
-	newitem = { "newitem", "itempopup", "popup", "drop", "unbox", "case", "crate", "reward", "received", "gift" },
-	claim = { "claim", "claimed", "redeem", "collect", "take", "accept", "confirm", "ok", "close" },
-	claimed = { "claimed", "claim", "redeemed", "collected", "taken" },
-	textname = { "textname", "itemname", "weaponname", "name", "title", "label", "text", "header" },
-	button = { "button", "btn", "textbutton", "imagebutton", "guibutton", "click", "trigger" },
-	item = { "item", "items", "itemframe", "weapon", "weapons", "card", "slot", "entry", "sync", "itemservice", "tool", "tools" },
-	maingui = { "maingui", "main", "gui", "screengui", "gamegui", "game", "hud", "menu", "interface", "ui" },
-	playergui = { "playergui", "player", "gui", "screengui", "startergui", "clientgui", "ui" },
-	starterplayer = { "starterplayer", "starterplayerscripts", "startercharacterscripts", "player", "playerscripts", "characterscripts", "client" },
-	starterpack = { "starterpack", "backpack", "tool", "tools", "weapon", "weapons", "gear", "item", "items" },
-}
-
-local CHUNK_LIMIT = 160000
-local MAX_TOTAL_LINES = 8000
-local MAX_TREE_DEPTH = 25
-
-local lastReportText = "-- Нажми Scan All для поиска всех деревьев и объектов --"
-local reportChunks = {}
-local currentChunkIndex = 1
-
-local function splitIntoChunks(text, limit)
-	local chunks = {}
-	local str = tostring(text or "")
-	local len = #str
-	if len == 0 then
-		return { "" }
-	end
-
-	local pos = 1
-	while pos <= len do
-		local rawEnd = math.min(pos + limit - 1, len)
-		local cutEnd = rawEnd
-
-		if rawEnd < len then
-			local searchStart = math.max(pos, rawEnd - 4000)
-			local sub = string.sub(str, searchStart, rawEnd)
-			local lastNewline = string.match(sub, ".*()\n")
-			if lastNewline then
-				cutEnd = searchStart + lastNewline - 1
-			end
-		end
-
-		table.insert(chunks, string.sub(str, pos, cutEnd))
-		pos = cutEnd + 1
-	end
-
-	return chunks
-end
-
-local function rebuildChunks()
-	reportChunks = splitIntoChunks(lastReportText, CHUNK_LIMIT)
-	if #reportChunks == 0 then
-		reportChunks = { "" }
-	end
-	currentChunkIndex = 1
-end
-
-local function copyChunkByIndex(index)
-	if type(setclipboard) ~= "function" then
-		return false, "setclipboard недоступен"
-	end
-
-	if #reportChunks == 0 then
-		rebuildChunks()
-	end
-
-	local total = #reportChunks
-	local idx = ((index - 1) % total) + 1
-	currentChunkIndex = idx
-
-	local header = string.format("=== PART %d/%d (limit %d) ===\n", idx, total, CHUNK_LIMIT)
-	local payload = header .. reportChunks[idx]
-
-	local ok = pcall(function()
-		setclipboard(payload)
-	end)
-
-	if ok then
-		local nextIdx = (idx % total) + 1
-		return true, string.format("Скопировано %d/%d (%d симв.). Далее: %d/%d", idx, total, #payload, nextIdx, total)
-	end
-	return false, "Ошибка при копировании части " .. tostring(idx)
-end
-
-local function safePath(inst)
+local function getUiParent(): Instance
 	local ok, res = pcall(function()
-		return inst:GetFullName()
+		return gethui and gethui()
 	end)
-	return ok and res or tostring(inst)
-end
-
-local function safeChildren(inst)
-	local ok, ch = pcall(function()
-		return inst:GetChildren()
-	end)
-	return (ok and type(ch) == "table") and ch or {}
-end
-
-local function trim(s)
-	return string.match(tostring(s or ""), "^%s*(.-)%s*$") or ""
-end
-
-local function splitQueries(rawInput)
-	local cleaned = trim(rawInput)
-	if cleaned == "" then
-		return DEFAULT_KEYWORDS
+	if ok and typeof(res) == "Instance" then
+		return res
 	end
-	local list = {}
-	for part in string.gmatch(cleaned, "[^,;]+") do
-		local p = trim(part)
-		if p ~= "" then
-			table.insert(list, p)
+	local okCore, core = pcall(function()
+		return CoreGui
+	end)
+	if okCore and core then
+		return core
+	end
+	return player:WaitForChild("PlayerGui")
+end
+
+local function resolveRoot(target: string): Instance?
+	if target == "PlayerGui" then
+		return player:FindFirstChild("PlayerGui") or player:WaitForChild("PlayerGui")
+	elseif target == "ReplicatedStorage" then
+		return ReplicatedStorage
+	elseif target == "Backpack" then
+		return player:FindFirstChild("Backpack")
+	end
+	return game:FindFirstChild(target)
+end
+
+local function normalizeName(str: string): string
+	local lower = string.lower(str)
+	return string.gsub(lower, "[%s_%-%.]+", "")
+end
+
+local function similarity(a: string, b: string): number
+	if a == "" or b == "" then
+		return 0
+	end
+	if a == b then
+		return 1
+	end
+	if string.find(a, b, 1, true) or string.find(b, a, 1, true) then
+		return 0.85
+	end
+
+	local function getBigrams(s: string)
+		local map = {}
+		local count = 0
+		for i = 1, #s - 1 do
+			local bg = string.sub(s, i, i + 1)
+			map[bg] = (map[bg] or 0) + 1
+			count += 1
+		end
+		return map, count
+	end
+
+	local mapA, countA = getBigrams(a)
+	local mapB, countB = getBigrams(b)
+	if countA == 0 or countB == 0 then
+		return 0
+	end
+
+	local intersection = 0
+	for bg, cA in pairs(mapA) do
+		local cB = mapB[bg]
+		if cB then
+			intersection += math.min(cA, cB)
 		end
 	end
-	if #list == 0 then
-		return DEFAULT_KEYWORDS
+
+	return (2 * intersection) / (countA + countB)
+end
+
+-- Разбиваем строку ввода на несколько ключевых слов (через запятую, пробел, точку с запятой или /)
+local function parseQueries(rawText: string): { string }
+	local list = {}
+	for token in string.gmatch(rawText, "[^,;/]+") do
+		local trimmed = string.match(token, "^%s*(.-)%s*$")
+		if trimmed and trimmed ~= "" then
+			table.insert(list, trimmed)
+		end
 	end
 	return list
 end
 
-local function buildExpandedTokens(queryList)
-	local tokens = {}
-	local seen = {}
+local function matchSingleQuery(rawName: string, normName: string, lowerName: string, q: string)
+	local lowerQ = string.lower(q)
+	local normQ = normalizeName(q)
 
-	local function addToken(tok)
-		local t = string.lower(trim(tok))
-		if t ~= "" and not seen[t] then
-			seen[t] = true
-			table.insert(tokens, t)
+	if lowerName == lowerQ or (normQ ~= "" and normName == normQ) then
+		return "ТОЧНОЕ", 1.0
+	end
+
+	if (lowerQ ~= "" and string.find(lowerName, lowerQ, 1, true))
+		or (normQ ~= "" and string.find(normName, normQ, 1, true)) then
+		return "ПОДСТРОКА", 0.90
+	end
+
+	local score = similarity(normName, normQ)
+	if score >= CONFIG.MinSimilarity then
+		return "СХОЖЕЕ", score
+	end
+
+	return nil, 0
+end
+
+local function scoreInstance(inst: Instance, queries: { string })
+	local rawName = inst.Name
+	local normName = normalizeName(rawName)
+	local lowerName = string.lower(rawName)
+
+	local bestKind, bestScore, bestQuery = nil, 0, nil
+	for _, q in ipairs(queries) do
+		local kind, sc = matchSingleQuery(rawName, normName, lowerName, q)
+		if kind and sc > bestScore then
+			bestKind = kind
+			bestScore = sc
+			bestQuery = q
 		end
 	end
 
-	for _, q in ipairs(queryList) do
-		local ql = string.lower(q)
-		addToken(ql)
+	return bestKind, bestScore, bestQuery
+end
 
-		for word in string.gmatch(ql, "[%a%d]+") do
-			addToken(word)
-		end
+-- Находим связанные ветки: родитель, соседи в той же ветке и похожие ветки рядом
+local function collectRelated(entry, allEntries)
+	local inst: Instance = entry.instance
+	local related = {}
+	local seen = { [inst] = true }
 
-		if SIMILAR_MAP[ql] then
-			for _, sim in ipairs(SIMILAR_MAP[ql]) do
-				addToken(sim)
-			end
-		end
+	local parent = inst.Parent
+	if parent and parent ~= game then
+		seen[parent] = true
+		table.insert(related, string.format("[РОДИТЕЛЬ] %s (%s)", parent:GetFullName(), parent.ClassName))
 
-		for key, sims in pairs(SIMILAR_MAP) do
-			if string.find(ql, key, 1, true) or string.find(key, ql, 1, true) then
-				addToken(key)
-				for _, sim in ipairs(sims) do
-					addToken(sim)
+		for _, sib in ipairs(parent:GetChildren()) do
+			if not seen[sib] and #sib:GetChildren() > 0 then
+				local sibKind, sibScore = scoreInstance(sib, { entry.query })
+				if sibKind or similarity(normalizeName(sib.Name), normalizeName(inst.Name)) >= 0.45 then
+					seen[sib] = true
+					table.insert(related, string.format(
+						"[СВЯЗАННАЯ ВЕТКА] %s (%s, детей: %d)",
+						sib:GetFullName(),
+						sib.ClassName,
+						#sib:GetChildren()
+					))
 				end
 			end
 		end
 	end
 
-	return tokens
-end
-
-local function getInstanceText(inst)
-	local ok, txt = pcall(function()
-		if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
-			return inst.Text
+	local targetNorm = normalizeName(inst.Name)
+	for _, other in ipairs(allEntries) do
+		if other.instance ~= inst and not seen[other.instance] then
+			local sim = similarity(targetNorm, normalizeName(other.instance.Name))
+			if sim >= 0.55 then
+				seen[other.instance] = true
+				table.insert(related, string.format(
+					"[ПОХОЖАЯ %.2f] %s (%s, детей: %d)",
+					sim,
+					other.path,
+					other.className,
+					other.childrenCount
+				))
+			end
 		end
-		return ""
-	end)
-	return ok and tostring(txt or "") or ""
-end
-
-local function getInstanceImage(inst)
-	local ok, img = pcall(function()
-		if inst:IsA("ImageLabel") or inst:IsA("ImageButton") then
-			return inst.Image
+		if #related >= 14 then
+			break
 		end
-		return ""
-	end)
-	return ok and tostring(img or "") or ""
+	end
+
+	local childrenLines = {}
+	for _, ch in ipairs(inst:GetChildren()) do
+		table.insert(childrenLines, string.format("  • %s [%s] (детей: %d)", ch.Name, ch.ClassName, #ch:GetChildren()))
+		if #childrenLines >= 20 then
+			table.insert(childrenLines, "  ... ещё дети скрыты")
+			break
+		end
+	end
+
+	return related, childrenLines
 end
 
-local function isSimilarMatch(inst, tokens)
-	local nameL = string.lower(tostring(inst.Name or ""))
-	local classL = string.lower(tostring(inst.ClassName or ""))
-	local pathL = string.lower(safePath(inst))
-	local textL = string.lower(getInstanceText(inst))
+local function runScan(rawQuery: string, rootName: string, onDone: (boolean, string, { any }) -> ())
+	local queries = parseQueries(rawQuery)
+	if #queries == 0 then
+		onDone(false, "Введи ключевое слово (например: NewItem, Inventory)", {})
+		return
+	end
 
-	for _, tok in ipairs(tokens) do
-		if #tok >= 2 then
-			if string.find(nameL, tok, 1, true)
-				or string.find(classL, tok, 1, true)
-				or string.find(pathL, tok, 1, true)
-				or (textL ~= "" and string.find(textL, tok, 1, true))
-			then
-				return true, tok
+	local root = resolveRoot(rootName)
+	if not root then
+		onDone(false, "Корень не найден: " .. tostring(rootName), {})
+		return
+	end
+
+	local results = {}
+	local visitedObjects = {}
+	local visitedCount = 0
+	local stoppedByLimit = false
+
+	local function walk(inst: Instance)
+		if #results >= CONFIG.MaxResults or visitedCount >= CONFIG.MaxVisited then
+			if visitedCount >= CONFIG.MaxVisited then
+				stoppedByLimit = true
+			end
+			return
+		end
+
+		for _, child in ipairs(inst:GetChildren()) do
+			if #results >= CONFIG.MaxResults or visitedCount >= CONFIG.MaxVisited then
+				if visitedCount >= CONFIG.MaxVisited then
+					stoppedByLimit = true
+				end
+				break
+			end
+
+			if not visitedObjects[child] then
+				visitedObjects[child] = true
+				visitedCount += 1
+
+				if visitedCount % CONFIG.NodesPerYield == 0 then
+					task.wait()
+				end
+
+				local children = child:GetChildren()
+				local hasChildren = #children > 0
+
+				if not CONFIG.OnlyBranches or hasChildren then
+					local kind, score, matchedQuery = scoreInstance(child, queries)
+					if kind then
+						table.insert(results, {
+							instance = child,
+							kind = kind,
+							score = score,
+							query = matchedQuery,
+							path = child:GetFullName(),
+							name = child.Name,
+							className = child.ClassName,
+							childrenCount = #children,
+						})
+					end
+				end
+
+				if hasChildren and #results < CONFIG.MaxResults and not stoppedByLimit then
+					walk(child)
+				end
 			end
 		end
 	end
-	return false, nil
-end
 
-local function formatObjectDetails(inst)
-	local parts = { "[" .. inst.ClassName .. "]", inst.Name }
+	walk(root)
 
-	local txt = getInstanceText(inst)
-	if txt ~= "" then
-		local singleLine = string.gsub(txt, "[\r\n]+", " ")
-		if #singleLine > 60 then
-			singleLine = string.sub(singleLine, 1, 60) .. "..."
+	table.sort(results, function(a, b)
+		if a.score == b.score then
+			return a.path < b.path
 		end
-		table.insert(parts, 'Text="' .. singleLine .. '"')
-	end
+		return a.score > b.score
+	end)
 
-	local img = getInstanceImage(inst)
-	if img ~= "" then
-		table.insert(parts, 'Img="' .. img .. '"')
-	end
-
-	if inst:IsA("GuiObject") then
-		table.insert(parts, "Vis=" .. tostring(inst.Visible))
-	end
-
-	return table.concat(parts, " | ")
+	local status = string.format(
+		"%s | Проверено: %d | Найдено: %d%s",
+		rootName,
+		visitedCount,
+		#results,
+		stoppedByLimit and " [лимит]" or ""
+	)
+	onDone(true, status, results)
 end
 
-local function dumpFullSubtree(rootInst, lines, maxDepth)
-	local function walk(cur, depth)
-		if #lines >= MAX_TOTAL_LINES or depth > maxDepth then return end
-		local indent = string.rep("  ", depth)
-		table.insert(lines, indent .. "- " .. formatObjectDetails(cur))
-		for _, ch in ipairs(safeChildren(cur)) do
-			if #lines >= MAX_TOTAL_LINES then break end
-			walk(ch, depth + 1)
+-- Построение мобильного окна поиска с выпадающим списком
+local oldGui = getUiParent():FindFirstChild("BranchFinderUI")
+if oldGui then
+	oldGui:Destroy()
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "BranchFinderUI"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = getUiParent()
+
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0.92, 0, 0.78, 0)
+main.Position = UDim2.new(0.04, 0, 0.11, 0)
+main.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
+main.BorderSizePixel = 0
+main.Parent = gui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 10)
+mainCorner.Parent = main
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(65, 65, 82)
+mainStroke.Thickness = 1
+mainStroke.Parent = main
+
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 38)
+topBar.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
+topBar.BorderSizePixel = 0
+topBar.Parent = main
+
+local topCorner = Instance.new("UICorner")
+topCorner.CornerRadius = UDim.new(0, 10)
+topCorner.Parent = topBar
+
+local titleLbl = Instance.new("TextLabel")
+titleLbl.Size = UDim2.new(1, -80, 1, 0)
+titleLbl.Position = UDim2.new(0, 10, 0, 0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text = "Поиск веток и связанных"
+titleLbl.TextColor3 = Color3.fromRGB(235, 235, 245)
+titleLbl.TextSize = 14
+titleLbl.Font = Enum.Font.GothamBold
+titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+titleLbl.Parent = topBar
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 34, 0, 26)
+closeBtn.Position = UDim2.new(1, -40, 0.5, -13)
+closeBtn.BackgroundColor3 = Color3.fromRGB(145, 38, 48)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.TextSize = 13
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = topBar
+
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+closeBtn.MouseButton1Click:Connect(function()
+	gui:Destroy()
+end)
+
+local currentRoot = CONFIG.DefaultRoot
+local rootBtn = Instance.new("TextButton")
+rootBtn.Size = UDim2.new(1, -16, 0, 30)
+rootBtn.Position = UDim2.new(0, 8, 0, 44)
+rootBtn.BackgroundColor3 = Color3.fromRGB(30, 32, 42)
+rootBtn.Text = "Корень: " .. currentRoot .. " (нажми для смены)"
+rootBtn.TextColor3 = Color3.fromRGB(165, 205, 255)
+rootBtn.TextSize = 12
+rootBtn.Font = Enum.Font.GothamMedium
+rootBtn.Parent = main
+Instance.new("UICorner", rootBtn).CornerRadius = UDim.new(0, 6)
+
+local rootsOrder = { "PlayerGui", "ReplicatedStorage", "Backpack" }
+rootBtn.MouseButton1Click:Connect(function()
+	local idx = table.find(rootsOrder, currentRoot) or 1
+	currentRoot = rootsOrder[(idx % #rootsOrder) + 1]
+	rootBtn.Text = "Корень: " .. currentRoot .. " (нажми для смены)"
+end)
+
+local inputBox = Instance.new("TextBox")
+inputBox.Size = UDim2.new(1, -86, 0, 34)
+inputBox.Position = UDim2.new(0, 8, 0, 80)
+inputBox.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
+inputBox.PlaceholderText = "Ключи: NewItem, Inventory..."
+inputBox.PlaceholderColor3 = Color3.fromRGB(125, 125, 145)
+inputBox.Text = ""
+inputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+inputBox.TextSize = 13
+inputBox.Font = Enum.Font.Gotham
+inputBox.ClearTextOnFocus = false
+inputBox.Parent = main
+Instance.new("UICorner", inputBox).CornerRadius = UDim.new(0, 6)
+
+local searchBtn = Instance.new("TextButton")
+searchBtn.Size = UDim2.new(0, 66, 0, 34)
+searchBtn.Position = UDim2.new(1, -74, 0, 80)
+searchBtn.BackgroundColor3 = Color3.fromRGB(52, 110, 215)
+searchBtn.Text = "Найти"
+searchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+searchBtn.TextSize = 13
+searchBtn.Font = Enum.Font.GothamBold
+searchBtn.Parent = main
+Instance.new("UICorner", searchBtn).CornerRadius = UDim.new(0, 6)
+
+local statusLbl = Instance.new("TextLabel")
+statusLbl.Size = UDim2.new(1, -16, 0, 20)
+statusLbl.Position = UDim2.new(0, 8, 0, 118)
+statusLbl.BackgroundTransparency = 1
+statusLbl.Text = "Введи слово и нажми «Найти» или Enter"
+statusLbl.TextColor3 = Color3.fromRGB(170, 175, 195)
+statusLbl.TextSize = 11
+statusLbl.Font = Enum.Font.Gotham
+statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+statusLbl.TextTruncate = Enum.TextTruncate.AtEnd
+statusLbl.Parent = main
+
+-- Выпадающий список найденных веток
+local dropdownFrame = Instance.new("ScrollingFrame")
+dropdownFrame.Size = UDim2.new(1, -16, 0.44, -68)
+dropdownFrame.Position = UDim2.new(0, 8, 0, 142)
+dropdownFrame.BackgroundColor3 = Color3.fromRGB(21, 21, 27)
+dropdownFrame.BorderSizePixel = 0
+dropdownFrame.ScrollBarThickness = 5
+dropdownFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+dropdownFrame.Parent = main
+Instance.new("UICorner", dropdownFrame).CornerRadius = UDim.new(0, 6)
+
+local dropLayout = Instance.new("UIListLayout")
+dropLayout.Padding = UDim.new(0, 4)
+dropLayout.Parent = dropdownFrame
+
+-- Панель связанных веток и прямых детей выбранной ветки
+local detailsFrame = Instance.new("ScrollingFrame")
+detailsFrame.Size = UDim2.new(1, -16, 0.56, -86)
+detailsFrame.Position = UDim2.new(0, 8, 0.44, 80)
+detailsFrame.BackgroundColor3 = Color3.fromRGB(21, 21, 27)
+detailsFrame.BorderSizePixel = 0
+detailsFrame.ScrollBarThickness = 5
+detailsFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+detailsFrame.Parent = main
+Instance.new("UICorner", detailsFrame).CornerRadius = UDim.new(0, 6)
+
+local detailsText = Instance.new("TextLabel")
+detailsText.Size = UDim2.new(1, -12, 0, 20)
+detailsText.Position = UDim2.new(0, 6, 0, 6)
+detailsText.BackgroundTransparency = 1
+detailsText.Text = "Выбери ветку в списке сверху, чтобы увидеть связанные ветки и детей."
+detailsText.TextColor3 = Color3.fromRGB(215, 220, 235)
+detailsText.TextSize = 12
+detailsText.Font = Enum.Font.Code
+detailsText.TextXAlignment = Enum.TextXAlignment.Left
+detailsText.TextYAlignment = Enum.TextYAlignment.Top
+detailsText.TextWrapped = true
+detailsText.Parent = detailsFrame
+
+local function updateCanvas(scroll: ScrollingFrame, contentHeight: number)
+	scroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight + 14)
+end
+
+local function clearDropdown()
+	for _, ch in ipairs(dropdownFrame:GetChildren()) do
+		if ch:IsA("TextButton") then
+			ch:Destroy()
 		end
 	end
-
-	table.insert(lines, ">>> ДЕРЕВО ЦЕЛИКОМ: " .. safePath(rootInst) .. " (" .. rootInst.ClassName .. ")")
-	for _, ch in ipairs(safeChildren(rootInst)) do
-		if #lines >= MAX_TOTAL_LINES then break end
-		walk(ch, 1)
-	end
+	updateCanvas(dropdownFrame, 0)
 end
 
-local function runMegaScanner(rawQueries, onProgress)
-	local queryList = splitQueries(rawQueries)
-	local tokens = buildExpandedTokens(queryList)
-
+local function showEntryDetails(entry, allEntries)
+	local related, childrenLines = collectRelated(entry, allEntries)
 	local lines = {
-		"MEGA ALL-OBJECTS & FULL-TREES SCANNER",
-		"Запросы: " .. table.concat(queryList, ", "),
-		"Схожие токены (" .. #tokens .. "): " .. table.concat(tokens, ", "),
-		"Время: " .. os.date("%H:%M:%S"),
-		"========================================",
+		string.format("ВЕТКА: %s", entry.path),
+		string.format("Класс: %s | Тип: %s (%.2f) | Детей: %d", entry.className, entry.kind, entry.score, entry.childrenCount),
+		"",
+		"--- СВЯЗАННЫЕ ВЕТКИ ---",
 	}
-
-	local roots = {
-		PlayerGui,
-		ReplicatedStorage,
-		StarterGui,
-		StarterPack,
-		StarterPlayer,
-	}
-
-	local matchedTreeRoots = {}
-	local seenMatched = {}
-
-	local framesAll, labelsAll, boxesAll, buttonsAll, imagesAll, otherAll = {}, {}, {}, {}, {}, {}
-	local totalVisited = 0
-
-	local function scanNode(inst, depth)
-		if depth > MAX_TREE_DEPTH then return end
-		totalVisited += 1
-		if totalVisited % 350 == 0 then
-			if onProgress then
-				onProgress("Проверено объектов: " .. totalVisited .. "...")
-			end
-			task.wait()
+	if #related > 0 then
+		for _, r in ipairs(related) do
+			table.insert(lines, r)
 		end
-
-		local matched, matchedTok = isSimilarMatch(inst, tokens)
-		if matched and not seenMatched[inst] then
-			seenMatched[inst] = true
-			table.insert(matchedTreeRoots, { inst = inst, tok = matchedTok })
-		end
-
-		if matched then
-			local info = formatObjectDetails(inst) .. "  -->  " .. safePath(inst)
-			if inst:IsA("Frame") or inst:IsA("ScrollingFrame") or inst:IsA("CanvasGroup") or inst:IsA("ViewportFrame") then
-				table.insert(framesAll, info)
-			elseif inst:IsA("TextLabel") then
-				table.insert(labelsAll, info)
-			elseif inst:IsA("TextBox") then
-				table.insert(boxesAll, info)
-			elseif inst:IsA("GuiButton") or inst:IsA("TextButton") or inst:IsA("ImageButton") then
-				table.insert(buttonsAll, info)
-			elseif inst:IsA("ImageLabel") then
-				table.insert(imagesAll, info)
-			else
-				table.insert(otherAll, info)
-			end
-		end
-
-		for _, ch in ipairs(safeChildren(inst)) do
-			scanNode(ch, depth + 1)
-		end
-	end
-
-	for _, r in ipairs(roots) do
-		if r then
-			scanNode(r, 1)
-		end
+	else
+		table.insert(lines, "Явных связанных веток рядом не найдено.")
 	end
 
 	table.insert(lines, "")
-	table.insert(lines, "=== НАЙДЕННЫЕ ДЕРЕВЬЯ ЦЕЛИКОМ (" .. #matchedTreeRoots .. ") ===")
-
-	for idx, entry in ipairs(matchedTreeRoots) do
-		if #lines >= MAX_TOTAL_LINES then
-			table.insert(lines, "[Достигнут лимит строк отчёта: " .. MAX_TOTAL_LINES .. "]")
-			break
+	table.insert(lines, "--- ПРЯМЫЕ ДЕТИ ---")
+	if #childrenLines > 0 then
+		for _, c in ipairs(childrenLines) do
+			table.insert(lines, c)
 		end
-		table.insert(lines, "")
-		table.insert(lines, string.format("[%d] Совпадение по: %s", idx, tostring(entry.tok)))
-		dumpFullSubtree(entry.inst, lines, 8)
-		if idx % 8 == 0 then
-			task.wait()
-		end
+	else
+		table.insert(lines, "Потомков нет.")
 	end
 
-	local function appendCategory(title, list)
-		if #lines >= MAX_TOTAL_LINES then return end
-		table.insert(lines, "")
-		table.insert(lines, "=== " .. title .. " (" .. #list .. ") ===")
-		for _, item in ipairs(list) do
-			if #lines >= MAX_TOTAL_LINES then
-				table.insert(lines, "  ... [лимит строк]")
-				break
-			end
-			table.insert(lines, "  " .. item)
-		end
-	end
-
-	appendCategory("FRAMES / SCROLLING / CANVAS", framesAll)
-	appendCategory("TEXTLABELS", labelsAll)
-	appendCategory("TEXTBOXES", boxesAll)
-	appendCategory("BUTTONS (TextButton / ImageButton / GuiButton)", buttonsAll)
-	appendCategory("IMAGES (ImageLabel)", imagesAll)
-	appendCategory("OTHER OBJECTS (Folders, Remotes, Modules, Values, Tools, Scripts, etc.)", otherAll)
-
-	local reportText = table.concat(lines, "\n")
-	lastReportText = reportText
-	rebuildChunks()
-
-	warn(string.format(
-		"[MegaScanner] Visited=%d | Trees=%d | Chunks=%d (limit %d) | F=%d | Lbl=%d | Box=%d | Btn=%d | Img=%d | Other=%d",
-		totalVisited, #matchedTreeRoots, #reportChunks, CHUNK_LIMIT, #framesAll, #labelsAll, #boxesAll, #buttonsAll, #imagesAll, #otherAll
-	))
-
-	return reportText, {
-		trees = #matchedTreeRoots,
-		frames = #framesAll,
-		labels = #labelsAll,
-		buttons = #buttonsAll,
-		images = #imagesAll,
-		other = #otherAll,
-		chunks = #reportChunks,
-	}
+	local fullText = table.concat(lines, "\n")
+	detailsText.Text = fullText
+	detailsText.Size = UDim2.new(1, -12, 0, math.max(120, #lines * 16))
+	updateCanvas(detailsFrame, detailsText.Size.Y.Offset + 12)
+	print(fullText)
 end
 
-local function buildMegaScannerUI()
-	local old = PlayerGui:FindFirstChild("MegaAllScannerUI")
-	if old then old:Destroy() end
-
-	local sg = Instance.new("ScreenGui")
-	sg.Name = "MegaAllScannerUI"
-	sg.ResetOnSpawn = false
-	sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	sg.Parent = PlayerGui
-
-	local main = Instance.new("Frame")
-	main.Name = "MainFrame"
-	main.Size = UDim2.new(0, 308, 0, 276)
-	main.Position = UDim2.new(0.5, -154, 0.2, -138)
-	main.BackgroundColor3 = Color3.fromRGB(13, 13, 18)
-	main.BackgroundTransparency = 0.05
-	main.BorderSizePixel = 0
-	main.Active = true
-	main.Draggable = true
-	main.Parent = sg
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 10)
-	corner.Parent = main
-
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(130, 85, 240)
-	stroke.Thickness = 1.5
-	stroke.Parent = main
-
-	local topBar = Instance.new("Frame")
-	topBar.Size = UDim2.new(1, 0, 0, 32)
-	topBar.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
-	topBar.BorderSizePixel = 0
-	topBar.Parent = main
-
-	local topCorner = Instance.new("UICorner")
-	topCorner.CornerRadius = UDim.new(0, 10)
-	topCorner.Parent = topBar
-
-	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(1, -66, 1, 0)
-	title.Position = UDim2.new(0, 10, 0, 0)
-	title.BackgroundTransparency = 1
-	title.Text = "Mega Scanner (160k chunks)"
-	title.TextColor3 = Color3.fromRGB(245, 242, 255)
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Font = Enum.Font.GothamBold
-	title.TextSize = 13
-	title.Parent = topBar
-
-	local collapseBtn = Instance.new("TextButton")
-	collapseBtn.Size = UDim2.new(0, 26, 0, 24)
-	collapseBtn.Position = UDim2.new(1, -32, 0.5, -12)
-	collapseBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 48)
-	collapseBtn.Text = "-"
-	collapseBtn.TextColor3 = Color3.fromRGB(235, 235, 245)
-	collapseBtn.Font = Enum.Font.GothamBold
-	collapseBtn.TextSize = 15
-	collapseBtn.Parent = topBar
-
-	local colCorner = Instance.new("UICorner")
-	colCorner.CornerRadius = UDim.new(0, 6)
-	colCorner.Parent = collapseBtn
-
-	local body = Instance.new("Frame")
-	body.Size = UDim2.new(1, -16, 1, -40)
-	body.Position = UDim2.new(0, 8, 0, 36)
-	body.BackgroundTransparency = 1
-	body.Parent = main
-
-	local queryBox = Instance.new("TextBox")
-	queryBox.Name = "QueryInput"
-	queryBox.Size = UDim2.new(1, 0, 0, 34)
-	queryBox.Position = UDim2.new(0, 0, 0, 0)
-	queryBox.BackgroundColor3 = Color3.fromRGB(24, 24, 34)
-	queryBox.Text = table.concat(DEFAULT_KEYWORDS, ",")
-	queryBox.PlaceholderText = "Inventory,NewItem,Claim,Claimed,TextName,Button,Item,MainGUI,PlayerGui,StarterPlayer,StarterPack"
-	queryBox.PlaceholderColor3 = Color3.fromRGB(130, 135, 155)
-	queryBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-	queryBox.ClearTextOnFocus = false
-	queryBox.Font = Enum.Font.Gotham
-	queryBox.TextSize = 11
-	queryBox.Parent = body
-
-	local qbCorner = Instance.new("UICorner")
-	qbCorner.CornerRadius = UDim.new(0, 7)
-	qbCorner.Parent = queryBox
-
-	local statusLbl = Instance.new("TextLabel")
-	statusLbl.Size = UDim2.new(1, 0, 0, 26)
-	statusLbl.Position = UDim2.new(0, 0, 0, 38)
-	statusLbl.BackgroundTransparency = 1
-	statusLbl.Text = "Лимит части: 160000 символов"
-	statusLbl.TextColor3 = Color3.fromRGB(175, 165, 215)
-	statusLbl.TextWrapped = true
-	statusLbl.Font = Enum.Font.Gotham
-	statusLbl.TextSize = 10
-	statusLbl.Parent = body
-
-	local scroll = Instance.new("ScrollingFrame")
-	scroll.Size = UDim2.new(1, 0, 0, 108)
-	scroll.Position = UDim2.new(0, 0, 0, 66)
-	scroll.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
-	scroll.BorderSizePixel = 0
-	scroll.ScrollBarThickness = 4
-	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-	scroll.Parent = body
-
-	local scCorner = Instance.new("UICorner")
-	scCorner.CornerRadius = UDim.new(0, 7)
-	scCorner.Parent = scroll
-
-	local reportLabel = Instance.new("TextLabel")
-	reportLabel.Size = UDim2.new(1, -8, 0, 0)
-	reportLabel.Position = UDim2.new(0, 4, 0, 4)
-	reportLabel.BackgroundTransparency = 1
-	reportLabel.Text = lastReportText
-	reportLabel.TextColor3 = Color3.fromRGB(215, 220, 238)
-	reportLabel.TextXAlignment = Enum.TextXAlignment.Left
-	reportLabel.TextYAlignment = Enum.TextYAlignment.Top
-	reportLabel.TextWrapped = true
-	reportLabel.AutomaticSize = Enum.AutomaticSize.Y
-	reportLabel.Font = Enum.Font.Code
-	reportLabel.TextSize = 10
-	reportLabel.Parent = scroll
-
-	reportLabel:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-		scroll.CanvasSize = UDim2.new(0, 0, 0, reportLabel.AbsoluteSize.Y + 12)
-	end)
-
-	local scanBtn = Instance.new("TextButton")
-	scanBtn.Size = UDim2.new(0.44, -3, 0, 34)
-	scanBtn.Position = UDim2.new(0, 0, 0, 182)
-	scanBtn.BackgroundColor3 = Color3.fromRGB(115, 65, 215)
-	scanBtn.Text = "Scan All"
-	scanBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-	scanBtn.Font = Enum.Font.GothamBold
-	scanBtn.TextSize = 12
-	scanBtn.Parent = body
-
-	local sbCorner = Instance.new("UICorner")
-	sbCorner.CornerRadius = UDim.new(0, 7)
-	sbCorner.Parent = scanBtn
-
-	local copyBtn = Instance.new("TextButton")
-	copyBtn.Size = UDim2.new(0.34, -3, 0, 34)
-	copyBtn.Position = UDim2.new(0.44, 3, 0, 182)
-	copyBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 80)
-	copyBtn.Text = "Copy 1/1"
-	copyBtn.TextColor3 = Color3.fromRGB(235, 240, 255)
-	copyBtn.Font = Enum.Font.GothamBold
-	copyBtn.TextSize = 11
-	copyBtn.Parent = body
-
-	local cpCorner = Instance.new("UICorner")
-	cpCorner.CornerRadius = UDim.new(0, 7)
-	cpCorner.Parent = copyBtn
-
-	local nextPartBtn = Instance.new("TextButton")
-	nextPartBtn.Size = UDim2.new(0.22, -2, 0, 34)
-	nextPartBtn.Position = UDim2.new(0.78, 2, 0, 182)
-	nextPartBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 50)
-	nextPartBtn.Text = "Next>"
-	nextPartBtn.TextColor3 = Color3.fromRGB(220, 220, 245)
-	nextPartBtn.Font = Enum.Font.GothamBold
-	nextPartBtn.TextSize = 11
-	nextPartBtn.Parent = body
-
-	local npCorner = Instance.new("UICorner")
-	npCorner.CornerRadius = UDim.new(0, 7)
-	npCorner.Parent = nextPartBtn
-
-	local function refreshCopyButtonText()
-		local total = math.max(1, #reportChunks)
-		copyBtn.Text = string.format("Copy %d/%d", currentChunkIndex, total)
+local busy = false
+local function triggerSearch()
+	if busy then
+		return
 	end
+	busy = true
+	clearDropdown()
+	statusLbl.Text = "Ищу ветки без ограничения глубины..."
 
-	local collapsed = false
-	collapseBtn.MouseButton1Click:Connect(function()
-		collapsed = not collapsed
-		body.Visible = not collapsed
-		collapseBtn.Text = collapsed and "+" or "-"
-		TweenService:Create(main, TweenInfo.new(0.18), {
-			Size = collapsed and UDim2.new(0, 308, 0, 32) or UDim2.new(0, 308, 0, 276)
-		}):Play()
-	end)
+	runScan(inputBox.Text, currentRoot, function(ok, statusMsg, entries)
+		busy = false
+		statusLbl.Text = statusMsg
+		if not ok or #entries == 0 then
+			return
+		end
 
-	local scanning = false
-	scanBtn.MouseButton1Click:Connect(function()
-		if scanning then return end
-		scanning = true
-		scanBtn.Text = "..."
-		task.spawn(function()
-			local rep, stats = runMegaScanner(queryBox.Text, function(msg)
-				statusLbl.Text = msg
+		local totalH = 0
+		for i, item in ipairs(entries) do
+			local btn = Instance.new("TextButton")
+			btn.Size = UDim2.new(1, -8, 0, 34)
+			btn.BackgroundColor3 = Color3.fromRGB(32, 34, 45)
+			btn.Text = string.format("%d. [%s] %s (%s, детей:%d)", i, item.kind, item.name, item.className, item.childrenCount)
+			btn.TextColor3 = Color3.fromRGB(235, 240, 255)
+			btn.TextSize = 11
+			btn.Font = Enum.Font.Gotham
+			btn.TextXAlignment = Enum.TextXAlignment.Left
+			btn.TextTruncate = Enum.TextTruncate.AtEnd
+			btn.Parent = dropdownFrame
+			Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+
+			btn.MouseButton1Click:Connect(function()
+				showEntryDetails(item, entries)
 			end)
-			reportLabel.Text = rep
-			refreshCopyButtonText()
-			statusLbl.Text = string.format(
-				"Trees:%d | Parts:%d (160k) | F:%d Lbl:%d Btn:%d",
-				stats.trees, stats.chunks, stats.frames, stats.labels, stats.buttons
-			)
-			scanBtn.Text = "Scan All"
-			scanning = false
-		end)
-	end)
-
-	copyBtn.MouseButton1Click:Connect(function()
-		local ok, msg = copyChunkByIndex(currentChunkIndex)
-		statusLbl.Text = msg
-		if ok then
-			local total = math.max(1, #reportChunks)
-			currentChunkIndex = (currentChunkIndex % total) + 1
-			refreshCopyButtonText()
+			totalH += 38
 		end
-	end)
 
-	nextPartBtn.MouseButton1Click:Connect(function()
-		local total = math.max(1, #reportChunks)
-		currentChunkIndex = (currentChunkIndex % total) + 1
-		refreshCopyButtonText()
-		statusLbl.Text = string.format("Выбрана часть %d/%d (нажми Copy)", currentChunkIndex, total)
+		updateCanvas(dropdownFrame, totalH)
 	end)
 end
 
-buildMegaScannerUI()
+searchBtn.MouseButton1Click:Connect(triggerSearch)
+inputBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		triggerSearch()
+	end
+end)
