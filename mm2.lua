@@ -5,12 +5,13 @@ local CoreGui = game:GetService("CoreGui")
 local player = Players.LocalPlayer
 
 local CONFIG = {
-	DefaultRoot = "PlayerGui", -- "PlayerGui" | "ReplicatedStorage" | "Backpack"
-	MaxResults = 60,           -- Макс. совпадений в выпадающем списке
-	MaxVisited = 150000,       -- Предохранитель обхода без ограничения глубины
-	NodesPerYield = 1500,      -- Пауза для плавности на мобильном устройстве
-	MinSimilarity = 0.42,      -- Порог схожести (0..1)
-	OnlyBranches = true,       -- true = показывать ветки (с потомками)
+	DefaultRoot = "PlayerGui",
+	MaxResults = 60,
+	MaxVisited = 150000,
+	NodesPerYield = 1500,
+	MinSimilarity = 0.42,
+	OnlyBranches = true,
+	MaxCopyChars = 120000,
 }
 
 local function getUiParent(): Instance
@@ -27,6 +28,30 @@ local function getUiParent(): Instance
 		return core
 	end
 	return player:WaitForChild("PlayerGui")
+end
+
+local function copyToClipboard(text: string): boolean
+	local payload = text
+	if #payload > CONFIG.MaxCopyChars then
+		payload = string.sub(payload, 1, CONFIG.MaxCopyChars) .. "\n...[обрезано по лимиту символов]"
+	end
+
+	local funcs = {
+		setclipboard,
+		toclipboard,
+		set_clipboard,
+		Clipboard and Clipboard.set,
+	}
+
+	for _, fn in ipairs(funcs) do
+		if type(fn) == "function" then
+			local ok = pcall(fn, payload)
+			if ok then
+				return true
+			end
+		end
+	end
+	return false
 end
 
 local function resolveRoot(target: string): Instance?
@@ -84,7 +109,6 @@ local function similarity(a: string, b: string): number
 	return (2 * intersection) / (countA + countB)
 end
 
--- Разбиваем строку ввода на несколько ключевых слов (через запятую, пробел, точку с запятой или /)
 local function parseQueries(rawText: string): { string }
 	local list = {}
 	for token in string.gmatch(rawText, "[^,;/]+") do
@@ -135,7 +159,6 @@ local function scoreInstance(inst: Instance, queries: { string })
 	return bestKind, bestScore, bestQuery
 end
 
--- Находим связанные ветки: родитель, соседи в той же ветке и похожие ветки рядом
 local function collectRelated(entry, allEntries)
 	local inst: Instance = entry.instance
 	local related = {}
@@ -148,7 +171,7 @@ local function collectRelated(entry, allEntries)
 
 		for _, sib in ipairs(parent:GetChildren()) do
 			if not seen[sib] and #sib:GetChildren() > 0 then
-				local sibKind, sibScore = scoreInstance(sib, { entry.query })
+				local sibKind = scoreInstance(sib, { entry.query })
 				if sibKind or similarity(normalizeName(sib.Name), normalizeName(inst.Name)) >= 0.45 then
 					seen[sib] = true
 					table.insert(related, string.format(
@@ -185,13 +208,41 @@ local function collectRelated(entry, allEntries)
 	local childrenLines = {}
 	for _, ch in ipairs(inst:GetChildren()) do
 		table.insert(childrenLines, string.format("  • %s [%s] (детей: %d)", ch.Name, ch.ClassName, #ch:GetChildren()))
-		if #childrenLines >= 20 then
+		if #childrenLines >= 25 then
 			table.insert(childrenLines, "  ... ещё дети скрыты")
 			break
 		end
 	end
 
 	return related, childrenLines
+end
+
+local function buildEntryTreeText(entry, allEntries): string
+	local related, childrenLines = collectRelated(entry, allEntries)
+	local lines = {
+		string.format("ВЕТКА: %s", entry.path),
+		string.format("Класс: %s | Тип: %s (%.2f) | Детей: %d", entry.className, entry.kind, entry.score, entry.childrenCount),
+		"--- СВЯЗАННЫЕ ВЕТКИ ---",
+	}
+
+	if #related > 0 then
+		for _, r in ipairs(related) do
+			table.insert(lines, r)
+		end
+	else
+		table.insert(lines, "Явных связанных веток рядом не найдено.")
+	end
+
+	table.insert(lines, "--- ПРЯМЫЕ ДЕТИ ---")
+	if #childrenLines > 0 then
+		for _, c in ipairs(childrenLines) do
+			table.insert(lines, c)
+		end
+	else
+		table.insert(lines, "Потомков нет.")
+	end
+
+	return table.concat(lines, "\n")
 end
 
 local function runScan(rawQuery: string, rootName: string, onDone: (boolean, string, { any }) -> ())
@@ -281,7 +332,6 @@ local function runScan(rawQuery: string, rootName: string, onDone: (boolean, str
 	onDone(true, status, results)
 end
 
--- Построение мобильного окна поиска с выпадающим списком
 local oldGui = getUiParent():FindFirstChild("BranchFinderUI")
 if oldGui then
 	oldGui:Destroy()
@@ -294,15 +344,12 @@ gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = getUiParent()
 
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0.92, 0, 0.78, 0)
-main.Position = UDim2.new(0.04, 0, 0.11, 0)
+main.Size = UDim2.new(0.94, 0, 0.82, 0)
+main.Position = UDim2.new(0.03, 0, 0.09, 0)
 main.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
 main.BorderSizePixel = 0
 main.Parent = gui
-
-local mainCorner = Instance.new("UICorner")
-mainCorner.CornerRadius = UDim.new(0, 10)
-mainCorner.Parent = main
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 10)
 
 local mainStroke = Instance.new("UIStroke")
 mainStroke.Color = Color3.fromRGB(65, 65, 82)
@@ -314,16 +361,13 @@ topBar.Size = UDim2.new(1, 0, 0, 38)
 topBar.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
 topBar.BorderSizePixel = 0
 topBar.Parent = main
-
-local topCorner = Instance.new("UICorner")
-topCorner.CornerRadius = UDim.new(0, 10)
-topCorner.Parent = topBar
+Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 10)
 
 local titleLbl = Instance.new("TextLabel")
 titleLbl.Size = UDim2.new(1, -80, 1, 0)
 titleLbl.Position = UDim2.new(0, 10, 0, 0)
 titleLbl.BackgroundTransparency = 1
-titleLbl.Text = "Поиск веток и связанных"
+titleLbl.Text = "Поиск и копирование веток"
 titleLbl.TextColor3 = Color3.fromRGB(235, 235, 245)
 titleLbl.TextSize = 14
 titleLbl.Font = Enum.Font.GothamBold
@@ -339,7 +383,6 @@ closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeBtn.TextSize = 13
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.Parent = topBar
-
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 closeBtn.MouseButton1Click:Connect(function()
 	gui:Destroy()
@@ -350,7 +393,7 @@ local rootBtn = Instance.new("TextButton")
 rootBtn.Size = UDim2.new(1, -16, 0, 30)
 rootBtn.Position = UDim2.new(0, 8, 0, 44)
 rootBtn.BackgroundColor3 = Color3.fromRGB(30, 32, 42)
-rootBtn.Text = "Корень: " .. currentRoot .. " (нажми для смены)"
+rootBtn.Text = "Корень: " .. currentRoot .. " (сменить)"
 rootBtn.TextColor3 = Color3.fromRGB(165, 205, 255)
 rootBtn.TextSize = 12
 rootBtn.Font = Enum.Font.GothamMedium
@@ -361,7 +404,7 @@ local rootsOrder = { "PlayerGui", "ReplicatedStorage", "Backpack" }
 rootBtn.MouseButton1Click:Connect(function()
 	local idx = table.find(rootsOrder, currentRoot) or 1
 	currentRoot = rootsOrder[(idx % #rootsOrder) + 1]
-	rootBtn.Text = "Корень: " .. currentRoot .. " (нажми для смены)"
+	rootBtn.Text = "Корень: " .. currentRoot .. " (сменить)"
 end)
 
 local inputBox = Instance.new("TextBox")
@@ -389,11 +432,33 @@ searchBtn.Font = Enum.Font.GothamBold
 searchBtn.Parent = main
 Instance.new("UICorner", searchBtn).CornerRadius = UDim.new(0, 6)
 
+local copyBranchBtn = Instance.new("TextButton")
+copyBranchBtn.Size = UDim2.new(0.5, -12, 0, 28)
+copyBranchBtn.Position = UDim2.new(0, 8, 0, 118)
+copyBranchBtn.BackgroundColor3 = Color3.fromRGB(36, 92, 62)
+copyBranchBtn.Text = "Копир. ветку"
+copyBranchBtn.TextColor3 = Color3.fromRGB(235, 255, 240)
+copyBranchBtn.TextSize = 12
+copyBranchBtn.Font = Enum.Font.GothamBold
+copyBranchBtn.Parent = main
+Instance.new("UICorner", copyBranchBtn).CornerRadius = UDim.new(0, 6)
+
+local copyAllBtn = Instance.new("TextButton")
+copyAllBtn.Size = UDim2.new(0.5, -12, 0, 28)
+copyAllBtn.Position = UDim2.new(0.5, 4, 0, 118)
+copyAllBtn.BackgroundColor3 = Color3.fromRGB(48, 68, 115)
+copyAllBtn.Text = "Копир. всё"
+copyAllBtn.TextColor3 = Color3.fromRGB(235, 242, 255)
+copyAllBtn.TextSize = 12
+copyAllBtn.Font = Enum.Font.GothamBold
+copyAllBtn.Parent = main
+Instance.new("UICorner", copyAllBtn).CornerRadius = UDim.new(0, 6)
+
 local statusLbl = Instance.new("TextLabel")
 statusLbl.Size = UDim2.new(1, -16, 0, 20)
-statusLbl.Position = UDim2.new(0, 8, 0, 118)
+statusLbl.Position = UDim2.new(0, 8, 0, 150)
 statusLbl.BackgroundTransparency = 1
-statusLbl.Text = "Введи слово и нажми «Найти» или Enter"
+statusLbl.Text = "Введи слово и нажми «Найти»"
 statusLbl.TextColor3 = Color3.fromRGB(170, 175, 195)
 statusLbl.TextSize = 11
 statusLbl.Font = Enum.Font.Gotham
@@ -401,10 +466,9 @@ statusLbl.TextXAlignment = Enum.TextXAlignment.Left
 statusLbl.TextTruncate = Enum.TextTruncate.AtEnd
 statusLbl.Parent = main
 
--- Выпадающий список найденных веток
 local dropdownFrame = Instance.new("ScrollingFrame")
-dropdownFrame.Size = UDim2.new(1, -16, 0.44, -68)
-dropdownFrame.Position = UDim2.new(0, 8, 0, 142)
+dropdownFrame.Size = UDim2.new(1, -16, 0.40, -68)
+dropdownFrame.Position = UDim2.new(0, 8, 0, 174)
 dropdownFrame.BackgroundColor3 = Color3.fromRGB(21, 21, 27)
 dropdownFrame.BorderSizePixel = 0
 dropdownFrame.ScrollBarThickness = 5
@@ -416,10 +480,9 @@ local dropLayout = Instance.new("UIListLayout")
 dropLayout.Padding = UDim.new(0, 4)
 dropLayout.Parent = dropdownFrame
 
--- Панель связанных веток и прямых детей выбранной ветки
 local detailsFrame = Instance.new("ScrollingFrame")
-detailsFrame.Size = UDim2.new(1, -16, 0.56, -86)
-detailsFrame.Position = UDim2.new(0, 8, 0.44, 80)
+detailsFrame.Size = UDim2.new(1, -16, 0.60, -112)
+detailsFrame.Position = UDim2.new(0, 8, 0.40, 106)
 detailsFrame.BackgroundColor3 = Color3.fromRGB(21, 21, 27)
 detailsFrame.BorderSizePixel = 0
 detailsFrame.ScrollBarThickness = 5
@@ -427,21 +490,37 @@ detailsFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 detailsFrame.Parent = main
 Instance.new("UICorner", detailsFrame).CornerRadius = UDim.new(0, 6)
 
-local detailsText = Instance.new("TextLabel")
-detailsText.Size = UDim2.new(1, -12, 0, 20)
-detailsText.Position = UDim2.new(0, 6, 0, 6)
-detailsText.BackgroundTransparency = 1
-detailsText.Text = "Выбери ветку в списке сверху, чтобы увидеть связанные ветки и детей."
-detailsText.TextColor3 = Color3.fromRGB(215, 220, 235)
-detailsText.TextSize = 12
-detailsText.Font = Enum.Font.Code
-detailsText.TextXAlignment = Enum.TextXAlignment.Left
-detailsText.TextYAlignment = Enum.TextYAlignment.Top
-detailsText.TextWrapped = true
-detailsText.Parent = detailsFrame
+local detailsBox = Instance.new("TextBox")
+detailsBox.Size = UDim2.new(1, -12, 0, 24)
+detailsBox.Position = UDim2.new(0, 6, 0, 6)
+detailsBox.BackgroundTransparency = 1
+detailsBox.Text = "Выбери ветку в списке, чтобы увидеть дерево, связанные ветки и скопировать."
+detailsBox.TextColor3 = Color3.fromRGB(215, 220, 235)
+detailsBox.TextSize = 11
+detailsBox.Font = Enum.Font.Code
+detailsBox.TextXAlignment = Enum.TextXAlignment.Left
+detailsBox.TextYAlignment = Enum.TextYAlignment.Top
+detailsBox.TextWrapped = true
+detailsBox.MultiLine = true
+detailsBox.ClearTextOnFocus = false
+detailsBox.Parent = detailsFrame
+
+local lastEntries = {}
+local lastSelectedTree = ""
+local lastAllTreesText = ""
 
 local function updateCanvas(scroll: ScrollingFrame, contentHeight: number)
-	scroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight + 14)
+	scroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight + 16)
+end
+
+local function renderTextInDetails(text: string)
+	local lineCount = 1
+	for _ in string.gmatch(text, "\n") do
+		lineCount += 1
+	end
+	detailsBox.Text = text
+	detailsBox.Size = UDim2.new(1, -12, 0, math.max(120, lineCount * 15))
+	updateCanvas(detailsFrame, detailsBox.Size.Y.Offset + 12)
 end
 
 local function clearDropdown()
@@ -453,38 +532,44 @@ local function clearDropdown()
 	updateCanvas(dropdownFrame, 0)
 end
 
-local function showEntryDetails(entry, allEntries)
-	local related, childrenLines = collectRelated(entry, allEntries)
-	local lines = {
-		string.format("ВЕТКА: %s", entry.path),
-		string.format("Класс: %s | Тип: %s (%.2f) | Детей: %d", entry.className, entry.kind, entry.score, entry.childrenCount),
-		"",
-		"--- СВЯЗАННЫЕ ВЕТКИ ---",
-	}
-	if #related > 0 then
-		for _, r in ipairs(related) do
-			table.insert(lines, r)
-		end
-	else
-		table.insert(lines, "Явных связанных веток рядом не найдено.")
-	end
-
-	table.insert(lines, "")
-	table.insert(lines, "--- ПРЯМЫЕ ДЕТИ ---")
-	if #childrenLines > 0 then
-		for _, c in ipairs(childrenLines) do
-			table.insert(lines, c)
-		end
-	else
-		table.insert(lines, "Потомков нет.")
-	end
-
-	local fullText = table.concat(lines, "\n")
-	detailsText.Text = fullText
-	detailsText.Size = UDim2.new(1, -12, 0, math.max(120, #lines * 16))
-	updateCanvas(detailsFrame, detailsText.Size.Y.Offset + 12)
-	print(fullText)
+local function selectEntry(entry, allEntries)
+	local treeText = buildEntryTreeText(entry, allEntries)
+	lastSelectedTree = treeText
+	renderTextInDetails(treeText)
 end
+
+copyBranchBtn.MouseButton1Click:Connect(function()
+	if lastSelectedTree == "" then
+		statusLbl.Text = "Сначала выбери ветку из списка"
+		return
+	end
+	renderTextInDetails(lastSelectedTree)
+	if copyToClipboard(lastSelectedTree) then
+		statusLbl.Text = "Дерево ветки скопировано в буфер"
+	else
+		statusLbl.Text = "Буфер недоступен — выдели текст в окне ниже"
+	end
+end)
+
+copyAllBtn.MouseButton1Click:Connect(function()
+	if #lastEntries == 0 then
+		statusLbl.Text = "Нет найденных веток для копирования"
+		return
+	end
+	if lastAllTreesText == "" then
+		local chunks = {}
+		for i, item in ipairs(lastEntries) do
+			table.insert(chunks, string.format("=== [%d] ===\n%s", i, buildEntryTreeText(item, lastEntries)))
+		end
+		lastAllTreesText = table.concat(chunks, "\n\n")
+	end
+	renderTextInDetails(lastAllTreesText)
+	if copyToClipboard(lastAllTreesText) then
+		statusLbl.Text = "Все найденные деревья скопированы"
+	else
+		statusLbl.Text = "Буфер недоступен — выдели текст в окне ниже"
+	end
+end)
 
 local busy = false
 local function triggerSearch()
@@ -493,7 +578,10 @@ local function triggerSearch()
 	end
 	busy = true
 	clearDropdown()
-	statusLbl.Text = "Ищу ветки без ограничения глубины..."
+	lastEntries = {}
+	lastSelectedTree = ""
+	lastAllTreesText = ""
+	statusLbl.Text = "Ищу ветки..."
 
 	runScan(inputBox.Text, currentRoot, function(ok, statusMsg, entries)
 		busy = false
@@ -502,6 +590,7 @@ local function triggerSearch()
 			return
 		end
 
+		lastEntries = entries
 		local totalH = 0
 		for i, item in ipairs(entries) do
 			local btn = Instance.new("TextButton")
@@ -517,7 +606,7 @@ local function triggerSearch()
 			Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
 
 			btn.MouseButton1Click:Connect(function()
-				showEntryDetails(item, entries)
+				selectEntry(item, entries)
 			end)
 			totalH += 38
 		end
