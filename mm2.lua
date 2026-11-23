@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -30,6 +31,8 @@ local fallbackItems = {
 local syncDb = nil
 local itemModule = nil
 local mainGui = nil
+local gameGui = nil
+local gameNewItem = nil
 local pendingQueue = {}
 local hookedButtons = {}
 
@@ -60,6 +63,14 @@ local function initGameRefs()
 
     if not mainGui then
         mainGui = playerGui:FindFirstChild("MainGUI")
+    end
+
+    if mainGui and not gameGui then
+        gameGui = mainGui:FindFirstChild("Game")
+    end
+
+    if gameGui and not gameNewItem then
+        gameNewItem = gameGui:FindFirstChild("NewItem")
     end
 end
 
@@ -96,7 +107,7 @@ local function resolveExactItem(rawName)
         end
 
         for catName, catTable in pairs(syncDb) do
-            if type(catTable) == "table" and catName ~= "Item" and catName ~= "Weapons" then
+            if type(catTable) == "table" and catName ~= "Item" and catName ~= "Weapons" and catName ~= "Rarities" then
                 key, info = findExactItemInTable(catTable, exactName)
                 if key and info and type(info) == "table" and (info.ItemName or info.Image or info.Rarity) then
                     return key, catName, info, nil
@@ -134,6 +145,60 @@ local function shouldShowEventBg(info, itemName, eventType)
     return true
 end
 
+local function isYearObject(obj)
+    if not obj:IsA("TextLabel") then return false end
+    if obj.Name == "TagName" then return false end
+    local lowerName = string.lower(obj.Name)
+    if lowerName == "year" or string.find(lowerName, "year", 1, true) then
+        return true
+    end
+    local txt = trim(obj.Text)
+    if string.match(txt, "^20%d%d$") then
+        return true
+    end
+    return false
+end
+
+local function applySingleYear(card, info, activeEventName)
+    if not card then return end
+    local itemYear = (info and info.Year) and tostring(info.Year) or ""
+    local canShow = (activeEventName == "Halloween" or activeEventName == "Christmas") and itemYear ~= ""
+
+    local chosen = nil
+    if canShow then
+        local tags = card:FindFirstChild("Tags")
+        local activeFrame = tags and tags:FindFirstChild(activeEventName)
+        if activeFrame then
+            for _, obj in ipairs(activeFrame:GetDescendants()) do
+                if isYearObject(obj) then
+                    chosen = obj
+                    break
+                end
+            end
+        end
+        if not chosen then
+            for _, obj in ipairs(card:GetDescendants()) do
+                if isYearObject(obj) then
+                    chosen = obj
+                    break
+                end
+            end
+        end
+    end
+
+    for _, obj in ipairs(card:GetDescendants()) do
+        if isYearObject(obj) then
+            if canShow and obj == chosen then
+                obj.Text = itemYear
+                obj.Visible = true
+            else
+                obj.Text = ""
+                obj.Visible = false
+            end
+        end
+    end
+end
+
 local function applyEventFrame(eventFrame, info, itemName, eventType, active)
     if not eventFrame then return end
     eventFrame.Visible = active
@@ -141,17 +206,6 @@ local function applyEventFrame(eventFrame, info, itemName, eventType, active)
     local bg = eventFrame:FindFirstChild("BG")
     if bg then
         bg.Visible = active and shouldShowEventBg(info, itemName, eventType)
-    end
-
-    local itemYear = (info and info.Year) and tostring(info.Year) or ""
-    local hasYear = active and itemYear ~= ""
-    for _, obj in ipairs(eventFrame:GetDescendants()) do
-        if obj:IsA("TextLabel") and obj.Name ~= "TagName" then
-            if hasYear then
-                obj.Text = itemYear
-            end
-            obj.Visible = hasYear
-        end
     end
 end
 
@@ -182,6 +236,19 @@ local function applyTags(card, info, itemName)
 
     applyEventFrame(hallowFrame, info, itemName, "Halloween", eventName == "Halloween")
     applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
+    applySingleYear(card, info, eventName)
+end
+
+local function applyStarburstColor(popupFrame, info)
+    if not popupFrame or not info or not info.Rarity then return end
+    local cont = popupFrame:FindFirstChild("Container")
+    local starburst = cont and cont:FindFirstChild("Starburst")
+    if starburst and starburst:IsA("ImageLabel") and type(syncDb) == "table" and type(syncDb.Rarities) == "table" then
+        local rData = syncDb.Rarities[info.Rarity]
+        if rData and rData.Color then
+            starburst.ImageColor3 = Color3.fromRGB(rData.Color.r, rData.Color.g, rData.Color.b)
+        end
+    end
 end
 
 local function fillCardVisuals(card, info, itemName)
@@ -372,73 +439,131 @@ local function addCardToContainers(info, itemName)
     end
 end
 
-local function getCrossPlatformPopup()
+local function playNativeInventoryAnimation(popupFrame)
+    if not type(itemModule) == "table" or not itemModule.AnimateItemIconIntoInventory then return end
+    if not gameGui then return end
+    local dock = gameGui:FindFirstChild("Dock")
+    local invDock = dock and dock:FindFirstChild("Inventory")
+    local cont = popupFrame and popupFrame:FindFirstChild("Container")
+    local card = cont and cont:FindFirstChild("NewItem")
+    local cardCont = card and card:FindFirstChild("Container")
+    local icon = cardCont and cardCont:FindFirstChild("Icon")
+    if icon and invDock then
+        pcall(function()
+            itemModule.AnimateItemIconIntoInventory(icon, invDock, gameGui)
+        end)
+    end
+end
+
+local function getActivePopup()
+    if gameNewItem and gameNewItem:IsA("GuiObject") then
+        return gameNewItem
+    end
     local cp = playerGui:FindFirstChild("CrossPlatform")
-    if not cp then return nil end
-    local popup = cp:FindFirstChild("NewItem")
-    if popup and popup:IsA("GuiObject") then
-        return popup
+    local cpPopup = cp and cp:FindFirstChild("NewItem")
+    if cpPopup and cpPopup:IsA("GuiObject") then
+        return cpPopup
     end
     return nil
 end
 
-local function hookCrossPlatformClaim(popup)
+local function hookClaimButton(popup)
     if not popup then return end
     for _, desc in ipairs(popup:GetDescendants()) do
-        if desc:IsA("GuiButton") and not hookedButtons[desc] then
-            local lower = string.lower(desc.Name)
-            if lower == "claim" or lower == "ok" or lower == "accept" or lower == "close" then
-                hookedButtons[desc] = true
-                desc.MouseButton1Click:Connect(function()
-                    local entry = table.remove(pendingQueue, 1)
-                    if entry then
-                        addCardToContainers(entry.Info, entry.Name)
+        if desc:IsA("GuiButton") and desc.Name == "Claim" and not hookedButtons[desc] then
+            hookedButtons[desc] = true
+            desc.MouseButton1Click:Connect(function()
+                local entry = table.remove(pendingQueue, 1)
+                playNativeInventoryAnimation(popup)
+                popup.Visible = false
+                pcall(function()
+                    local blur = Lighting:FindFirstChild("NewItemBlur")
+                    if blur then
+                        blur.Enabled = false
                     end
-                    popup.Visible = false
                 end)
-            end
+                if entry then
+                    addCardToContainers(entry.Info, entry.Name)
+                end
+                if #pendingQueue > 0 then
+                    local nextEntry = pendingQueue[1]
+                    local cont = popup:FindFirstChild("Container")
+                    local card = cont and cont:FindFirstChild("NewItem")
+                    if card then
+                        fillCardVisuals(card, nextEntry.Info, nextEntry.Name)
+                    end
+                    applyStarburstColor(popup, nextEntry.Info)
+                    popup.Visible = true
+                    local claimObj = cont and cont:FindFirstChild("Claim")
+                    if claimObj and claimObj:IsA("TextButton") then
+                        claimObj.Text = (#pendingQueue > 1) and ("Claim (1/" .. #pendingQueue .. ")") or "Claim"
+                    end
+                end
+            end)
         end
     end
 end
 
-local function openCrossPlatformPopup(itemKey, info)
-    local popup = getCrossPlatformPopup()
+local function openPopupForItem(itemKey, category, info)
+    initGameRefs()
+    local popup = getActivePopup()
     if not popup then
-        return false, "CrossPlatform.NewItem not found"
+        return false, "NewItem popup not found"
     end
 
-    hookCrossPlatformClaim(popup)
+    hookClaimButton(popup)
 
-    popup.Visible = true
-    local medium = popup:FindFirstChild("Medium")
-    if medium and medium:IsA("GuiObject") then
-        medium.Visible = true
-    end
-
-    local container = medium and medium:FindFirstChild("Container")
-    if container and container:IsA("GuiObject") then
-        container.Visible = true
-    end
-
-    for _, desc in ipairs(popup:GetDescendants()) do
-        if desc:IsA("TextLabel") and desc.Name == "Title" then
-            desc.Text = "You Got..."
+    local inSync = type(syncDb) == "table" and type(syncDb[category]) == "table" and syncDb[category][itemKey] ~= nil
+    if inSync and typeof(_G.NewItem) == "function" then
+        local okCall = pcall(function()
+            _G.NewItem(itemKey, "You Got...", nil, category)
+        end)
+        if okCall then
+            task.delay(0.03, function()
+                local cont = popup:FindFirstChild("Container")
+                local card = cont and cont:FindFirstChild("NewItem")
+                if card then
+                    fillCardVisuals(card, info, itemKey)
+                end
+                applyStarburstColor(popup, info)
+            end)
+            return true, "Spawned: " .. tostring(info.ItemName or itemKey)
         end
     end
 
-    local card = container and container:FindFirstChild("NewItem")
+    popup.Visible = true
+    pcall(function()
+        local blur = Lighting:FindFirstChild("NewItemBlur")
+        if blur then
+            blur.Enabled = true
+        end
+    end)
+
+    local cont = popup:FindFirstChild("Container")
+    if cont and cont:IsA("GuiObject") then
+        cont.Visible = true
+        local title = cont:FindFirstChild("Title")
+        if title and title:IsA("TextLabel") then
+            title.Text = "You Got..."
+        end
+        local claimObj = cont:FindFirstChild("Claim")
+        if claimObj and claimObj:IsA("TextButton") then
+            claimObj.Text = (#pendingQueue > 1) and ("Claim (1/" .. #pendingQueue .. ")") or "Claim"
+        end
+    end
+
+    local card = cont and cont:FindFirstChild("NewItem")
     if card and card:IsA("GuiObject") then
         card.Visible = true
         fillCardVisuals(card, info, itemKey)
-    else
-        fillCardVisuals(popup, info, itemKey)
     end
+    applyStarburstColor(popup, info)
 
     return true, "Spawned: " .. tostring(info.ItemName or itemKey)
 end
 
 local function spawnItemPopup(rawName)
-    local itemKey, _, info, errMsg = resolveExactItem(rawName)
+    local itemKey, category, info, errMsg = resolveExactItem(rawName)
     if not itemKey or not info then
         return false, errMsg or "Enter exact item name"
     end
@@ -448,7 +573,7 @@ local function spawnItemPopup(rawName)
         Info = info
     })
 
-    return openCrossPlatformPopup(itemKey, info)
+    return openPopupForItem(itemKey, category, info)
 end
 
 local oldGui = playerGui:FindFirstChild("GodlySpawnerGUI")
@@ -649,5 +774,5 @@ end)
 
 pcall(function()
     initGameRefs()
-    hookCrossPlatformClaim(getCrossPlatformPopup())
+    hookClaimButton(getActivePopup())
 end)
