@@ -90,7 +90,7 @@ local function getRarityColor(rarityName)
 	return Color3.fromRGB(200, 200, 210)
 end
 
--- Находим родной шаблон CrossPlatform.NewItem.Medium.Container.NewItem
+-- Родной путь: PlayerGui.CrossPlatform.NewItem.Medium.Container.NewItem
 local function getNativeNewItem()
 	local cross = PlayerGui:FindFirstChild("CrossPlatform")
 	if not cross then return nil, nil end
@@ -103,9 +103,7 @@ local function getNativeNewItem()
 end
 
 local NewItemFrame, NewItemSection = getNativeNewItem()
-local ScanRoot = NewItemFrame or NewItemSection
 
--- Ищем только существующие элементы внутри родного шаблона
 local function findNativeElements(root)
 	if not root then return {} end
 
@@ -140,7 +138,6 @@ local function findNativeElements(root)
 
 	local starburst = root:FindFirstChild("Starburst", true)
 
-	-- Если имена нестандартные, подбираем текстовые метки по позиции/исключениям
 	if not nameLabel or not rarityLabel then
 		for _, d in ipairs(root:GetDescendants()) do
 			if (d:IsA("TextLabel") or d:IsA("TextBox")) and (not claimBtn or not d:IsDescendantOf(claimBtn)) and d ~= amountLabel then
@@ -163,7 +160,7 @@ local function findNativeElements(root)
 	}
 end
 
-local Native = findNativeElements(ScanRoot)
+local Native = findNativeElements(NewItemFrame or NewItemSection)
 
 local function setClaimText(text)
 	local btn = Native.ClaimBtn
@@ -309,7 +306,7 @@ _G.NewItem = function(itemKey, _, _, _, count)
 	enqueueItems(key, qty)
 end
 
--- Окно управления: название оружия, ниже количество, кнопка Spawn
+-- GUI управления: название оружия, ниже количество, кнопка Spawn
 local oldGui = PlayerGui:FindFirstChild("Native_NewItem_Spawner")
 if oldGui then
 	oldGui:Destroy()
