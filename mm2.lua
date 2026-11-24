@@ -7,7 +7,6 @@ local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- База предметов и редкостей
 local SyncFolder = ReplicatedStorage:WaitForChild("Database"):WaitForChild("Sync")
 local ItemDB = require(SyncFolder:WaitForChild("Item"))
 local RarityDB = nil
@@ -15,7 +14,6 @@ pcall(function()
 	RarityDB = require(SyncFolder:WaitForChild("Rarities"))
 end)
 
--- Очистка и поиск предметов (без Chroma)
 local function cleanName(str)
 	if type(str) ~= "string" then return "" end
 	local s = string.lower(str)
@@ -65,19 +63,6 @@ local function resolveWeapon(inputText)
 	return nil
 end
 
--- Поиск элементов окна NewItem в MainGUI.Inventory
-local MainGUI = PlayerGui:WaitForChild("MainGUI")
-local InventoryGui = MainGUI:WaitForChild("Inventory")
-local NewItemFrame = InventoryGui:WaitForChild("NewItem")
-
-local ClaimBtn = NewItemFrame:FindFirstChild("Claim", true)
-local Container = NewItemFrame:FindFirstChild("Container", true) or NewItemFrame:FindFirstChild("ItemContainer", true) or NewItemFrame
-local IconLabel = NewItemFrame:FindFirstChild("ItemImage", true) or NewItemFrame:FindFirstChild("Icon", true) or NewItemFrame:FindFirstChildWhichIsA("ImageLabel", true)
-local NameLabel = NewItemFrame:FindFirstChild("ItemName", true) or NewItemFrame:FindFirstChild("Title", true)
-local RarityLabel = NewItemFrame:FindFirstChild("Rarity", true) or NewItemFrame:FindFirstChild("RarityText", true)
-local AmountLabel = NewItemFrame:FindFirstChild("Amount", true) or NewItemFrame:FindFirstChild("Count", true) or NewItemFrame:FindFirstChild("Quantity", true)
-local Starburst = NewItemFrame:FindFirstChild("Starburst", true)
-
 local function getRarityColor(rarityName)
 	if RarityDB and rarityName and RarityDB[rarityName] then
 		local entry = RarityDB[rarityName]
@@ -105,7 +90,93 @@ local function getRarityColor(rarityName)
 	return Color3.fromRGB(200, 200, 210)
 end
 
--- Очередь показа предметов
+-- Поиск шаблона CrossPlatform.NewItem.Medium.Container.NewItem
+local function getTargetFrame()
+	local cross = PlayerGui:FindFirstChild("CrossPlatform")
+	if not cross then return nil, nil end
+	local section = cross:FindFirstChild("NewItem")
+	if not section then return nil, nil end
+	local medium = section:FindFirstChild("Medium")
+	local container = medium and medium:FindFirstChild("Container")
+	local target = container and container:FindFirstChild("NewItem")
+	return target, section
+end
+
+local TargetFrame, NewItemSection = getTargetFrame()
+
+-- Заполняем пустой шаблон NewItem через внутренний слой SpawnerCardOverlay
+local CardHolder = TargetFrame and TargetFrame:FindFirstChild("SpawnerCardOverlay")
+if TargetFrame and TargetFrame:IsA("GuiObject") and not CardHolder then
+	CardHolder = Instance.new("Frame")
+	CardHolder.Name = "SpawnerCardOverlay"
+	CardHolder.Size = UDim2.fromScale(1, 1)
+	CardHolder.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+	CardHolder.BackgroundTransparency = 0.1
+	CardHolder.BorderSizePixel = 0
+	CardHolder.Parent = TargetFrame
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 12)
+	corner.Parent = CardHolder
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "RarityStroke"
+	stroke.Thickness = 2.5
+	stroke.Color = Color3.fromRGB(255, 200, 0)
+	stroke.Parent = CardHolder
+
+	local rarityLbl = Instance.new("TextLabel")
+	rarityLbl.Name = "RarityLabel"
+	rarityLbl.Size = UDim2.new(1, -16, 0, 22)
+	rarityLbl.Position = UDim2.new(0, 8, 0, 8)
+	rarityLbl.BackgroundTransparency = 1
+	rarityLbl.Font = Enum.Font.GothamBold
+	rarityLbl.TextSize = 14
+	rarityLbl.Text = ""
+	rarityLbl.Parent = CardHolder
+
+	local imgLbl = Instance.new("ImageLabel")
+	imgLbl.Name = "ItemIcon"
+	imgLbl.Size = UDim2.new(0, 120, 0, 120)
+	imgLbl.Position = UDim2.new(0.5, -60, 0.5, -68)
+	imgLbl.BackgroundTransparency = 1
+	imgLbl.ScaleType = Enum.ScaleType.Fit
+	imgLbl.Image = ""
+	imgLbl.Parent = CardHolder
+
+	local nameLbl = Instance.new("TextLabel")
+	nameLbl.Name = "ItemNameLabel"
+	nameLbl.Size = UDim2.new(1, -16, 0, 24)
+	nameLbl.Position = UDim2.new(0, 8, 1, -72)
+	nameLbl.BackgroundTransparency = 1
+	nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	nameLbl.Font = Enum.Font.GothamBold
+	nameLbl.TextSize = 15
+	nameLbl.Text = ""
+	nameLbl.Parent = CardHolder
+
+	local claimBtn = Instance.new("TextButton")
+	claimBtn.Name = "ClaimButton"
+	claimBtn.Size = UDim2.new(1, -24, 0, 34)
+	claimBtn.Position = UDim2.new(0, 12, 1, -42)
+	claimBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+	claimBtn.TextColor3 = Color3.fromRGB(15, 15, 15)
+	claimBtn.Font = Enum.Font.GothamBold
+	claimBtn.TextSize = 14
+	claimBtn.Text = "Claim"
+	claimBtn.Parent = CardHolder
+
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 8)
+	btnCorner.Parent = claimBtn
+end
+
+local ClaimBtn = CardHolder and CardHolder:FindFirstChild("ClaimButton")
+local IconLabel = CardHolder and CardHolder:FindFirstChild("ItemIcon")
+local NameLabel = CardHolder and CardHolder:FindFirstChild("ItemNameLabel")
+local RarityLabel = CardHolder and CardHolder:FindFirstChild("RarityLabel")
+local RarityStroke = CardHolder and CardHolder:FindFirstChild("RarityStroke")
+
 local Queue = {}
 local TotalInBatch = 0
 local CurrentIndex = 0
@@ -118,51 +189,64 @@ local function setBlur(enabled)
 	end
 end
 
+local function setPopupVisible(visible)
+	if NewItemSection and NewItemSection:IsA("GuiObject") then
+		NewItemSection.Visible = visible
+	end
+	local medium = NewItemSection and NewItemSection:FindFirstChild("Medium")
+	if medium and medium:IsA("GuiObject") then
+		medium.Visible = visible
+	end
+	local container = medium and medium:FindFirstChild("Container")
+	if container and container:IsA("GuiObject") then
+		container.Visible = visible
+	end
+	if TargetFrame and TargetFrame:IsA("GuiObject") then
+		TargetFrame.Visible = visible
+	end
+	if CardHolder and CardHolder:IsA("GuiObject") then
+		CardHolder.Visible = visible
+	end
+end
+
 local function renderSingleItem(itemKey, indexNum, totalNum)
 	local info = ItemDB[itemKey] or {}
 	local displayName = info.ItemName or itemKey
 	local rarity = info.Rarity or "Common"
 	local imageId = info.Image or ""
+	local rColor = getRarityColor(rarity)
 
 	if IconLabel and IconLabel:IsA("ImageLabel") then
 		IconLabel.Image = imageId
 	end
 
-	if NameLabel and (NameLabel:IsA("TextLabel") or NameLabel:IsA("TextBox")) then
+	if NameLabel and NameLabel:IsA("TextLabel") then
 		NameLabel.Text = displayName
 	end
 
-	if RarityLabel and (RarityLabel:IsA("TextLabel") or RarityLabel:IsA("TextBox")) then
+	if RarityLabel and RarityLabel:IsA("TextLabel") then
 		RarityLabel.Text = rarity
-		RarityLabel.TextColor3 = getRarityColor(rarity)
+		RarityLabel.TextColor3 = rColor
 	end
 
-	if AmountLabel and (AmountLabel:IsA("TextLabel") or AmountLabel:IsA("TextBox")) then
-		AmountLabel.Text = "x1"
-		AmountLabel.Visible = true
+	if RarityStroke and RarityStroke:IsA("UIStroke") then
+		RarityStroke.Color = rColor
 	end
 
-	if Starburst and Starburst:IsA("ImageLabel") then
-		Starburst.ImageColor3 = getRarityColor(rarity)
-	end
-
-	if ClaimBtn and (ClaimBtn:IsA("TextButton") or ClaimBtn:IsA("ImageButton")) then
-		local btnText = ClaimBtn:FindFirstChildWhichIsA("TextLabel", true) or (ClaimBtn:IsA("TextButton") and ClaimBtn or nil)
-		if btnText then
-			if totalNum > 1 then
-				btnText.Text = string.format("Claim (%d/%d)", indexNum, totalNum)
-			else
-				btnText.Text = "Claim"
-			end
+	if ClaimBtn and ClaimBtn:IsA("TextButton") then
+		if totalNum > 1 then
+			ClaimBtn.Text = string.format("Claim (%d/%d)", indexNum, totalNum)
+		else
+			ClaimBtn.Text = "Claim"
 		end
 	end
 
-	NewItemFrame.Visible = true
+	setPopupVisible(true)
 	setBlur(true)
 
-	if Container and Container:IsA("GuiObject") then
-		Container.Size = UDim2.fromScale(0.7, 0.7)
-		TweenService:Create(Container, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+	if TargetFrame and TargetFrame:IsA("GuiObject") then
+		TargetFrame.Size = UDim2.fromScale(0.75, 0.75)
+		TweenService:Create(TargetFrame, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 			Size = UDim2.fromScale(1, 1)
 		}):Play()
 	end
@@ -173,7 +257,7 @@ local function stepQueue()
 		IsShowing = false
 		TotalInBatch = 0
 		CurrentIndex = 0
-		NewItemFrame.Visible = false
+		setPopupVisible(false)
 		setBlur(false)
 		return
 	end
@@ -199,18 +283,12 @@ local function enqueueItems(itemKey, amount)
 
 	if wasEmpty then
 		stepQueue()
-	else
-		if ClaimBtn then
-			local btnText = ClaimBtn:FindFirstChildWhichIsA("TextLabel", true) or (ClaimBtn:IsA("TextButton") and ClaimBtn or nil)
-			if btnText and TotalInBatch > 1 then
-				btnText.Text = string.format("Claim (%d/%d)", CurrentIndex, TotalInBatch)
-			end
-		end
+	elseif ClaimBtn and ClaimBtn:IsA("TextButton") and TotalInBatch > 1 then
+		ClaimBtn.Text = string.format("Claim (%d/%d)", CurrentIndex, TotalInBatch)
 	end
 end
 
--- Подключаем кнопку Claim внутри окна NewItem
-if ClaimBtn and (ClaimBtn:IsA("TextButton") or ClaimBtn:IsA("ImageButton")) then
+if ClaimBtn and ClaimBtn:IsA("TextButton") then
 	ClaimBtn.MouseButton1Click:Connect(function()
 		if IsShowing then
 			stepQueue()
@@ -218,7 +296,6 @@ if ClaimBtn and (ClaimBtn:IsA("TextButton") or ClaimBtn:IsA("ImageButton")) then
 	end)
 end
 
--- Переопределяем _G.NewItem на наш обработчик
 _G.NewItem = function(itemKey, _, _, _, count)
 	local key = itemKey
 	if type(key) == "string" then
@@ -229,13 +306,12 @@ _G.NewItem = function(itemKey, _, _, _, count)
 	enqueueItems(key, qty)
 end
 
--- Удаляем старый GUI спавнера перед созданием нового
+-- GUI управления: название оружия, ниже количество, кнопка Spawn
 local oldGui = PlayerGui:FindFirstChild("Full_NewItem_Spawner")
 if oldGui then
 	oldGui:Destroy()
 end
 
--- Интерфейс спавнера: поле названия, ниже количество, кнопка Spawn
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "Full_NewItem_Spawner"
 ScreenGui.ResetOnSpawn = false
@@ -375,7 +451,6 @@ SpawnBtn.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Сворачивание
 local minimized = false
 MinBtn.MouseButton1Click:Connect(function()
 	minimized = not minimized
@@ -384,7 +459,6 @@ MinBtn.MouseButton1Click:Connect(function()
 	MinBtn.Text = minimized and "+" or "-"
 end)
 
--- Перетаскивание
 local dragging, dragInput, dragStart, startPos
 
 TopBar.InputBegan:Connect(function(input)
