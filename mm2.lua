@@ -1,831 +1,304 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Lighting = game:GetService("Lighting")
-local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local fallbackItems = {
-    Raygun = {
-        ItemName = "Raygun",
-        Image = "rbxthumb://type=Asset&w=150&h=150&id=139431943195380",
-        ItemType = "Gun",
-        Rarity = "Godly",
-        ItemID = 139431943195380,
-        Event = "Halloween",
-        Year = "2025"
-    },
-    Gingerscope = {
-        ItemName = "Gingerscope",
-        Image = "http://www.roblox.com/Thumbs/Asset.ashx?format=png&width=250&height=250&assetId=15666596216",
-        ItemType = "Gun",
-        Rarity = "Ancient",
-        ItemID = 15666469505,
-        Event = "Christmas",
-        Year = "2023",
-        FX = true
-    }
+local ClientServices = ReplicatedStorage:WaitForChild("ClientServices")
+local ItemService = require(ClientServices:WaitForChild("ItemService"))
+local ItemPopupService = require(ClientServices:WaitForChild("ItemPopupService"))
+local ItemModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ItemModule"))
+local DatabaseSync = require(ReplicatedStorage:WaitForChild("Database"):WaitForChild("Sync"))
+
+_G.Cache = _G.Cache or {}
+_G.SmallCache = _G.SmallCache or {}
+
+-- Обычная версия TreeKnife2023 (Evergreen)
+local Items = {
+	["TreeKnife2023"] = {
+		ItemName = "Evergreen",
+		Image = "rbxassetid://15694357137",
+		ItemType = "Knife",
+		Rarity = "Godly",
+		ItemID = 15667157715,
+		Event = "Christmas",
+		Year = "2023",
+		FX = true,
+		Amount = 1,
+	},
 }
 
-local syncDb = nil
-local itemModule = nil
-local mainGui = nil
-local gameGui = nil
-local gameNewItem = nil
-local pendingQueue = {}
-local hookedButtons = {}
-
-local function trim(str)
-    return tostring(str or ""):match("^%s*(.-)%s*$")
+local function findTreeKnife2023(inputText: string)
+	local clean = string.lower((inputText:gsub("^%s+", ""):gsub("%s+$", "")))
+	if clean == "treeknife2023" or clean == "evergreen" then
+		local item = table.clone(Items.TreeKnife2023)
+		item.Key = "TreeKnife2023"
+		item.Category = "Weapons"
+		return item
+	end
+	return nil
 end
 
-local function initGameRefs()
-    if not syncDb then
-        pcall(function()
-            local dbFolder = ReplicatedStorage:FindFirstChild("Database")
-            local syncMod = dbFolder and dbFolder:FindFirstChild("Sync")
-            if syncMod then
-                syncDb = require(syncMod)
-            end
-        end)
-    end
+local function getRarityColor(rarityName: string?)
+	local raritiesTable = DatabaseSync.Rarities or DatabaseSync.Rarity
+	local colorData = raritiesTable and (raritiesTable[rarityName or "Common"] or raritiesTable["Common"])
 
-    if not itemModule then
-        pcall(function()
-            local modsFolder = ReplicatedStorage:FindFirstChild("Modules")
-            local itemMod = modsFolder and modsFolder:FindFirstChild("ItemModule")
-            if itemMod then
-                itemModule = require(itemMod)
-            end
-        end)
-    end
+	if typeof(colorData) == "Color3" then
+		return colorData
+	elseif type(colorData) == "table" then
+		if colorData.Color then
+			local c = colorData.Color
+			if typeof(c) == "Color3" then
+				return c
+			elseif type(c) == "table" and c.r and c.g and c.b then
+				return Color3.fromRGB(c.r, c.g, c.b)
+			end
+		elseif colorData.r and colorData.g and colorData.b then
+			return Color3.fromRGB(colorData.r, colorData.g, colorData.b)
+		end
+	end
 
-    if not mainGui then
-        mainGui = playerGui:FindFirstChild("MainGUI")
-    end
-
-    if mainGui and not gameGui then
-        gameGui = mainGui:FindFirstChild("Game")
-    end
-
-    if gameGui and not gameNewItem then
-        gameNewItem = gameGui:FindFirstChild("NewItem")
-    end
+	return Color3.fromRGB(255, 255, 255)
 end
 
-local function findExactItemInTable(tbl, exactName)
-    if type(tbl) ~= "table" then return nil, nil end
-    if type(tbl[exactName]) == "table" then
-        return exactName, tbl[exactName]
-    end
-    for k, v in pairs(tbl) do
-        if type(v) == "table" and v.ItemName == exactName then
-            return tostring(k), v
-        end
-    end
-    return nil, nil
+local function applyRarityToStarburst(newItemRoot: Instance?, rarityName: string?)
+	if not newItemRoot then
+		return
+	end
+
+	local starburst = newItemRoot:FindFirstChild("Starburst", true)
+	local color = getRarityColor(rarityName)
+
+	if starburst and (starburst:IsA("ImageLabel") or starburst:IsA("ImageButton")) then
+		starburst.ImageColor3 = color
+	end
 end
 
-local function resolveExactItem(rawName)
-    local exactName = trim(rawName)
-    if exactName == "" then
-        return nil, nil, nil, "Enter exact item name"
-    end
+local function getPopupNewItemGui()
+	local mainGui = playerGui:FindFirstChild("MainGUI")
+	local invNewItem = mainGui
+		and mainGui:FindFirstChild("Inventory")
+		and mainGui.Inventory:FindFirstChild("NewItem")
 
-    initGameRefs()
+	local crossPlatformNewItem = playerGui:FindFirstChild("CrossPlatform")
+		and playerGui.CrossPlatform:FindFirstChild("NewItem")
 
-    if type(syncDb) == "table" then
-        local key, info = findExactItemInTable(syncDb.Item, exactName)
-        if key and info then
-            return key, "Item", info, nil
-        end
+	local root = invNewItem or crossPlatformNewItem
+	local card = root
+		and root:FindFirstChild("Container")
+		and root.Container:FindFirstChild("NewItem")
 
-        key, info = findExactItemInTable(syncDb.Weapons, exactName)
-        if key and info then
-            return key, "Weapons", info, nil
-        end
-
-        for catName, catTable in pairs(syncDb) do
-            if type(catTable) == "table" and catName ~= "Item" and catName ~= "Weapons" and catName ~= "Rarities" then
-                key, info = findExactItemInTable(catTable, exactName)
-                if key and info and type(info) == "table" and (info.ItemName or info.Image or info.Rarity) then
-                    return key, catName, info, nil
-                end
-            end
-        end
-    end
-
-    local key, info = findExactItemInTable(fallbackItems, exactName)
-    if key and info then
-        return key, "Weapons", info, nil
-    end
-
-    return nil, nil, nil, "Item not found"
+	return root, card
 end
 
-local function hasFxEnabled(info, itemName)
-    if itemName == "Gingerscope" or (info and info.ItemName == "Gingerscope") then
-        return true
-    end
-    if not info then return false end
-    return info.FX == true or info.HasFX == true or info.Effect == true
+local function getInventoryTargetContainer()
+	local weaponsNode = playerGui:FindFirstChild("Weapons", true)
+	if not weaponsNode then
+		return nil
+	end
+
+	local branch = weaponsNode:FindFirstChild("Current", true) or weaponsNode:FindFirstChild("Classic", true)
+	return branch and branch:FindFirstChild("Container", true)
 end
 
-local function shouldShowEventBg(info, itemName, eventType)
-    if eventType == "Halloween" then
-        if itemName == "Raygun" or (info and info.ItemName == "Raygun") then
-            return true
-        end
-    elseif eventType == "Christmas" then
-        if itemName == "Gingerscope" or (info and info.ItemName == "Gingerscope") then
-            return false
-        end
-    end
-    return true
+local function getInventoryButton()
+	local mainGui = playerGui:FindFirstChild("MainGUI")
+	local dockInv = mainGui
+		and mainGui:FindFirstChild("Lobby")
+		and mainGui.Lobby:FindFirstChild("Dock")
+		and mainGui.Lobby.Dock:FindFirstChild("Inventory")
+
+	if dockInv and dockInv:IsA("GuiObject") then
+		return dockInv
+	end
+
+	for _, gui in ipairs(playerGui:GetChildren()) do
+		if gui:IsA("ScreenGui") then
+			local inv = gui:FindFirstChild("Inventory", true) or gui:FindFirstChild("INVENTORY", true)
+			if inv and inv:IsA("GuiObject") then
+				return inv
+			end
+		end
+	end
+	return nil
 end
 
-local function isYearObject(obj)
-    if not obj:IsA("TextLabel") then return false end
-    if obj.Name == "TagName" then return false end
-    local lowerName = string.lower(obj.Name)
-    if lowerName == "year" or string.find(lowerName, "year", 1, true) then
-        return true
-    end
-    local txt = trim(obj.Text)
-    if string.match(txt, "^20%d%d$") then
-        return true
-    end
-    return false
+local function addCardToInventory(itemData)
+	local targetContainer = getInventoryTargetContainer()
+	if not targetContainer or not ItemService or not ItemService.BaseItemFrame then
+		return nil
+	end
+
+	local card = ItemService.BaseItemFrame:Clone()
+	card.Name = itemData.Key or itemData.ItemName or "TreeKnife2023"
+
+	local amount = itemData.Amount or 1
+	local category = itemData.Category or "Weapons"
+
+	if ItemService.ApplyItemToFrame then
+		pcall(function()
+			ItemService:ApplyItemToFrame(card, itemData, amount)
+		end)
+	end
+
+	if ItemService.ApplyTags then
+		pcall(function()
+			ItemService:ApplyTags(card, itemData)
+		end)
+	end
+
+	if ItemService.GetLayoutOrder then
+		local ok, order = pcall(function()
+			return ItemService:GetLayoutOrder(card.Name, category)
+		end)
+		if ok and type(order) == "number" then
+			card.LayoutOrder = order
+		end
+	end
+
+	card.Visible = true
+	card.Parent = targetContainer
+	return card
 end
 
-local function applySingleYear(card, info, activeEventName)
-    if not card then return end
-    local itemYear = (info and info.Year) and tostring(info.Year) or ""
-    local canShow = (activeEventName == "Halloween" or activeEventName == "Christmas") and itemYear ~= ""
+local function claimItemToInventory(itemData)
+	local _, popupCard = getPopupNewItemGui()
+	local invButton = getInventoryButton()
 
-    local chosen = nil
-    if canShow then
-        local tags = card:FindFirstChild("Tags")
-        local activeFrame = tags and tags:FindFirstChild(activeEventName)
-        if activeFrame then
-            for _, obj in ipairs(activeFrame:GetDescendants()) do
-                if isYearObject(obj) then
-                    chosen = obj
-                    break
-                end
-            end
-        end
-        if not chosen then
-            for _, obj in ipairs(card:GetDescendants()) do
-                if isYearObject(obj) then
-                    chosen = obj
-                    break
-                end
-            end
-        end
-    end
+	if popupCard and invButton and ItemModule and ItemModule.AnimateItemIconIntoInventory then
+		local sourceObj = popupCard:FindFirstChild("Container")
+			and popupCard.Container:FindFirstChild("Icon")
+			or popupCard
 
-    for _, obj in ipairs(card:GetDescendants()) do
-        if isYearObject(obj) then
-            if canShow and obj == chosen then
-                obj.Text = itemYear
-                obj.Visible = true
-            else
-                obj.Text = ""
-                obj.Visible = false
-            end
-        end
-    end
+		pcall(function()
+			ItemModule.AnimateItemIconIntoInventory(sourceObj, invButton, playerGui)
+		end)
+	end
+
+	local createdCard = addCardToInventory(itemData)
+
+	if ItemPopupService and ItemPopupService.ItemClaimsComplete then
+		pcall(function()
+			ItemPopupService.ItemClaimsComplete:Fire(itemData)
+		end)
+	end
+
+	return createdCard ~= nil
 end
 
-local function applyEventFrame(eventFrame, info, itemName, eventType, active)
-    if not eventFrame then return end
-    eventFrame.Visible = active
-
-    local bg = eventFrame:FindFirstChild("BG")
-    if bg then
-        bg.Visible = active and shouldShowEventBg(info, itemName, eventType)
-    end
-end
-
-local function applyFxTag(fxFrame, enabled)
-    if not fxFrame then return end
-    if fxFrame:IsA("GuiObject") then
-        fxFrame.Visible = enabled
-    end
-    local img = fxFrame:FindFirstChild("ImageLabel")
-    if img and img:IsA("GuiObject") then
-        img.Visible = enabled
-    end
-    local tagName = fxFrame:FindFirstChild("TagName")
-    if tagName and tagName:IsA("GuiObject") then
-        tagName.Visible = enabled
-    end
-end
-
-local function applyUniqueTag(uniqueFrame, enabled, ownerName)
-    if not uniqueFrame then return end
-    if uniqueFrame:IsA("GuiObject") then
-        uniqueFrame.Visible = enabled
-    end
-    local bg = uniqueFrame:FindFirstChild("BG")
-    if bg and bg:IsA("GuiObject") then
-        bg.Visible = enabled
-    end
-    local playerName = uniqueFrame:FindFirstChild("PlayerName")
-    if playerName then
-        if playerName:IsA("GuiObject") then
-            playerName.Visible = enabled
-        end
-        if playerName:IsA("TextLabel") and ownerName and ownerName ~= "" then
-            playerName.Text = tostring(ownerName)
-        end
-    end
-end
-
-local function applyTags(card, info, itemName)
-    if not card then return end
-    local tags = card:FindFirstChild("Tags")
-    if not tags then return end
-
-    local eventName = info and info.Event
-    local showFx = hasFxEnabled(info, itemName)
-
-    local hallowFrame = tags:FindFirstChild("Halloween")
-    local xmasFrame = tags:FindFirstChild("Christmas")
-    local chromaFrame = tags:FindFirstChild("Chroma")
-    local fxFrame = tags:FindFirstChild("FX") or card:FindFirstChild("FX", true)
-    local uniqueFrame = tags:FindFirstChild("Unique") or card:FindFirstChild("Unique", true)
-
-    if chromaFrame then
-        chromaFrame.Visible = (info and info.Chroma == true) or false
-    end
-
-    applyFxTag(fxFrame, showFx)
-    applyUniqueTag(uniqueFrame, showFx, info and info.PlayerName)
-
-    applyEventFrame(hallowFrame, info, itemName, "Halloween", eventName == "Halloween")
-    applyEventFrame(xmasFrame, info, itemName, "Christmas", eventName == "Christmas")
-    applySingleYear(card, info, eventName)
-end
-
-local function getPopupContainer(popupFrame)
-    if not popupFrame then return nil end
-    local cont = popupFrame:FindFirstChild("Container")
-    if cont and cont:IsA("GuiObject") then
-        return cont
-    end
-    local medium = popupFrame:FindFirstChild("Medium")
-    local medCont = medium and medium:FindFirstChild("Container")
-    if medCont and medCont:IsA("GuiObject") then
-        return medCont
-    end
-    return popupFrame:FindFirstChild("Container", true)
-end
-
-local function getNewItemObject(popupFrame)
-    if not popupFrame then return nil end
-    if popupFrame.Name == "NewItem" and popupFrame:IsA("GuiObject") then
-        return popupFrame
-    end
-    local cont = getPopupContainer(popupFrame)
-    if cont then
-        local direct = cont:FindFirstChild("NewItem")
-        if direct and direct:IsA("GuiObject") then
-            return direct
-        end
-    end
-    local found = popupFrame:FindFirstChild("NewItem", true)
-    if found and found:IsA("GuiObject") then
-        return found
-    end
-    return nil
-end
-
-local function applyStarburstColor(popupFrame, info)
-    if not popupFrame or not info or not info.Rarity then return end
-    local cont = getPopupContainer(popupFrame)
-    local starburst = (cont and cont:FindFirstChild("Starburst")) or popupFrame:FindFirstChild("Starburst", true)
-    if starburst and starburst:IsA("ImageLabel") and type(syncDb) == "table" and type(syncDb.Rarities) == "table" then
-        local rData = syncDb.Rarities[info.Rarity]
-        if rData and rData.Color then
-            starburst.ImageColor3 = Color3.fromRGB(rData.Color.r, rData.Color.g, rData.Color.b)
-        end
-    end
-end
-
-local function fillCardVisuals(card, info, itemName)
-    if not card or not info then return end
-    card.Visible = true
-    if type(itemModule) == "table" and itemModule.DisplayItem then
-        pcall(function()
-            itemModule.DisplayItem(card, info)
-        end)
-    end
-
-    local displayName = tostring(info.ItemName or itemName or "")
-    local iconAsset = info.Image and tostring(info.Image) or ""
-
-    for _, desc in ipairs(card:GetDescendants()) do
-        if desc:IsA("ImageLabel") or desc:IsA("ImageButton") then
-            if iconAsset ~= "" and (desc.Name == "Icon" or desc.Name == "ItemIcon" or desc.Name == "Image" or desc:FindFirstAncestor("Tags") == nil) then
-                if desc.Image == "" or desc.Name == "Icon" or desc.Name == "ItemIcon" or desc.Name == "Image" then
-                    desc.Image = iconAsset
-                end
-            end
-        elseif desc:IsA("TextLabel") then
-            if desc.Name == "ItemName" or desc.Name == "TitleName" or desc.Name == "NameLabel" then
-                desc.Text = displayName
-            end
-        end
-    end
-
-    applyTags(card, info, itemName)
-end
-
-local function getAncestryPath(instance)
-    local parts = {}
-    local current = instance
-    while current and current ~= game do
-        table.insert(parts, 1, string.lower(current.Name))
-        current = current.Parent
-    end
-    return table.concat(parts, "/")
-end
-
-local function hasRarity(info)
-    local r = info and tostring(info.Rarity or "") or ""
-    r = string.lower(trim(r))
-    return r ~= "" and r ~= "none" and r ~= "default" and r ~= "common"
-end
-
-local function scoreContainerForItem(container, info)
-    local path = getAncestryPath(container)
-    local score = 0
-
-    local itemType = info and string.lower(tostring(info.ItemType or "")) or ""
-    local eventName = info and string.lower(tostring(info.Event or "")) or ""
-    local rarityPresent = hasRarity(info)
-
-    if string.find(path, "weapons", 1, true) then
-        score += 10
-    end
-
-    if itemType == "gun" or itemType == "knife" then
-        if string.find(path, "pet", 1, true) or string.find(path, "emote", 1, true) or string.find(path, "effect", 1, true) or string.find(path, "radio", 1, true) then
-            score -= 25
-        end
-    end
-
-    if eventName == "halloween" then
-        if string.find(path, "halloween", 1, true) then
-            score += 40
-        else
-            score -= 20
-        end
-        if string.find(path, "christmas", 1, true) or string.find(path, "classic", 1, true) then
-            score -= 30
-        end
-    elseif eventName == "christmas" then
-        if string.find(path, "christmas", 1, true) then
-            score += 40
-        else
-            score -= 20
-        end
-        if string.find(path, "halloween", 1, true) or string.find(path, "classic", 1, true) then
-            score -= 30
-        end
-    else
-        if string.find(path, "halloween", 1, true) or string.find(path, "christmas", 1, true) or string.find(path, "holiday", 1, true) then
-            score -= 35
-        end
-        if not rarityPresent then
-            if string.find(path, "classic", 1, true) then
-                score += 40
-            elseif string.find(path, "current", 1, true) then
-                score -= 10
-            end
-        else
-            if string.find(path, "classic", 1, true) then
-                score -= 35
-            end
-        end
-    end
-
-    return score
-end
-
-local function collectWeaponContainers()
-    local allContainers = {}
-
-    local tradeGui = playerGui:FindFirstChild("TradeGUI")
-    local tradeItems = tradeGui and tradeGui:FindFirstChild("Container") and tradeGui.Container:FindFirstChild("Items")
-    if tradeItems then
-        for _, child in ipairs(tradeItems:GetChildren()) do
-            local cat = child:FindFirstChild("Weapons")
-            if cat then
-                for _, desc in ipairs(cat:GetDescendants()) do
-                    if desc.Name == "Container" then
-                        table.insert(allContainers, desc)
-                    end
-                end
-            end
-        end
-    end
-
-    if mainGui then
-        local invRoot = mainGui:FindFirstChild("Inventory")
-        if invRoot then
-            for _, desc in ipairs(invRoot:GetDescendants()) do
-                if desc.Name == "Container" then
-                    local path = string.lower(getAncestryPath(desc))
-                    if string.find(path, "weapon", 1, true) or string.find(path, "gun", 1, true) then
-                        table.insert(allContainers, desc)
-                    end
-                end
-            end
-        end
-    end
-
-    return allContainers
-end
-
-local function findWeaponCardTemplate(allContainers)
-    for _, cont in ipairs(allContainers) do
-        for _, child in ipairs(cont:GetChildren()) do
-            if child:IsA("GuiObject") and child.Name == "NewItem" then
-                return child
-            end
-        end
-    end
-
-    for _, cont in ipairs(allContainers) do
-        for _, child in ipairs(cont:GetChildren()) do
-            if child:IsA("GuiObject") and not child:IsA("UILayout") and not child:IsA("UIPadding") then
-                return child
-            end
-        end
-    end
-
-    return nil
-end
-
-local function addCardToContainers(info, itemName)
-    local allContainers = collectWeaponContainers()
-    local fallbackTemplate = findWeaponCardTemplate(allContainers)
-    if not fallbackTemplate then return end
-
-    local bestScore = -math.huge
-    for _, cont in ipairs(allContainers) do
-        local s = scoreContainerForItem(cont, info)
-        if s > bestScore then
-            bestScore = s
-        end
-    end
-
-    local targetContainers = {}
-    for _, cont in ipairs(allContainers) do
-        if scoreContainerForItem(cont, info) == bestScore then
-            table.insert(targetContainers, cont)
-        end
-    end
-
-    for _, cont in ipairs(targetContainers) do
-        local localTemplate = cont:FindFirstChild("NewItem")
-        local template = (localTemplate and localTemplate:IsA("GuiObject")) and localTemplate or fallbackTemplate
-        if template and template:IsA("GuiObject") then
-            local clone = template:Clone()
-            clone.Name = "NewItem"
-            clone.Visible = true
-            fillCardVisuals(clone, info, itemName)
-            clone.Parent = cont
-        end
-    end
-end
-
-local function playNativeInventoryAnimation(popupFrame)
-    if not type(itemModule) == "table" or not itemModule.AnimateItemIconIntoInventory then return end
-    if not gameGui then return end
-    local dock = gameGui:FindFirstChild("Dock")
-    local invDock = dock and dock:FindFirstChild("Inventory")
-    local card = getNewItemObject(popupFrame)
-    local cardCont = card and card:FindFirstChild("Container")
-    local icon = cardCont and cardCont:FindFirstChild("Icon")
-    if icon and invDock then
-        pcall(function()
-            itemModule.AnimateItemIconIntoInventory(icon, invDock, gameGui)
-        end)
-    end
-end
-
-local function getActivePopup()
-    if gameNewItem and gameNewItem:IsA("GuiObject") then
-        return gameNewItem
-    end
-    local cp = playerGui:FindFirstChild("CrossPlatform")
-    local cpPopup = cp and cp:FindFirstChild("NewItem")
-    if cpPopup and cpPopup:IsA("GuiObject") then
-        return cpPopup
-    end
-    return nil
-end
-
-local function renderPopupEntry(popup, entry)
-    if not popup or not entry then return end
-    popup.Visible = true
-    pcall(function()
-        local blur = Lighting:FindFirstChild("NewItemBlur")
-        if blur then
-            blur.Enabled = true
-        end
-    end)
-
-    local cont = getPopupContainer(popup)
-    if cont and cont:IsA("GuiObject") then
-        cont.Visible = true
-        local title = cont:FindFirstChild("Title")
-        if title and title:IsA("TextLabel") then
-            title.Text = "You Got..."
-        end
-        local claimObj = cont:FindFirstChild("Claim")
-        if claimObj and claimObj:IsA("TextButton") then
-            claimObj.Text = (#pendingQueue > 1) and ("Claim (1/" .. #pendingQueue .. ")") or "Claim"
-        end
-    end
-
-    local card = getNewItemObject(popup)
-    if card and card:IsA("GuiObject") then
-        card.Visible = true
-        fillCardVisuals(card, entry.Info, entry.Name)
-    end
-    applyStarburstColor(popup, entry.Info)
-end
-
-local function hookClaimButton(popup)
-    if not popup then return end
-    for _, desc in ipairs(popup:GetDescendants()) do
-        if desc:IsA("GuiButton") and desc.Name == "Claim" and not hookedButtons[desc] then
-            hookedButtons[desc] = true
-            desc.MouseButton1Click:Connect(function()
-                local entry = table.remove(pendingQueue, 1)
-                playNativeInventoryAnimation(popup)
-                if entry then
-                    addCardToContainers(entry.Info, entry.Name)
-                end
-                if #pendingQueue > 0 then
-                    renderPopupEntry(popup, pendingQueue[1])
-                else
-                    popup.Visible = false
-                    pcall(function()
-                        local blur = Lighting:FindFirstChild("NewItemBlur")
-                        if blur then
-                            blur.Enabled = false
-                        end
-                    end)
-                end
-            end)
-        end
-    end
-end
-
-local function openPopupForItem(itemKey, category, info, entry)
-    initGameRefs()
-    local popup = getActivePopup()
-    if not popup then
-        return false, "NewItem popup not found"
-    end
-
-    hookClaimButton(popup)
-
-    local inSync = type(syncDb) == "table" and type(syncDb[category]) == "table" and syncDb[category][itemKey] ~= nil
-    if inSync and typeof(_G.NewItem) == "function" then
-        pcall(function()
-            _G.NewItem(itemKey, "You Got...", nil, category)
-        end)
-        task.delay(0.03, function()
-            if popup.Parent then
-                renderPopupEntry(popup, entry)
-            end
-        end)
-    end
-
-    renderPopupEntry(popup, entry)
-    return true, "Spawned #" .. tostring(#pendingQueue) .. ": " .. tostring(info.ItemName or itemKey)
-end
-
-local function spawnItemPopup(rawName)
-    local itemKey, category, info, errMsg = resolveExactItem(rawName)
-    if not itemKey or not info then
-        return false, errMsg or "Enter exact item name"
-    end
-
-    local entry = {
-        Name = itemKey,
-        Info = info
-    }
-    table.insert(pendingQueue, entry)
-
-    return openPopupForItem(itemKey, category, info, entry)
-end
-
-local oldGui = playerGui:FindFirstChild("GodlySpawnerGUI")
+local oldGui = playerGui:FindFirstChild("TreeKnifeSpawnerGui")
 if oldGui then
-    oldGui:Destroy()
+	oldGui:Destroy()
 end
 
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "GodlySpawnerGUI"
-screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
-screenGui.DisplayOrder = 999
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.Parent = playerGui
+local gui = Instance.new("ScreenGui")
+gui.Name = "TreeKnifeSpawnerGui"
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
 
-local mainFrame = Instance.new("Frame")
-mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 224, 0, 126)
-mainFrame.Position = UDim2.new(0.5, -112, 0.22, 0)
-mainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 14)
-mainFrame.BorderSizePixel = 0
-mainFrame.Parent = screenGui
+local frame = Instance.new("Frame")
+frame.Size = UDim2.fromOffset(250, 120)
+frame.Position = UDim2.new(0.5, -125, 0.78, 0)
+frame.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+frame.BorderSizePixel = 0
+frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
 
-local mainCorner = Instance.new("UICorner")
-mainCorner.CornerRadius = UDim.new(0, 8)
-mainCorner.Parent = mainFrame
-
-local mainStroke = Instance.new("UIStroke")
-mainStroke.Color = Color3.fromRGB(170, 35, 55)
-mainStroke.Thickness = 1.5
-mainStroke.Parent = mainFrame
-
-local topBar = Instance.new("Frame")
-topBar.Name = "TopBar"
-topBar.Size = UDim2.new(1, 0, 0, 28)
-topBar.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
-topBar.BorderSizePixel = 0
-topBar.Parent = mainFrame
-
-local topCorner = Instance.new("UICorner")
-topCorner.CornerRadius = UDim.new(0, 8)
-topCorner.Parent = topBar
-
-local topFix = Instance.new("Frame")
-topFix.Size = UDim2.new(1, 0, 0, 8)
-topFix.Position = UDim2.new(0, 0, 1, -8)
-topFix.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
-topFix.BorderSizePixel = 0
-topFix.Parent = topBar
-
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, -56, 1, 0)
-titleLabel.Position = UDim2.new(0, 10, 0, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "godly spawner"
-titleLabel.TextColor3 = Color3.fromRGB(245, 245, 245)
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.TextSize = 13
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-titleLabel.Parent = topBar
-
-local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.new(0, 22, 0, 22)
-minBtn.Position = UDim2.new(1, -48, 0.5, -11)
-minBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 36)
-minBtn.Text = "-"
-minBtn.TextColor3 = Color3.fromRGB(235, 235, 235)
-minBtn.Font = Enum.Font.GothamBold
-minBtn.TextSize = 14
-minBtn.BorderSizePixel = 0
-minBtn.Parent = topBar
-
-local minCorner = Instance.new("UICorner")
-minCorner.CornerRadius = UDim.new(0, 5)
-minCorner.Parent = minBtn
-
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 22, 0, 22)
-closeBtn.Position = UDim2.new(1, -24, 0.5, -11)
-closeBtn.BackgroundColor3 = Color3.fromRGB(150, 30, 45)
-closeBtn.Text = "X"
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 12
-closeBtn.BorderSizePixel = 0
-closeBtn.Parent = topBar
-
-local closeCorner = Instance.new("UICorner")
-closeCorner.CornerRadius = UDim.new(0, 5)
-closeCorner.Parent = closeBtn
-
-local bodyFrame = Instance.new("Frame")
-bodyFrame.Name = "Body"
-bodyFrame.Size = UDim2.new(1, 0, 1, -28)
-bodyFrame.Position = UDim2.new(0, 0, 0, 28)
-bodyFrame.BackgroundTransparency = 1
-bodyFrame.Parent = mainFrame
-
-local nameBox = Instance.new("TextBox")
-nameBox.Name = "ItemInput"
-nameBox.Size = UDim2.new(1, -20, 0, 32)
-nameBox.Position = UDim2.new(0, 10, 0, 8)
-nameBox.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
-nameBox.BorderSizePixel = 0
-nameBox.PlaceholderText = "Enter exact item name"
-nameBox.PlaceholderColor3 = Color3.fromRGB(130, 130, 140)
-nameBox.Text = ""
-nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-nameBox.Font = Enum.Font.Gotham
-nameBox.TextSize = 13
-nameBox.ClearTextOnFocus = false
-nameBox.Parent = bodyFrame
-
-local boxCorner = Instance.new("UICorner")
-boxCorner.CornerRadius = UDim.new(0, 6)
-boxCorner.Parent = nameBox
-
-local boxStroke = Instance.new("UIStroke")
-boxStroke.Color = Color3.fromRGB(65, 65, 75)
-boxStroke.Thickness = 1
-boxStroke.Parent = nameBox
+local box = Instance.new("TextBox")
+box.Size = UDim2.new(1, -20, 0, 32)
+box.Position = UDim2.fromOffset(10, 10)
+box.PlaceholderText = "Введите: TreeKnife2023"
+box.Text = "TreeKnife2023"
+box.ClearTextOnFocus = false
+box.TextScaled = true
+box.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+box.TextColor3 = Color3.fromRGB(255, 255, 255)
+box.Parent = frame
+Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
 
 local spawnBtn = Instance.new("TextButton")
-spawnBtn.Name = "SpawnButton"
-spawnBtn.Size = UDim2.new(1, -20, 0, 32)
-spawnBtn.Position = UDim2.new(0, 10, 0, 46)
-spawnBtn.BackgroundColor3 = Color3.fromRGB(170, 35, 55)
-spawnBtn.BorderSizePixel = 0
+spawnBtn.Size = UDim2.new(0.5, -14, 0, 34)
+spawnBtn.Position = UDim2.fromOffset(10, 50)
 spawnBtn.Text = "Spawn"
+spawnBtn.TextScaled = true
+spawnBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 255)
 spawnBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-spawnBtn.Font = Enum.Font.GothamBold
-spawnBtn.TextSize = 13
-spawnBtn.Parent = bodyFrame
+spawnBtn.Parent = frame
+Instance.new("UICorner", spawnBtn).CornerRadius = UDim.new(0, 6)
 
-local btnCorner = Instance.new("UICorner")
-btnCorner.CornerRadius = UDim.new(0, 6)
-btnCorner.Parent = spawnBtn
+local claimBtn = Instance.new("TextButton")
+claimBtn.Size = UDim2.new(0.5, -14, 0, 34)
+claimBtn.Position = UDim2.new(0.5, 4, 0, 50)
+claimBtn.Text = "Claim"
+claimBtn.TextScaled = true
+claimBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 90)
+claimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+claimBtn.Parent = frame
+Instance.new("UICorner", claimBtn).CornerRadius = UDim.new(0, 6)
 
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, -20, 0, 16)
-statusLabel.Position = UDim2.new(0, 10, 0, 80)
-statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "Enter exact item name"
-statusLabel.TextColor3 = Color3.fromRGB(160, 160, 170)
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.TextSize = 11
-statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.Parent = bodyFrame
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, -20, 0, 20)
+status.Position = UDim2.fromOffset(10, 90)
+status.BackgroundTransparency = 1
+status.TextScaled = true
+status.TextColor3 = Color3.fromRGB(200, 200, 210)
+status.Text = "Введите TreeKnife2023"
+status.Parent = frame
 
-local dragging = false
-local dragStart = Vector2.zero
-local startPos = UDim2.zero
-
-topBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = mainFrame.Position
-    end
-end)
-
-topBar.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
-        local delta = input.Position - dragStart
-        mainFrame.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
-end)
-
-local minimized = false
-minBtn.MouseButton1Click:Connect(function()
-    minimized = not minimized
-    bodyFrame.Visible = not minimized
-    topFix.Visible = not minimized
-    minBtn.Text = minimized and "+" or "-"
-    mainFrame.Size = minimized and UDim2.new(0, 224, 0, 28) or UDim2.new(0, 224, 0, 126)
-end)
-
-closeBtn.MouseButton1Click:Connect(function()
-    screenGui:Destroy()
-end)
+local activeItem = nil
 
 spawnBtn.MouseButton1Click:Connect(function()
-    local ok, msg = spawnItemPopup(nameBox.Text)
-    statusLabel.Text = msg
-    statusLabel.TextColor3 = ok and Color3.fromRGB(110, 220, 130) or Color3.fromRGB(240, 100, 100)
+	local item = findTreeKnife2023(box.Text)
+	if not item then
+		status.Text = "Нужен TreeKnife2023"
+		return
+	end
+
+	activeItem = item
+	local newItemRoot, card = getPopupNewItemGui()
+
+	if newItemRoot then
+		if newItemRoot:IsA("GuiObject") then
+			newItemRoot.Visible = true
+		elseif newItemRoot:IsA("LayerCollector") then
+			newItemRoot.Enabled = true
+		end
+		applyRarityToStarburst(newItemRoot, item.Rarity)
+	end
+
+	if card and ItemModule and ItemModule.DisplayItem then
+		pcall(function()
+			ItemModule.DisplayItem(card, item, item.Amount, false)
+		end)
+	end
+
+	if ItemPopupService and ItemPopupService.AddNewItem then
+		pcall(function()
+			ItemPopupService:AddNewItem(item, item.Amount)
+		end)
+	end
+
+	status.Text = "Показано: TreeKnife2023"
 end)
 
-pcall(function()
-    initGameRefs()
-    hookClaimButton(getActivePopup())
+claimBtn.MouseButton1Click:Connect(function()
+	local item = activeItem or findTreeKnife2023(box.Text)
+	if not item then
+		status.Text = "Сначала нажмите Spawn"
+		return
+	end
+
+	local added = claimItemToInventory(item)
+
+	local newItemRoot = getPopupNewItemGui()
+	if newItemRoot then
+		if newItemRoot:IsA("GuiObject") then
+			newItemRoot.Visible = false
+		elseif newItemRoot:IsA("LayerCollector") then
+			newItemRoot.Enabled = false
+		end
+	end
+
+	activeItem = nil
+	status.Text = added and "Карточка Evergreen добавлена" or "Контейнер инвентаря не найден"
 end)
