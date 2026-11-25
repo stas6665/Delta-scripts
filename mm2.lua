@@ -22,6 +22,36 @@ local CrossMedium = CrossSection:WaitForChild("Medium")
 local CrossContainer = CrossMedium:WaitForChild("Container")
 local TargetCard = CrossContainer:WaitForChild("NewItem")
 
+local SavedMediumState = {
+	Size = CrossMedium.Size,
+	Position = CrossMedium.Position,
+	AnchorPoint = CrossMedium.AnchorPoint,
+}
+
+local function stretchMediumFullScreen(enabled)
+	if not CrossMedium or not CrossMedium:IsA("GuiObject") then return end
+	if enabled then
+		local cam = workspace.CurrentCamera
+		local viewSize = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+		local parentObj = CrossMedium.Parent
+		local parentPos = (parentObj and parentObj:IsA("GuiObject")) and parentObj.AbsolutePosition or Vector2.new(0, 0)
+		local parentSize = (parentObj and parentObj:IsA("GuiObject") and parentObj.AbsoluteSize.X > 0 and parentObj.AbsoluteSize.Y > 0)
+			and parentObj.AbsoluteSize
+			or viewSize
+
+		local offsetX = -parentPos.X
+		local offsetY = -parentPos.Y
+
+		CrossMedium.AnchorPoint = Vector2.new(0, 0)
+		CrossMedium.Position = UDim2.new(0, offsetX, 0, offsetY)
+		CrossMedium.Size = UDim2.new(0, viewSize.X, 0, viewSize.Y)
+	else
+		CrossMedium.AnchorPoint = SavedMediumState.AnchorPoint
+		CrossMedium.Position = SavedMediumState.Position
+		CrossMedium.Size = SavedMediumState.Size
+	end
+end
+
 local function cleanName(str)
 	if type(str) ~= "string" then return "" end
 	local s = string.lower(str)
@@ -110,6 +140,7 @@ local function setClaimText(txt)
 end
 
 local function setPopupVisible(visible)
+	stretchMediumFullScreen(visible)
 	for _, obj in ipairs({ CrossSection, CrossMedium, CrossContainer, TargetCard }) do
 		if obj and obj:IsA("GuiObject") then
 			obj.Visible = visible
@@ -121,16 +152,13 @@ local function setPopupVisible(visible)
 	end
 end
 
--- Заполнение данных методом родного скрипта NewItem
 local function populateNativeNewItem(itemKey, titleText, itemType, amount)
 	local categoryTable = (SyncDB and SyncDB[itemType or "Weapons"]) or ItemDB
 	local itemData = categoryTable[itemKey] or ItemDB[itemKey]
 	if type(itemData) ~= "table" then return false end
 
-	-- 1. Родной вызов ItemModule.DisplayItem(card, itemData, amount)
 	ItemModule.DisplayItem(TargetCard, itemData, amount)
 
-	-- 2. Покраска Starburst по Rarity из Database.Sync.Rarities
 	if Starburst and RarityDB and itemData.Rarity and RarityDB[itemData.Rarity] then
 		local col = RarityDB[itemData.Rarity].Color
 		if col then
@@ -138,7 +166,6 @@ local function populateNativeNewItem(itemKey, titleText, itemType, amount)
 		end
 	end
 
-	-- 3. Заголовок, блюр и видимость окна как в ShowItem()
 	if TitleObj then
 		TitleObj.Text = titleText or "You Got..."
 	end
