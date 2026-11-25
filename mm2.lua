@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -10,6 +11,19 @@ _G.SmallCache = _G.SmallCache or {}
 
 local SyncFolder = ReplicatedStorage:WaitForChild("Database"):WaitForChild("Sync")
 local ItemDB = require(SyncFolder:WaitForChild("Item"))
+local SyncAll = nil
+pcall(function()
+	SyncAll = require(SyncFolder)
+end)
+
+local ItemModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ItemModule"))
+
+-- Целевой объект NewItem с кроссплатформенного UI
+local CrossPlatform = PlayerGui:WaitForChild("CrossPlatform")
+local CrossSection = CrossPlatform:WaitForChild("NewItem")
+local CrossMedium = CrossSection:WaitForChild("Medium")
+local CrossContainer = CrossMedium:WaitForChild("Container")
+local TargetNewItem = CrossContainer:WaitForChild("NewItem")
 
 local function cleanName(str)
 	if type(str) ~= "string" then return "" end
@@ -61,18 +75,147 @@ local function resolveWeapon(inputText)
 	return nil
 end
 
-local function spawnNativeNewItem(itemKey, count)
-	if type(_G.NewItem) ~= "function" then
-		return false
+local function findClaimButton()
+	for _, root in ipairs({ TargetNewItem, CrossContainer, CrossMedium, CrossSection }) do
+		local btn = root:FindFirstChild("Claim", true)
+		if btn and (btn:IsA("TextButton") or btn:IsA("ImageButton") or btn:IsA("TextLabel")) then
+			return btn
+		end
+	end
+	return nil
+end
+
+local ClaimObj = findClaimButton()
+
+local function setWindowVisible(state)
+	for _, obj in ipairs({ CrossSection, CrossMedium, CrossContainer, TargetNewItem }) do
+		if obj and obj:IsA("GuiObject") then
+			obj.Visible = state
+		end
+	end
+	local blur = Lighting:FindFirstChild("NewItemBlur")
+	if blur and blur:IsA("BlurEffect") then
+		blur.Enabled = state
+	end
+end
+
+-- Если родная логика ещё не повесила _G.NewItem, подключаем стандартную логику к TargetNewItem
+if type(_G.NewItem) ~= "function" then
+	local savedLFrame = nil
+	local itemQueue = {}
+	local currentIdx = 1
+	local totalCount = 1
+
+	local function showNextItem()
+		local entry = itemQueue[1]
+		if not entry then return end
+
+		local categoryTable = (SyncAll and SyncAll[entry.Type]) or ItemDB
+		local itemData = categoryTable[entry.ItemName] or ItemDB[entry.ItemName]
+		if not itemData then return end
+
+		local cardSlot = TargetNewItem:FindFirstChild("NewItem", true) or TargetNewItem
+		ItemModule.DisplayItem(cardSlot, itemData, entry.Amount)
+
+		local starburst = TargetNewItem:FindFirstChild("Starburst", true) or CrossContainer:FindFirstChild("Starburst", true)
+		if starburst and starburst:IsA("ImageLabel") and SyncAll and SyncAll.Rarities and itemData.Rarity then
+			local rInfo = SyncAll.Rarities[itemData.Rarity]
+			local col = rInfo and rInfo.Color
+			if col then
+				starburst.ImageColor3 = Color3.fromRGB(col.r or 255, col.g or 255, col.b or 255)
+			end
+		end
+
+		local titleLbl = TargetNewItem:FindFirstChild("Title", true) or CrossContainer:FindFirstChild("Title", true)
+		if titleLbl and (titleLbl:IsA("TextLabel") or titleLbl:IsA("TextBox")) then
+			titleLbl.Text = entry.TitleText
+		end
+
+		if entry.LFrame then
+			savedLFrame = entry.LFrame
+			if typeof(savedLFrame) == "Instance" and savedLFrame:IsA("GuiObject") then
+				savedLFrame.Visible = false
+			end
+		end
+
+		setWindowVisible(true)
 	end
 
+	_G.NewItem = function(itemName, titleText, lFrame, itemType, amount)
+		table.insert(itemQueue, {
+			ItemName = itemName,
+			TitleText = titleText or "You Got...",
+			LFrame = lFrame,
+			Type = itemType or "Weapons",
+			Amount = amount,
+		})
+
+		if TargetNewItem.Visible then
+			totalCount += 1
+		else
+			currentIdx = 1
+			totalCount = #itemQueue
+			showNextItem()
+		end
+
+		if ClaimObj and (ClaimObj:IsA("TextButton") or ClaimObj:IsA("TextLabel")) then
+			if totalCount > 1 then
+				ClaimObj.Text = "Claim (" .. currentIdx .. "/" .. totalCount .. ")"
+			else
+				ClaimObj.Text = "Claim"
+			end
+		end
+	end
+
+	if ClaimObj and (ClaimObj:IsA("TextButton") or ClaimObj:IsA("ImageButton")) then
+		ClaimObj.MouseButton1Click:Connect(function()
+			local iconObj = TargetNewItem:FindFirstChild("Icon", true)
+			local mainGui = PlayerGui:FindFirstChild("MainGUI")
+			local invDock = mainGui
+				and mainGui:FindFirstChild("Lobby")
+				and mainGui.Lobby:FindFirstChild("Dock")
+				and mainGui.Lobby.Dock:FindFirstChild("Inventory")
+
+			if iconObj and invDock and mainGui then
+				pcall(function()
+					ItemModule.AnimateItemIconIntoInventory(iconObj, invDock, mainGui)
+				end)
+			end
+
+			setWindowVisible(false)
+			_G.UnfinishedItem = nil
+			_G.UnfinishedType = nil
+			table.remove(itemQueue, 1)
+
+			if itemQueue[1] == nil then
+				totalCount = 1
+				currentIdx = 1
+				if savedLFrame and typeof(savedLFrame) == "Instance" and savedLFrame:IsA("GuiObject") then
+					savedLFrame.Visible = true
+				end
+			else
+				currentIdx += 1
+				if ClaimObj and (ClaimObj:IsA("TextButton") or ClaimObj:IsA("TextLabel")) then
+					if totalCount > 1 then
+						ClaimObj.Text = "Claim (" .. currentIdx .. "/" .. totalCount .. ")"
+					else
+						ClaimObj.Text = "Claim"
+					end
+				end
+				showNextItem()
+			end
+		end)
+	end
+end
+
+local function enqueueFromSpawner(itemKey, count)
 	local qty = math.clamp(math.floor(tonumber(count) or 1), 1, 250)
 	for _ = 1, qty do
 		_G.NewItem(itemKey, "You Got...", nil, "Weapons", nil)
 	end
-	return true
 end
 
+-- GUI управления
 local oldGui = PlayerGui:FindFirstChild("Native_NewItem_Spawner")
 if oldGui then
 	oldGui:Destroy()
@@ -208,12 +351,7 @@ SpawnBtn.MouseButton1Click:Connect(function()
 
 	local amount = math.clamp(math.floor(tonumber(CountBox.Text) or 1), 1, 250)
 	CountBox.Text = tostring(amount)
-
-	local ok = spawnNativeNewItem(itemKey, amount)
-	if not ok then
-		SpawnBtn.Text = "_G.NewItem nil"
-		task.delay(1.2, function() SpawnBtn.Text = "Spawn" end)
-	end
+	enqueueFromSpawner(itemKey, amount)
 end)
 
 local minimized = false
