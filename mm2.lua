@@ -1,18 +1,15 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local Lighting = game:GetService("Lighting")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
+_G.Cache = _G.Cache or {}
+_G.SmallCache = _G.SmallCache or {}
+
 local SyncFolder = ReplicatedStorage:WaitForChild("Database"):WaitForChild("Sync")
 local ItemDB = require(SyncFolder:WaitForChild("Item"))
-local RarityDB = nil
-pcall(function()
-	RarityDB = require(SyncFolder:WaitForChild("Rarities"))
-end)
 
 local function cleanName(str)
 	if type(str) ~= "string" then return "" end
@@ -36,7 +33,7 @@ for key, data in pairs(ItemDB) do
 		end
 
 		if data.ItemName then
-			local nClean = cleanName(data.ItemName)
+			local nClean = cleanName(tostring(data.ItemName))
 			if nClean ~= "" and not ItemLookup[nClean] then
 				ItemLookup[nClean] = key
 			end
@@ -47,6 +44,7 @@ end
 local function resolveWeapon(inputText)
 	local q = cleanName(inputText)
 	if q == "" or q == "random" then
+		if #NonChromaKeys == 0 then return nil end
 		return NonChromaKeys[math.random(1, #NonChromaKeys)]
 	end
 
@@ -63,250 +61,18 @@ local function resolveWeapon(inputText)
 	return nil
 end
 
-local function getRarityColor(rarityName)
-	if RarityDB and rarityName and RarityDB[rarityName] then
-		local entry = RarityDB[rarityName]
-		if typeof(entry) == "Color3" then
-			return entry
-		elseif type(entry) == "table" and typeof(entry.Color) == "Color3" then
-			return entry.Color
-		end
+local function spawnNativeNewItem(itemKey, count)
+	if type(_G.NewItem) ~= "function" then
+		return false
 	end
 
-	local r = string.lower(tostring(rarityName or ""))
-	if r == "ancient" then
-		return Color3.fromRGB(165, 55, 255)
-	elseif r == "godly" then
-		return Color3.fromRGB(255, 65, 165)
-	elseif r == "unique" then
-		return Color3.fromRGB(255, 55, 55)
-	elseif r == "legendary" then
-		return Color3.fromRGB(255, 145, 30)
-	elseif r == "rare" then
-		return Color3.fromRGB(65, 175, 255)
-	elseif r == "uncommon" then
-		return Color3.fromRGB(75, 225, 105)
+	local qty = math.clamp(math.floor(tonumber(count) or 1), 1, 250)
+	for _ = 1, qty do
+		_G.NewItem(itemKey, "You Got...", nil, "Weapons", nil)
 	end
-	return Color3.fromRGB(200, 200, 210)
+	return true
 end
 
--- Родной путь: PlayerGui.CrossPlatform.NewItem.Medium.Container.NewItem
-local function getNativeNewItem()
-	local cross = PlayerGui:FindFirstChild("CrossPlatform")
-	if not cross then return nil, nil end
-	local section = cross:FindFirstChild("NewItem")
-	if not section then return nil, nil end
-	local medium = section:FindFirstChild("Medium")
-	local container = medium and medium:FindFirstChild("Container")
-	local frame = container and container:FindFirstChild("NewItem")
-	return frame, section
-end
-
-local NewItemFrame, NewItemSection = getNativeNewItem()
-
-local function findNativeElements(root)
-	if not root then return {} end
-
-	local claimBtn = root:FindFirstChild("Claim", true)
-		or root:FindFirstChild("ClaimButton", true)
-		or root:FindFirstChildWhichIsA("TextButton", true)
-		or root:FindFirstChildWhichIsA("ImageButton", true)
-
-	local iconLabel = root:FindFirstChild("ItemImage", true)
-		or root:FindFirstChild("Icon", true)
-		or root:FindFirstChild("ImageLabel", true)
-
-	if not iconLabel then
-		for _, d in ipairs(root:GetDescendants()) do
-			if d:IsA("ImageLabel") and d.Name ~= "Starburst" and (not claimBtn or not d:IsDescendantOf(claimBtn)) then
-				iconLabel = d
-				break
-			end
-		end
-	end
-
-	local nameLabel = root:FindFirstChild("ItemName", true)
-		or root:FindFirstChild("Title", true)
-		or root:FindFirstChild("WeaponName", true)
-
-	local rarityLabel = root:FindFirstChild("Rarity", true)
-		or root:FindFirstChild("RarityText", true)
-
-	local amountLabel = root:FindFirstChild("Amount", true)
-		or root:FindFirstChild("Count", true)
-		or root:FindFirstChild("Quantity", true)
-
-	local starburst = root:FindFirstChild("Starburst", true)
-
-	if not nameLabel or not rarityLabel then
-		for _, d in ipairs(root:GetDescendants()) do
-			if (d:IsA("TextLabel") or d:IsA("TextBox")) and (not claimBtn or not d:IsDescendantOf(claimBtn)) and d ~= amountLabel then
-				if not nameLabel then
-					nameLabel = d
-				elseif not rarityLabel and d ~= nameLabel then
-					rarityLabel = d
-				end
-			end
-		end
-	end
-
-	return {
-		ClaimBtn = claimBtn,
-		IconLabel = iconLabel,
-		NameLabel = nameLabel,
-		RarityLabel = rarityLabel,
-		AmountLabel = amountLabel,
-		Starburst = starburst,
-	}
-end
-
-local Native = findNativeElements(NewItemFrame or NewItemSection)
-
-local function setClaimText(text)
-	local btn = Native.ClaimBtn
-	if not btn then return end
-	if btn:IsA("TextButton") then
-		btn.Text = text
-	end
-	local lbl = btn:FindFirstChildWhichIsA("TextLabel", true)
-	if lbl then
-		lbl.Text = text
-	end
-end
-
-local function setNativeVisible(visible)
-	if NewItemSection and NewItemSection:IsA("GuiObject") then
-		NewItemSection.Visible = visible
-	end
-	local medium = NewItemSection and NewItemSection:FindFirstChild("Medium")
-	if medium and medium:IsA("GuiObject") then
-		medium.Visible = visible
-	end
-	local container = medium and medium:FindFirstChild("Container")
-	if container and container:IsA("GuiObject") then
-		container.Visible = visible
-	end
-	if NewItemFrame and NewItemFrame:IsA("GuiObject") then
-		NewItemFrame.Visible = visible
-	end
-end
-
-local function setBlur(enabled)
-	local blur = Lighting:FindFirstChild("NewItemBlur")
-	if blur and blur:IsA("BlurEffect") then
-		blur.Enabled = enabled
-	end
-end
-
-local Queue = {}
-local TotalInBatch = 0
-local CurrentIndex = 0
-local IsShowing = false
-
-local function renderSingleItem(itemKey, indexNum, totalNum)
-	local info = ItemDB[itemKey] or {}
-	local displayName = info.ItemName or itemKey
-	local rarity = info.Rarity or "Common"
-	local imageId = info.Image or ""
-	local rColor = getRarityColor(rarity)
-
-	if Native.IconLabel and Native.IconLabel:IsA("ImageLabel") then
-		Native.IconLabel.Image = imageId
-	end
-
-	if Native.NameLabel and (Native.NameLabel:IsA("TextLabel") or Native.NameLabel:IsA("TextBox")) then
-		Native.NameLabel.Text = displayName
-	end
-
-	if Native.RarityLabel and (Native.RarityLabel:IsA("TextLabel") or Native.RarityLabel:IsA("TextBox")) then
-		Native.RarityLabel.Text = rarity
-		if Native.RarityLabel:IsA("TextLabel") then
-			Native.RarityLabel.TextColor3 = rColor
-		end
-	end
-
-	if Native.AmountLabel and (Native.AmountLabel:IsA("TextLabel") or Native.AmountLabel:IsA("TextBox")) then
-		Native.AmountLabel.Text = "x1"
-		Native.AmountLabel.Visible = true
-	end
-
-	if Native.Starburst and Native.Starburst:IsA("ImageLabel") then
-		Native.Starburst.ImageColor3 = rColor
-	end
-
-	if totalNum > 1 then
-		setClaimText(string.format("Claim (%d/%d)", indexNum, totalNum))
-	else
-		setClaimText("Claim")
-	end
-
-	setNativeVisible(true)
-	setBlur(true)
-
-	if NewItemFrame and NewItemFrame:IsA("GuiObject") then
-		local origSize = NewItemFrame.Size
-		NewItemFrame.Size = UDim2.new(origSize.X.Scale * 0.85, origSize.X.Offset * 0.85, origSize.Y.Scale * 0.85, origSize.Y.Offset * 0.85)
-		TweenService:Create(NewItemFrame, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Size = origSize
-		}):Play()
-	end
-end
-
-local function stepQueue()
-	if #Queue == 0 then
-		IsShowing = false
-		TotalInBatch = 0
-		CurrentIndex = 0
-		setNativeVisible(false)
-		setBlur(false)
-		return
-	end
-
-	IsShowing = true
-	CurrentIndex += 1
-	local nextKey = table.remove(Queue, 1)
-	renderSingleItem(nextKey, CurrentIndex, TotalInBatch)
-end
-
-local function enqueueItems(itemKey, amount)
-	local wasEmpty = (#Queue == 0 and not IsShowing)
-	if wasEmpty then
-		TotalInBatch = amount
-		CurrentIndex = 0
-	else
-		TotalInBatch += amount
-	end
-
-	for _ = 1, amount do
-		table.insert(Queue, itemKey)
-	end
-
-	if wasEmpty then
-		stepQueue()
-	elseif TotalInBatch > 1 then
-		setClaimText(string.format("Claim (%d/%d)", CurrentIndex, TotalInBatch))
-	end
-end
-
-if Native.ClaimBtn and (Native.ClaimBtn:IsA("TextButton") or Native.ClaimBtn:IsA("ImageButton")) then
-	Native.ClaimBtn.MouseButton1Click:Connect(function()
-		if IsShowing then
-			stepQueue()
-		end
-	end)
-end
-
-_G.NewItem = function(itemKey, _, _, _, count)
-	local key = itemKey
-	if type(key) == "string" then
-		key = resolveWeapon(key) or itemKey
-	end
-	local qty = tonumber(count) or 1
-	if qty < 1 then qty = 1 end
-	enqueueItems(key, qty)
-end
-
--- GUI управления: название оружия, ниже количество, кнопка Spawn
 local oldGui = PlayerGui:FindFirstChild("Native_NewItem_Spawner")
 if oldGui then
 	oldGui:Destroy()
@@ -315,6 +81,7 @@ end
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "Native_NewItem_Spawner"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = 20
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = PlayerGui
 
@@ -439,15 +206,13 @@ SpawnBtn.MouseButton1Click:Connect(function()
 		return
 	end
 
-	local amount = tonumber(CountBox.Text) or 1
-	if amount < 1 then amount = 1 end
+	local amount = math.clamp(math.floor(tonumber(CountBox.Text) or 1), 1, 250)
+	CountBox.Text = tostring(amount)
 
-	if amount == 1 then
-		enqueueItems(itemKey, 1)
-	else
-		local safeCount = math.min(amount, 250)
-		CountBox.Text = tostring(safeCount)
-		enqueueItems(itemKey, safeCount)
+	local ok = spawnNativeNewItem(itemKey, amount)
+	if not ok then
+		SpawnBtn.Text = "_G.NewItem nil"
+		task.delay(1.2, function() SpawnBtn.Text = "Spawn" end)
 	end
 end)
 
@@ -464,24 +229,14 @@ local dragging, dragInput, dragStart, startPos
 TopBar.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		dragging = true
+		dragInput = input
 		dragStart = input.Position
 		startPos = Frame.Position
-		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragging = false
-			end
-		end)
-	end
-end)
-
-TopBar.InputChanged:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-		dragInput = input
 	end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-	if input == dragInput and dragging then
+	if dragging and input == dragInput and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 		local delta = input.Position - dragStart
 		Frame.Position = UDim2.new(
 			startPos.X.Scale,
@@ -489,5 +244,12 @@ UserInputService.InputChanged:Connect(function(input)
 			startPos.Y.Scale,
 			startPos.Y.Offset + delta.Y
 		)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input == dragInput then
+		dragging = false
+		dragInput = nil
 	end
 end)
