@@ -10,20 +10,17 @@ _G.Cache = _G.Cache or {}
 _G.SmallCache = _G.SmallCache or {}
 
 local SyncFolder = ReplicatedStorage:WaitForChild("Database"):WaitForChild("Sync")
-local ItemDB = require(SyncFolder:WaitForChild("Item"))
-local SyncAll = nil
-pcall(function()
-	SyncAll = require(SyncFolder)
-end)
+local SyncDB = require(SyncFolder)
+local ItemDB = SyncDB.Item or require(SyncFolder:WaitForChild("Item"))
+local RarityDB = SyncDB.Rarities
 
 local ItemModule = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("ItemModule"))
 
--- Целевой объект NewItem с кроссплатформенного UI
 local CrossPlatform = PlayerGui:WaitForChild("CrossPlatform")
 local CrossSection = CrossPlatform:WaitForChild("NewItem")
 local CrossMedium = CrossSection:WaitForChild("Medium")
 local CrossContainer = CrossMedium:WaitForChild("Container")
-local TargetNewItem = CrossContainer:WaitForChild("NewItem")
+local TargetCard = CrossContainer:WaitForChild("NewItem")
 
 local function cleanName(str)
 	if type(str) ~= "string" then return "" end
@@ -75,144 +72,161 @@ local function resolveWeapon(inputText)
 	return nil
 end
 
-local function findClaimButton()
-	for _, root in ipairs({ TargetNewItem, CrossContainer, CrossMedium, CrossSection }) do
-		local btn = root:FindFirstChild("Claim", true)
-		if btn and (btn:IsA("TextButton") or btn:IsA("ImageButton") or btn:IsA("TextLabel")) then
-			return btn
+local function findUI(names, className)
+	for _, root in ipairs({ TargetCard, CrossContainer, CrossMedium, CrossSection }) do
+		for _, nm in ipairs(names) do
+			local obj = root:FindFirstChild(nm, true)
+			if obj and (not className or obj:IsA(className)) then
+				return obj
+			end
 		end
 	end
 	return nil
 end
 
-local ClaimObj = findClaimButton()
+local Starburst = findUI({ "Starburst" }, "ImageLabel")
+local TitleObj = findUI({ "Title" }, "TextLabel")
+local ClaimBtn = findUI({ "Claim", "ClaimButton" }, "GuiButton")
 
-local function setWindowVisible(state)
-	for _, obj in ipairs({ CrossSection, CrossMedium, CrossContainer, TargetNewItem }) do
+local function getClaimTextObj(btn)
+	if not btn then return nil end
+	if btn:IsA("TextButton") or btn:IsA("TextLabel") or btn:IsA("TextBox") then
+		return btn
+	end
+	for _, d in ipairs(btn:GetDescendants()) do
+		if d:IsA("TextLabel") or d:IsA("TextBox") then
+			return d
+		end
+	end
+	return nil
+end
+
+local ClaimTextObj = getClaimTextObj(ClaimBtn)
+
+local function setClaimText(txt)
+	if ClaimTextObj then
+		ClaimTextObj.Text = txt
+	end
+end
+
+local function setPopupVisible(visible)
+	for _, obj in ipairs({ CrossSection, CrossMedium, CrossContainer, TargetCard }) do
 		if obj and obj:IsA("GuiObject") then
-			obj.Visible = state
+			obj.Visible = visible
 		end
 	end
 	local blur = Lighting:FindFirstChild("NewItemBlur")
 	if blur and blur:IsA("BlurEffect") then
-		blur.Enabled = state
+		blur.Enabled = visible
 	end
 end
 
--- Если родная логика ещё не повесила _G.NewItem, подключаем стандартную логику к TargetNewItem
-if type(_G.NewItem) ~= "function" then
-	local savedLFrame = nil
-	local itemQueue = {}
-	local currentIdx = 1
-	local totalCount = 1
+-- Заполнение данных методом родного скрипта NewItem
+local function populateNativeNewItem(itemKey, titleText, itemType, amount)
+	local categoryTable = (SyncDB and SyncDB[itemType or "Weapons"]) or ItemDB
+	local itemData = categoryTable[itemKey] or ItemDB[itemKey]
+	if type(itemData) ~= "table" then return false end
 
-	local function showNextItem()
-		local entry = itemQueue[1]
-		if not entry then return end
+	-- 1. Родной вызов ItemModule.DisplayItem(card, itemData, amount)
+	ItemModule.DisplayItem(TargetCard, itemData, amount)
 
-		local categoryTable = (SyncAll and SyncAll[entry.Type]) or ItemDB
-		local itemData = categoryTable[entry.ItemName] or ItemDB[entry.ItemName]
-		if not itemData then return end
-
-		local cardSlot = TargetNewItem:FindFirstChild("NewItem", true) or TargetNewItem
-		ItemModule.DisplayItem(cardSlot, itemData, entry.Amount)
-
-		local starburst = TargetNewItem:FindFirstChild("Starburst", true) or CrossContainer:FindFirstChild("Starburst", true)
-		if starburst and starburst:IsA("ImageLabel") and SyncAll and SyncAll.Rarities and itemData.Rarity then
-			local rInfo = SyncAll.Rarities[itemData.Rarity]
-			local col = rInfo and rInfo.Color
-			if col then
-				starburst.ImageColor3 = Color3.fromRGB(col.r or 255, col.g or 255, col.b or 255)
-			end
-		end
-
-		local titleLbl = TargetNewItem:FindFirstChild("Title", true) or CrossContainer:FindFirstChild("Title", true)
-		if titleLbl and (titleLbl:IsA("TextLabel") or titleLbl:IsA("TextBox")) then
-			titleLbl.Text = entry.TitleText
-		end
-
-		if entry.LFrame then
-			savedLFrame = entry.LFrame
-			if typeof(savedLFrame) == "Instance" and savedLFrame:IsA("GuiObject") then
-				savedLFrame.Visible = false
-			end
-		end
-
-		setWindowVisible(true)
-	end
-
-	_G.NewItem = function(itemName, titleText, lFrame, itemType, amount)
-		table.insert(itemQueue, {
-			ItemName = itemName,
-			TitleText = titleText or "You Got...",
-			LFrame = lFrame,
-			Type = itemType or "Weapons",
-			Amount = amount,
-		})
-
-		if TargetNewItem.Visible then
-			totalCount += 1
-		else
-			currentIdx = 1
-			totalCount = #itemQueue
-			showNextItem()
-		end
-
-		if ClaimObj and (ClaimObj:IsA("TextButton") or ClaimObj:IsA("TextLabel")) then
-			if totalCount > 1 then
-				ClaimObj.Text = "Claim (" .. currentIdx .. "/" .. totalCount .. ")"
-			else
-				ClaimObj.Text = "Claim"
-			end
+	-- 2. Покраска Starburst по Rarity из Database.Sync.Rarities
+	if Starburst and RarityDB and itemData.Rarity and RarityDB[itemData.Rarity] then
+		local col = RarityDB[itemData.Rarity].Color
+		if col then
+			Starburst.ImageColor3 = Color3.fromRGB(col.r, col.g, col.b) or Color3.new(1, 1, 1)
 		end
 	end
 
-	if ClaimObj and (ClaimObj:IsA("TextButton") or ClaimObj:IsA("ImageButton")) then
-		ClaimObj.MouseButton1Click:Connect(function()
-			local iconObj = TargetNewItem:FindFirstChild("Icon", true)
-			local mainGui = PlayerGui:FindFirstChild("MainGUI")
-			local invDock = mainGui
-				and mainGui:FindFirstChild("Lobby")
-				and mainGui.Lobby:FindFirstChild("Dock")
-				and mainGui.Lobby.Dock:FindFirstChild("Inventory")
+	-- 3. Заголовок, блюр и видимость окна как в ShowItem()
+	if TitleObj then
+		TitleObj.Text = titleText or "You Got..."
+	end
 
-			if iconObj and invDock and mainGui then
-				pcall(function()
-					ItemModule.AnimateItemIconIntoInventory(iconObj, invDock, mainGui)
-				end)
-			end
+	setPopupVisible(true)
+	return true
+end
 
-			setWindowVisible(false)
-			_G.UnfinishedItem = nil
-			_G.UnfinishedType = nil
-			table.remove(itemQueue, 1)
+local Queue = {}
+local TotalInBatch = 0
+local CurrentIndex = 0
+local IsShowing = false
+local ClaimLock = false
 
-			if itemQueue[1] == nil then
-				totalCount = 1
-				currentIdx = 1
-				if savedLFrame and typeof(savedLFrame) == "Instance" and savedLFrame:IsA("GuiObject") then
-					savedLFrame.Visible = true
-				end
-			else
-				currentIdx += 1
-				if ClaimObj and (ClaimObj:IsA("TextButton") or ClaimObj:IsA("TextLabel")) then
-					if totalCount > 1 then
-						ClaimObj.Text = "Claim (" .. currentIdx .. "/" .. totalCount .. ")"
-					else
-						ClaimObj.Text = "Claim"
-					end
-				end
-				showNextItem()
-			end
-		end)
+local function refreshClaimLabel()
+	if TotalInBatch > 1 then
+		setClaimText("Claim (" .. CurrentIndex .. "/" .. TotalInBatch .. ")")
+	else
+		setClaimText("Claim")
 	end
 end
 
-local function enqueueFromSpawner(itemKey, count)
+local function showNextInQueue()
+	if #Queue == 0 then
+		IsShowing = false
+		TotalInBatch = 0
+		CurrentIndex = 0
+		setClaimText("Claim")
+		setPopupVisible(false)
+		return
+	end
+
+	IsShowing = true
+	CurrentIndex += 1
+	local entry = table.remove(Queue, 1)
+	refreshClaimLabel()
+	populateNativeNewItem(entry.ItemName, entry.TitleText, entry.Type, entry.Amount)
+end
+
+local function enqueueWeapon(itemKey, count)
+	if not itemKey or not ItemDB[itemKey] then return end
 	local qty = math.clamp(math.floor(tonumber(count) or 1), 1, 250)
-	for _ = 1, qty do
-		_G.NewItem(itemKey, "You Got...", nil, "Weapons", nil)
+	local wasEmpty = (#Queue == 0 and not IsShowing)
+
+	if wasEmpty then
+		TotalInBatch = qty
+		CurrentIndex = 0
+	else
+		TotalInBatch += qty
 	end
+
+	for _ = 1, qty do
+		table.insert(Queue, {
+			ItemName = itemKey,
+			TitleText = "You Got...",
+			Type = "Weapons",
+			Amount = nil
+		})
+	end
+
+	if wasEmpty then
+		showNextInQueue()
+	else
+		refreshClaimLabel()
+	end
+end
+
+if ClaimBtn then
+	ClaimBtn.MouseButton1Click:Connect(function()
+		if not IsShowing or ClaimLock then return end
+		ClaimLock = true
+
+		local icon = TargetCard:FindFirstChild("Container") and TargetCard.Container:FindFirstChild("Icon")
+		local mainGui = PlayerGui:FindFirstChild("MainGUI")
+		local invDock = mainGui
+			and mainGui:FindFirstChild("Lobby")
+			and mainGui.Lobby:FindFirstChild("Dock")
+			and mainGui.Lobby.Dock:FindFirstChild("Inventory")
+
+		if icon and invDock and mainGui then
+			ItemModule.AnimateItemIconIntoInventory(icon, invDock, mainGui)
+		end
+
+		_G.UnfinishedItem = nil
+		_G.UnfinishedType = nil
+		showNextInQueue()
+		ClaimLock = false
+	end)
 end
 
 -- GUI управления
@@ -351,7 +365,7 @@ SpawnBtn.MouseButton1Click:Connect(function()
 
 	local amount = math.clamp(math.floor(tonumber(CountBox.Text) or 1), 1, 250)
 	CountBox.Text = tostring(amount)
-	enqueueFromSpawner(itemKey, amount)
+	enqueueWeapon(itemKey, amount)
 end)
 
 local minimized = false
